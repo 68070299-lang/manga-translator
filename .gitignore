@@ -76,3 +76,7 @@ tests/mocks/msw-handlers.js
 # Local generated output
 artifacts/
 extension/_metadata/
+
+# WXT generated
+.wxt/
+.output/

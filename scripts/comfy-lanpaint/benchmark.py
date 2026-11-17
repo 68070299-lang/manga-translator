@@ -15,12 +15,12 @@ import numpy as np
 from PIL import Image
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-BACKEND_ROOT = REPO_ROOT / "backend"
+BACKEND_ROOT = REPO_ROOT / "backend" / "src"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from comfy_lanpaint.crop import build_crop_regions  # noqa: E402
-from models.flux_lanpaint_inpainter import FluxLanPaintInpainter  # noqa: E402
+from manga_backend.comfy_lanpaint.crop import build_crop_regions  # noqa: E402
+from manga_backend.models.flux_lanpaint_inpainter import FluxLanPaintInpainter  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:

@@ -15,12 +15,12 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BACKEND_DIR = ROOT / "backend"
+BACKEND_DIR = ROOT / "backend" / "src"
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from models.animetext_yolo_detector import AnimeTextYoloDetector  # noqa: E402
-from models.detector import TextDetector  # noqa: E402
+from manga_backend.models.animetext_yolo_detector import AnimeTextYoloDetector  # noqa: E402
+from manga_backend.models.detector import TextDetector  # noqa: E402
 
 
 COLORS = {
