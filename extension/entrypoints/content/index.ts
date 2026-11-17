@@ -1,9 +1,14 @@
 import { defineContentScript } from 'wxt/utils/define-content-script';
+import { bootContentScript } from '../../content/main';
 import './style.css';
 
-// Placeholder: replaced by the content-script port (extension/content/*).
+// Runs in the top frame only (no allFrames), on every page. Nothing beyond the
+// per-hostname activation check happens until the site is enabled; see
+// content/main.ts.
 export default defineContentScript({
   matches: ['<all_urls>'],
   runAt: 'document_idle',
-  main() {},
+  main() {
+    bootContentScript();
+  },
 });

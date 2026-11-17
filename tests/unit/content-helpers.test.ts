@@ -1,21 +1,23 @@
-const {
-  normalizeSourceUrl,
-  sourceUrlsMatch,
-  getSrcsetUrls,
-  getImageSourceCandidates,
+import { describe, expect, it, vi } from 'vitest';
+import {
+  fetchLocalUrlAsBase64,
   getBackgroundImageUrls,
+  getImageSourceCandidates,
+  getSrcsetUrls,
+  normalizeSourceUrl,
   shouldFetchInContentScript,
-  fetchLocalUrlAsBase64
-} = require('../../extension/content/content-helpers');
+  sourceUrlsMatch,
+} from '../../extension/content/helpers';
 
 describe('content source helpers', () => {
   it('normalizes relative URLs against the page base URI', () => {
-    expect(normalizeSourceUrl('/image.png', 'https://reader.example.com/chapter/page.html'))
-      .toBe('https://reader.example.com/image.png');
-    expect(normalizeSourceUrl('panel.jpg', 'https://reader.example.com/chapter/page.html'))
-      .toBe('https://reader.example.com/chapter/panel.jpg');
-    expect(normalizeSourceUrl(' data:image/png;base64,abc '))
-      .toBe('data:image/png;base64,abc');
+    expect(normalizeSourceUrl('/image.png', 'https://reader.example.com/chapter/page.html')).toBe(
+      'https://reader.example.com/image.png',
+    );
+    expect(normalizeSourceUrl('panel.jpg', 'https://reader.example.com/chapter/page.html')).toBe(
+      'https://reader.example.com/chapter/panel.jpg',
+    );
+    expect(normalizeSourceUrl(' data:image/png;base64,abc ')).toBe('data:image/png;base64,abc');
     expect(normalizeSourceUrl('')).toBe('');
     expect(normalizeSourceUrl(null)).toBe('');
   });
@@ -23,14 +25,19 @@ describe('content source helpers', () => {
   it('compares source URLs after normalization', () => {
     const baseUri = 'https://reader.example.com/chapter/page.html';
 
-    expect(sourceUrlsMatch('/image.png', 'https://reader.example.com/image.png', baseUri)).toBe(true);
+    expect(sourceUrlsMatch('/image.png', 'https://reader.example.com/image.png', baseUri)).toBe(
+      true,
+    );
     expect(sourceUrlsMatch('panel-a.png', 'panel-b.png', baseUri)).toBe(false);
     expect(sourceUrlsMatch('', 'panel-b.png', baseUri)).toBe(false);
   });
 
   it('extracts URLs from srcset descriptors', () => {
-    expect(getSrcsetUrls('small.jpg 1x, large.jpg 2x, /wide.jpg 1000w'))
-      .toEqual(['small.jpg', 'large.jpg', '/wide.jpg']);
+    expect(getSrcsetUrls('small.jpg 1x, large.jpg 2x, /wide.jpg 1000w')).toEqual([
+      'small.jpg',
+      'large.jpg',
+      '/wide.jpg',
+    ]);
     expect(getSrcsetUrls('')).toEqual([]);
     expect(getSrcsetUrls(null)).toEqual([]);
   });
@@ -50,11 +57,11 @@ describe('content source helpers', () => {
 
     Object.defineProperty(img, 'currentSrc', {
       configurable: true,
-      value: 'https://reader.example.com/current.jpg'
+      value: 'https://reader.example.com/current.jpg',
     });
     Object.defineProperty(img, 'src', {
       configurable: true,
-      value: 'https://reader.example.com/chapter/panel-a.jpg'
+      value: 'https://reader.example.com/chapter/panel-a.jpg',
     });
 
     expect(getImageSourceCandidates(img, baseUri)).toEqual([
@@ -66,18 +73,19 @@ describe('content source helpers', () => {
       'blob:https://reader.example.com/id',
       'https://reader.example.com/chapter/small.jpg',
       'https://reader.example.com/large.jpg',
-      'https://cdn.example.com/wide.jpg'
+      'https://cdn.example.com/wide.jpg',
     ]);
   });
 
   it('extracts normalized background image URLs from CSS values', () => {
     const baseUri = 'https://reader.example.com/chapter/page.html';
-    const styleValue = 'linear-gradient(red, blue), url("panel-a.jpg"), url(/panel-b.png), url(data:image/png;base64,abc)';
+    const styleValue =
+      'linear-gradient(red, blue), url("panel-a.jpg"), url(/panel-b.png), url(data:image/png;base64,abc)';
 
     expect(getBackgroundImageUrls(styleValue, baseUri)).toEqual([
       'https://reader.example.com/chapter/panel-a.jpg',
       'https://reader.example.com/panel-b.png',
-      'data:image/png;base64,abc'
+      'data:image/png;base64,abc',
     ]);
     expect(getBackgroundImageUrls('none', baseUri)).toEqual([]);
   });
@@ -93,44 +101,51 @@ describe('content source helpers', () => {
   it('extracts data URL base64 without background messaging', async () => {
     const base64 = 'aGVs bG8%3D';
 
-    await expect(fetchLocalUrlAsBase64(`data:text/plain;base64,${base64}`))
-      .resolves.toBe('aGVsbG8=');
+    await expect(fetchLocalUrlAsBase64(`data:text/plain;base64,${base64}`)).resolves.toBe(
+      'aGVsbG8=',
+    );
   });
 
   it('fetches browser-local URLs with no-store and converts non-empty blobs', async () => {
     const blob = new Blob(['local-image'], { type: 'image/png' });
-    const fetchMock = jest.fn(async () => ({
+    const fetchMock = vi.fn(async () => ({
       ok: true,
-      blob: async () => blob
-    }));
-    const blobToBase64 = jest.fn(async receivedBlob => {
+      blob: async () => blob,
+    })) as unknown as typeof fetch;
+    const blobToBase64 = vi.fn(async (receivedBlob: Blob) => {
       expect(receivedBlob).toBe(blob);
       return 'bG9jYWwtaW1hZ2U=';
     });
 
-    await expect(fetchLocalUrlAsBase64('blob:https://example.com/id', {
-      fetch: fetchMock,
-      blobToBase64
-    })).resolves.toBe('bG9jYWwtaW1hZ2U=');
+    await expect(
+      fetchLocalUrlAsBase64('blob:https://example.com/id', {
+        fetch: fetchMock,
+        blobToBase64,
+      }),
+    ).resolves.toBe('bG9jYWwtaW1hZ2U=');
 
     expect(fetchMock).toHaveBeenCalledWith('blob:https://example.com/id', {
       method: 'GET',
-      cache: 'no-store'
+      cache: 'no-store',
     });
   });
 
   it('rejects failed and empty local fetches', async () => {
-    await expect(fetchLocalUrlAsBase64('blob:https://example.com/missing', {
-      fetch: jest.fn(async () => ({ ok: false, status: 404 })),
-      blobToBase64: jest.fn()
-    })).rejects.toThrow('HTTP 404');
+    await expect(
+      fetchLocalUrlAsBase64('blob:https://example.com/missing', {
+        fetch: vi.fn(async () => ({ ok: false, status: 404 })) as unknown as typeof fetch,
+        blobToBase64: vi.fn(),
+      }),
+    ).rejects.toThrow('HTTP 404');
 
-    await expect(fetchLocalUrlAsBase64('blob:https://example.com/empty', {
-      fetch: jest.fn(async () => ({
-        ok: true,
-        blob: async () => new Blob([])
-      })),
-      blobToBase64: jest.fn()
-    })).rejects.toThrow('empty response body');
+    await expect(
+      fetchLocalUrlAsBase64('blob:https://example.com/empty', {
+        fetch: vi.fn(async () => ({
+          ok: true,
+          blob: async () => new Blob([]),
+        })) as unknown as typeof fetch,
+        blobToBase64: vi.fn(),
+      }),
+    ).rejects.toThrow('empty response body');
   });
 });
