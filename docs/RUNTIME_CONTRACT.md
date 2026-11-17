@@ -2,21 +2,28 @@
 
 This document describes the current extension/backend behavior from source and tests. Update it when changing runtime entrypoints, data flow, settings, providers, cache identity, or backend APIs.
 
-## Entrypoints And Script Order
+## Entrypoints And Bundles
 
-The extension is loaded directly by Chrome; there is no bundler.
+The extension is built with WXT 0.21 and strict TypeScript from `extension/` (WXT `srcDir`) into `dist/chrome-mv3`, which is what Chrome loads unpacked. There is no hand-written manifest, no `importScripts`, and no load order to maintain: each entrypoint is one Vite bundle that imports what it needs. `wxt.config.ts` is the manifest source of truth (name, permissions, host permissions, DNR rule resources, icons, action); WXT adds the entries below from the entrypoint definitions.
 
-- extension/manifest.json registers the MV3 service worker at background/service-worker.js.
-- Content scripts run on all URLs at document_idle in this order: lib/settings.js, lib/site-activation.js, lib/utils.js, lib/translated-image.js, lib/overlay-dom.js, lib/font-registry.js, lib/region-capture.js, content/content-helpers.js, content/content.js. content/content.css is injected with them.
-- extension/background/service-worker.js loads shared modules with importScripts in this order: lib/settings.js, lib/utils.js, lib/api.js, lib/cache.js, lib/translation-queue.js, lib/site-activation.js, lib/referrer-rules.js, lib/font-registry.js, lib/region-capture.js.
-- extension/popup/popup.html loads lib/settings.js, lib/site-activation.js, then popup/popup.js.
-- extension/options/options.html loads lib/settings.js, then options/options.js.
+| Entrypoint | Source | Built output | Manifest entry |
+| --- | --- | --- | --- |
+| Service worker | extension/entrypoints/background.ts | background.js | `background.service_worker` |
+| Content script | extension/entrypoints/content/index.ts (+ style.css) | content-scripts/content.js, content-scripts/content.css | `content_scripts` |
+| Popup | extension/entrypoints/popup/ (index.html, main.ts, App.svelte) | popup.html | `action.default_popup` |
+| Options page | extension/entrypoints/options/ (index.html, main.ts, App.svelte) | options.html | `options_ui` (`open_in_tab: true`) |
 
-Any new shared runtime file must be added to the relevant loader and extension validation coverage.
+- Service worker: `defineBackground` calls `registerBackground()` (extension/background/index.ts), which registers every listener synchronously (runtime messages, install, startup, action state, context menus, activate) before any async startup work. The worker then re-runs DNR reconciliation, settings migration, action-state refresh, and cache pruning on every start. Handlers live in extension/background/*.ts, and message-router.ts dispatches the request messages.
+- Content script: matches `<all_urls>` at `document_idle`, top frame only (no allFrames). It boots extension/content/main.ts, which registers message and storage listeners, reads the per-hostname activation state, and only loads settings and starts the runtime when the site is enabled. The whole content script, including the shared libraries it imports (extension/lib/*.ts), is a single bundled file; there is no separate script list.
+- Popup and options pages: Svelte 5 (runes) apps. Components are in extension/components/{popup,options}/ and extension/components/Toast.svelte; state modules are in extension/ui/ (`*.svelte.ts` hold reactive state). The popup opens the options page with `runtime.openOptionsPage()`.
+- Shared code: extension/lib/*.ts (settings, api, cache, translation queue, site activation, referrer rules, overlay DOM, translated image, font registry, region capture, utils) is imported by the worker, content script, and pages as needed. The typed message contracts are in extension/shared/messages.ts and shared types in extension/shared/types.ts.
+- Static assets: extension/public/{icons,fonts,rules} is copied verbatim into the build root (icons/, fonts/, rules/). Icon sources (SVG and the generator page) are in extension/assets/icons and are not shipped.
+
+Every `wxt build` and `wxt zip` runs scripts/validate-extension.ts from the `build:done` hook in `wxt.config.ts` (skipped in dev mode, where WXT injects extra permissions and HMR code), so an invalid build never reaches a zip. `npm run validate` re-checks an existing build. Adding a new bundled asset (a font, a rule file) means putting it under extension/public/ and updating the registry or manifest entry that the validator checks.
 
 ### Permissions
 
-The manifest requests `storage`, `unlimitedStorage`, `contextMenus`, and `declarativeNetRequest`, plus host permission `<all_urls>`. The `tabs`, `scripting`, and `activeTab` permissions are not requested; tests/unit/manifest.test.js asserts this permission budget.
+The manifest requests `storage`, `unlimitedStorage`, `contextMenus`, and `declarativeNetRequest`, plus host permission `<all_urls>`. The `tabs`, `scripting`, and `activeTab` permissions are not requested; tests/unit/manifest.test.ts asserts this permission budget (on the wxt.config.ts manifest, and on dist/chrome-mv3/manifest.json when a build exists).
 
 - storage - settings, API keys, site activation, translation cache, and per-session progress.
 - unlimitedStorage - lets the translation cache hold rendered page images.
@@ -26,16 +33,16 @@ The manifest requests `storage`, `unlimitedStorage`, `contextMenus`, and `declar
 
 ### Page Overlays
 
-Everything the extension draws on a page lives in an open shadow root, so page CSS cannot restyle it and overlay images do not appear in page-level `img` queries. extension/lib/overlay-dom.js owns the hosts and the stylesheet.
+Everything the extension draws on a page lives in an open shadow root, so page CSS cannot restyle it and overlay images do not appear in page-level `img` queries. extension/lib/overlay-dom.ts owns the hosts and the stylesheet.
 
 - Each overlay has its own `<manga-overlay>` host instead of one shared page root, because translated images and text must stay inside the page's positioned containers to scroll and clip with their content.
 - Hosts keep the class names and ids used to find overlays (`.manga-translated-img-overlay`, `.manga-composite-overlay`, `.manga-canvas-overlay`, `.manga-translate-overlay`, `.manga-image-progress`, `#manga-reader-controls`, `#manga-global-progress`, `#manga-error-banner`). Placement, display, and dataset are on the host; the `img` or `svg` is inside `host.shadowRoot`.
 - The host's inline `all: initial` blocks inherited and non-important page rules. A page rule using `!important` on the `manga-overlay` element itself can still affect the host box, but not its shadow content.
-- content/content.css keeps only the light-DOM `.manga-translate-wrapper` rules.
+- extension/entrypoints/content/style.css (built to content-scripts/content.css) keeps only the light-DOM `.manga-translate-wrapper` rules.
 
 ### Bundled Fonts
 
-extension/lib/font-registry.js lists the fonts shipped in extension/fonts/, each pinned by sha256. scripts/validate-extension.js fails the build on a checksum mismatch and is what adds font files to the package, because the manifest does not reference them.
+extension/lib/font-registry.ts lists the fonts shipped in extension/public/fonts/ (built to fonts/ in dist/chrome-mv3), each pinned by sha256. scripts/validate-extension.ts fails the build on a missing file or checksum mismatch; the manifest does not reference the font files, so that check is what keeps them in the package.
 
 - The font setting selects a bundled font by its `cssValue`. Other options depend on fonts installed on the system.
 - On first use in a page, the content script requests the bytes with GET_BUNDLED_FONT and registers them with the FontFace API. Page CSP does not apply to font data supplied this way, and fonts are not web-accessible, so sites cannot detect the extension through them. The registered family is visible to the page's `document.fonts`.
@@ -55,15 +62,15 @@ Limits: region results are positioned against the document, so they follow docum
 
 ### Referrer And CORS Rules (DNR)
 
-- Static ruleset: manifest `declarative_net_request.rule_resources` enables `bookwalker_cors` (extension/rules/bookwalker-cors.json). For GET XHR from viewer.bookwalker.jp to bw-bv-epubs.bookwalker.jp it sets the Referer request header and the Access-Control-Allow-Origin response header.
-- Session rules: while FETCH_IMAGE fetches a URL on a fixed CDN allowlist (pximg.net, i.hamreus.com, hitomi.la, klimv1.xyz; extension/lib/referrer-rules.js), the worker installs a transient `modifyHeaders` session rule that sets Referer for XHR requests to that one host. Rule ids are limited to 1000-1999, installs and removals are serialized, concurrent fetches share one reference-counted rule, and leftover rules from an earlier worker are reconciled on worker load, install, and first use. Hosts outside the allowlist get an ordinary fetch with no rule.
+- Static ruleset: manifest `declarative_net_request.rule_resources` enables `bookwalker_cors` (extension/public/rules/bookwalker-cors.json, built to rules/bookwalker-cors.json). For GET XHR from viewer.bookwalker.jp to bw-bv-epubs.bookwalker.jp it sets the Referer request header and the Access-Control-Allow-Origin response header.
+- Session rules: while FETCH_IMAGE fetches a URL on a fixed CDN allowlist (pximg.net, i.hamreus.com, hitomi.la, klimv1.xyz; extension/lib/referrer-rules.ts), the worker installs a transient `modifyHeaders` session rule that sets Referer for XHR requests to that one host. Rule ids are limited to 1000-1999, installs and removals are serialized, concurrent fetches share one reference-counted rule, and leftover rules from an earlier worker are reconciled on worker load, install, and first use. Hosts outside the allowlist get an ordinary fetch with no rule.
 - The allowlist is fixed in code. Nothing in settings or page content can add a host.
 
 ## Message Contracts
 
 ### Requests handled by the service worker
 
-The service worker handles these request messages and replies through sendResponse:
+The service worker handles these request messages (typed in extension/shared/messages.ts, dispatched by extension/background/message-router.ts) and replies through sendResponse:
 
 - TRANSLATE_IMAGE - content script sends imageId, base64, settings, optional canvasSignature, and optional forceRefresh. Base64 payloads over 20 MB decoded or images over 25 MP are rejected.
 - FETCH_IMAGE - fetches an http(s) image URL through the extension context. Responses over 20 MB, empty bodies, and clearly non-image content types (octet-stream is allowed) are rejected.
@@ -96,7 +103,7 @@ TRANSLATION_RESULT no longer exists. The popup mirrors progress into chrome.stor
 
 ## Settings And Keys
 
-extension/lib/settings.js owns defaults and storage shaping.
+extension/lib/settings.ts owns defaults and storage shaping.
 
 - Public synced settings include provider, model, target language, local backend options, render options, and local LLM endpoint/model metadata.
 - Private key material is split out before sync storage: provider apiKey, googleOcrApiKey, localLlmApiKey, and backendAuthToken (localBackend.authToken, sent as the backend access token).
@@ -116,7 +123,7 @@ extension/lib/settings.js owns defaults and storage shaping.
 
 ### Defaults
 
-From DEFAULT_SETTINGS in extension/lib/settings.js:
+From DEFAULT_SETTINGS in extension/lib/settings.ts:
 
 | Setting | Default |
 | --- | --- |
@@ -150,7 +157,7 @@ SETTINGS_VERSION is 2. migrateStoredSettings upgrades stored synced settings, an
 
 ### Backend authentication
 
-LocalBackendProvider (extension/lib/api.js) sends the backend access token as the `X-Manga-Translator-Token` header on /health and /translate requests. The backend reads BACKEND_AUTH_TOKEN from its environment and rejects every request except GET / and CORS preflights without a matching token: 401 when the header is missing or wrong, 503 when the backend has no token configured. GET /health is protected too.
+LocalBackendProvider (extension/lib/api.ts) sends the backend access token as the `X-Manga-Translator-Token` header on /health and /translate requests. The backend reads BACKEND_AUTH_TOKEN from its environment and rejects every request except GET / and CORS preflights without a matching token: 401 when the header is missing or wrong, 503 when the backend has no token configured. GET /health is protected too.
 
 ## Data Flow
 
@@ -179,11 +186,11 @@ Local path:
 
 ### Site Activation
 
-Activation is per hostname (extension/lib/site-activation.js). An empty `activeUrls` list means every http(s) host is enabled; a hostname in `disabledUrls` is always disabled. The popup toggles the current host, and the worker shows an OFF badge on disabled tabs.
+Activation is per hostname (extension/lib/site-activation.ts). An empty `activeUrls` list means every http(s) host is enabled; a hostname in `disabledUrls` is always disabled. The popup toggles the current host, and the worker shows an OFF badge on disabled tabs.
 
 ## Backend API
 
-Primary endpoints in backend/main.py:
+Primary endpoints, defined in backend/src/manga_backend/api/routes/ (health.py, translate.py, detect.py, ocr.py) and assembled by `create_app` in api/app.py (`manga_backend.main:app` is the ASGI entry point; request and response models are Pydantic v2 schemas in api/schemas.py):
 
 - GET / - basic alive response (no token required).
 - GET /health - detailed status, sanitized config, request counters, and last sanitized error. Status is `ok`, `degraded`, or `loading` while models initialize in the background.
@@ -200,7 +207,7 @@ GET / only proves the process is alive. It does not prove all ML models have dow
 
 ## Cache Contract
 
-extension/lib/cache.js stores translation results in chrome.storage.local.
+extension/lib/cache.ts stores translation results in chrome.storage.local.
 
 - Cache keys start with manga_cache_. Cache metadata is maintained under manga_cache_metadata.
 - Cache identity includes image hash or canvas signature plus every setting that affects output: pipeline mode, provider/model/base URL, target language, fontSize (clamped to 6-96), the local backend URL, detector, OCR, translator, and inpainter (normalized, so `lama` and `lama_large` share an entry), local LLM endpoint/model, Google OCR language hint, and render settings.
@@ -258,7 +265,7 @@ Choosing a cloud pipeline or Google OCR and saving the matching key is the user'
 - Backend CORS allows Chrome extension origins and any explicitly configured development origins.
 - Backend error handling redacts known key fields and configured secret values from stored last-error state; the extension redacts keys and bearer tokens in provider error text.
 - declarativeNetRequest rules only rewrite headers for the static BookWalker ruleset and the fixed CDN allowlist above.
-- Model downloads support optional pinned revisions and sha256 checks (backend/utils/download.py); no pin values are populated yet, so downloads track the latest revision.
+- Model downloads support optional pinned revisions and sha256 checks (`MODEL_PINS` in backend/src/manga_backend/utils/download.py). The default models are pinned to a commit and sha256; the gated AnimeText YOLO repo is not, so it tracks the latest revision.
 - The backend should remain loopback-first unless an authenticated deployment boundary is added.
 
 ## Verification Commands
@@ -266,11 +273,12 @@ Choosing a cloud pipeline or Google OCR and saving the matching key is the user'
 Run targeted gates before the full suite:
 
 - rtk npm run verify:repository
-- rtk npm run build
-- rtk npm run lint
-- rtk npm run test:unit
-- rtk npm run test:integration
+- rtk npm run build (runs the build validation)
+- rtk npm run lint (Biome)
+- rtk npm run typecheck (`tsc` and `svelte-check`)
+- rtk npm run test (Vitest: unit and integration)
 - rtk npm run lint:backend
+- rtk npm run typecheck:backend
 - rtk npm run test:backend
 - rtk npm run test:e2e
 - rtk npm run verify

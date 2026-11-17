@@ -79,8 +79,10 @@ Any other non-zero code comes from `uv sync` or uvicorn.
 From backend/, after syncing the group you want:
 
 ```powershell
-uv run --no-sync uvicorn main:app --host 127.0.0.1 --port 8001
+uv run --no-sync uvicorn manga_backend.main:app --host 127.0.0.1 --port 8001
 ```
+
+`manga_backend.main:app` is a thin ASGI entry point: it prepares the process environment (`backend/.env`, CUDA DLL paths) and builds the app with `create_app()`. `uv run python -m manga_backend` does the same through uvicorn, taking its bind address from `BACKEND_HOST` and `BACKEND_PORT` (or `--host` / `--port`).
 
 Pass `--no-sync` after syncing a non-default group, as `start.ps1` does. `USE_GPU=true` must also be set
 for a GPU run; without it the backend picks the CPU device.
@@ -219,7 +221,7 @@ precedence over the matching variable.
 | --- | --- | --- |
 | `BACKEND_AUTH_TOKEN` | none (required) | Shared secret for the `X-Manga-Translator-Token` header |
 | `USE_GPU` | `false` | `true` picks the best available ONNX provider; `start.ps1` sets it from `-Runtime` |
-| `BACKEND_HOST` | `127.0.0.1` | Bind host used only by `python main.py`; `start.ps1` and the uvicorn command above pass `--host` themselves |
+| `BACKEND_HOST`, `BACKEND_PORT` | `127.0.0.1`, `8001` | Bind address used only by `python -m manga_backend`; `start.ps1` and the uvicorn command above pass `--host` and `--port` themselves |
 | `BACKEND_ALLOWED_ORIGINS` | empty | Comma-separated extra browser origins (extension origins are always allowed) |
 | `BACKEND_MAX_CONCURRENT` | `2` | Concurrent expensive requests |
 | `BACKEND_QUEUE_TIMEOUT_SECONDS` | `600` | How long a request waits for a slot before 429 |
@@ -249,11 +251,12 @@ precedence over the matching variable.
 
 From the repo root:
 
-rtk npm run lint:backend
-rtk npm run test:backend
+rtk npm run lint:backend (ruff)
+rtk npm run typecheck:backend (pyright)
+rtk npm run test:backend (pytest, `uv run --project backend --locked pytest backend/tests`)
 rtk npm run smoke:backend
 
-The backend unit tests use fakes where possible, so they do not need to download models or call external APIs.
+The tests live in `backend/tests/` (pytest settings are in `backend/pyproject.toml`). The backend unit tests use fakes where possible, so they do not need to download models or call external APIs.
 
 ## Models
 
@@ -302,14 +305,14 @@ Model sources:
   pinned the same way). The decoder is blank + dictionary + the ASCII space, 18385 classes.
 - LaMa inpainting from ogkalu/lama-manga-onnx-dynamic.
 
-Model integrity: `MODEL_PINS` in `utils/download.py` pins a Hugging Face commit and sha256 for each
+Model integrity: `MODEL_PINS` in `src/manga_backend/utils/download.py` pins a Hugging Face commit and sha256 for each
 downloaded file; the commit is passed to the download and the sha256 is checked on download and on cached
 files, which are deleted on a mismatch. Pinned: manga-ocr (`encoder_model.onnx`, `decoder_model.onnx`,
 `vocab.txt`), LaMa (`lama-manga-dynamic.onnx`), the RT-DETR detector (`detector.onnx`) and the PaddleOCR
 files above, each to the commit whose file matches the verified local copy. AnimeText YOLO
 (`deepghs/AnimeText_yolo`) is not pinned: the repo is gated and Hugging Face hides its file hashes from
 unauthenticated requests, so it still downloads from the mutable `main` revision with no checksum check.
-`test_download.py` fails if any other entry is left unpinned. Pins apply only to the default repos, not to
+`backend/tests/test_download.py` fails if any other entry is left unpinned. Pins apply only to the default repos, not to
 a repo overridden through the environment.
 
 ### AnimeText YOLO experiment
@@ -355,17 +358,26 @@ It is a single-image observation, not a ground-truth accuracy evaluation.
 
 ## Project Structure
 
+The code is a `src` layout package, `manga_backend`. Runtime data (`models_cache/`, `.env`) stays in the `backend/` project root.
+
 backend/
-|-- main.py              FastAPI server and request validation
-|-- pipeline.py          Translation pipeline orchestrator
-|-- start.ps1            Recommended launcher (runtime sync, checks, uvicorn)
-|-- pyproject.toml       Primary dependency source for uv (with uv.lock)
+|-- pyproject.toml       Primary dependency source for uv (with uv.lock); ruff, pytest, and pyright settings
 |-- requirements.txt     Unlocked pip fallback
-|-- models/              Detector, OCR, inpainter, and translator wrappers
-|-- comfy_lanpaint/      ComfyUI client, workflow, and crop helpers for LanPaint
-|-- utils/               Device, download, and text block helpers
-|-- fonts/               Rendering fonts
+|-- start.ps1            Recommended launcher (runtime sync, checks, uvicorn manga_backend.main:app)
+|-- tests/               pytest suite
 |-- models_cache/        Downloaded models, auto-created and ignored
+|-- src/manga_backend/
+    |-- __main__.py      `python -m manga_backend` launcher
+    |-- main.py          Thin ASGI shim exposing `app`
+    |-- bootstrap.py     Process environment setup (backend/.env, CUDA DLL paths) before onnxruntime loads
+    |-- config.py        pydantic-settings configuration and fixed request limits
+    |-- paths.py         Package, models_cache, .env, and fonts locations
+    |-- api/             create_app, lifespan, auth and origin middleware, routes/ (health, translate, detect, ocr), Pydantic v2 schemas, validation, orjson responses
+    |-- pipeline/        Translation pipeline: orchestrator, detection, ocr, translation, inpainting, masks, bubbles, regions, layout, fonts, rendering, text
+    |-- models/          Detector, OCR, inpainter, and translator wrappers
+    |-- comfy_lanpaint/  ComfyUI client, workflow, crop helpers, and CLI for LanPaint
+    |-- utils/           Device, download (model pins), and text block helpers
+    |-- fonts/           Rendering fonts
 
 ## Extension Integration
 
