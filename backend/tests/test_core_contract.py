@@ -1,17 +1,14 @@
 """Focused core backend contract tests independent from the legacy API suite."""
 
 import io
-import sys
 import unittest
-from pathlib import Path
 
 import numpy as np
 from fastapi.testclient import TestClient
 from PIL import Image
 
-BACKEND_DIR = Path(__file__).resolve().parents[1]
-
-from manga_backend import main
+from manga_backend.api.app import create_app
+from manga_backend.config import Settings
 from manga_backend.pipeline import GoogleOCRError, GoogleOCRTimeoutError, InpainterUnavailableError
 
 
@@ -83,22 +80,14 @@ class GoogleFailurePipeline(CoreContractPipeline):
 
 class CoreBackendContractTests(unittest.TestCase):
     def setUp(self):
-        self.original_pipeline = main.pipeline
-        self.original_active_translate_requests = main.active_translate_requests
-        self.original_last_error = main.last_error
-        self.addCleanup(self.restore_main_state)
-
         self.pipeline = CoreContractPipeline()
-        main.pipeline = self.pipeline
-        main.active_translate_requests = 0
-        main.last_error = None
-        self.client = TestClient(main.app)
+        self.use_pipeline(self.pipeline)
         self.addCleanup(self.client.close)
 
-    def restore_main_state(self):
-        main.pipeline = self.original_pipeline
-        main.active_translate_requests = self.original_active_translate_requests
-        main.last_error = self.original_last_error
+    def use_pipeline(self, pipeline):
+        """Serve the given pipeline from a fresh app (testing mode keeps auth off)."""
+        self.app = create_app(Settings(testing=True), pipeline=pipeline)
+        self.client = TestClient(self.app)
 
     def test_health_exposes_model_free_pipeline_status(self):
         response = self.client.get("/health")
@@ -138,7 +127,7 @@ class CoreBackendContractTests(unittest.TestCase):
         self.assertEqual(self.pipeline.translate_calls, [])
 
     def test_translate_json_contract_aligns_provider_arrays_to_blocks(self):
-        main.pipeline = MismatchedPipeline()
+        self.use_pipeline(MismatchedPipeline())
 
         response = self.client.post(
             "/translate",
@@ -153,7 +142,7 @@ class CoreBackendContractTests(unittest.TestCase):
         self.assertEqual(payload["translated_texts"], ["translated", ""])
 
     def test_optional_inpainter_failure_is_reported_only_to_routes_that_need_it(self):
-        main.pipeline = OptionalInpainterFailurePipeline()
+        self.use_pipeline(OptionalInpainterFailurePipeline())
 
         health = self.client.get("/health")
         self.assertEqual(health.status_code, 200)
@@ -182,7 +171,7 @@ class CoreBackendContractTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_google_ocr_upstream_failure_is_sanitized_to_502(self):
-        main.pipeline = GoogleFailurePipeline(GoogleOCRError("secret vision key leaked"))
+        self.use_pipeline(GoogleFailurePipeline(GoogleOCRError("secret vision key leaked")))
 
         response = self.client.post(
             "/ocr",
@@ -194,7 +183,7 @@ class CoreBackendContractTests(unittest.TestCase):
         self.assertNotIn("secret", response.text)
 
     def test_google_ocr_timeout_is_reported_as_504(self):
-        main.pipeline = GoogleFailurePipeline(GoogleOCRTimeoutError())
+        self.use_pipeline(GoogleFailurePipeline(GoogleOCRTimeoutError()))
 
         response = self.client.post(
             "/ocr",

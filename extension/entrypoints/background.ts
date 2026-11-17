@@ -1,4 +1,8 @@
 import { defineBackground } from 'wxt/utils/define-background';
+import { registerBackground } from '../background';
 
-// Placeholder: replaced by the service-worker port (extension/background/*).
-export default defineBackground(() => {});
+// MV3 service worker: all listeners are registered synchronously inside
+// registerBackground() so Chrome can wake the worker for any event.
+export default defineBackground(() => {
+  registerBackground();
+});

@@ -1,17 +1,16 @@
 """Authentication boundary tests for the local backend."""
 
 import io
-import sys
+import logging
 import unittest
-from pathlib import Path
 
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from manga_backend.api.app import create_app
+from manga_backend.config import Limits, Settings
 
-BACKEND_DIR = Path(__file__).resolve().parents[1]
-
-from manga_backend import main
+API_LOGGER = logging.getLogger("manga_backend.api")
 TOKEN_HEADER = "X-Manga-Translator-Token"
 EXPENSIVE_POST_ROUTES = ("/translate", "/detect", "/ocr", "/paddle-ocr")
 
@@ -51,20 +50,20 @@ def make_png_bytes():
 
 class BackendAuthenticationTests(unittest.TestCase):
     def setUp(self):
-        self.original_token = main.BACKEND_AUTH_TOKEN
-        self.original_testing_mode = main.TESTING_MODE
-        self.original_pipeline = main.pipeline
-        main.BACKEND_AUTH_TOKEN = "test-backend-token"
-        main.TESTING_MODE = False
         self.pipeline = RecordingPipeline()
-        main.pipeline = self.pipeline
-        self.client = TestClient(main.app)
+        self.use_app()
+
+    def use_app(self, auth_token="test-backend-token", limits=None):
+        """(Re)build the app and client with the given token configuration."""
+        client = getattr(self, "client", None)
+        if client is not None:
+            client.close()
+        settings = Settings(auth_token=auth_token, testing=False)
+        self.app = create_app(settings, limits=limits, pipeline=self.pipeline)
+        self.client = TestClient(self.app)
 
     def tearDown(self):
         self.client.close()
-        main.BACKEND_AUTH_TOKEN = self.original_token
-        main.TESTING_MODE = self.original_testing_mode
-        main.pipeline = self.original_pipeline
 
     def post_image(self, path, headers=None):
         return self.client.post(
@@ -89,7 +88,7 @@ class BackendAuthenticationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_backend_refuses_requests_until_a_token_is_configured(self):
-        main.BACKEND_AUTH_TOKEN = ""
+        self.use_app(auth_token="")
 
         response = self.client.get("/health")
 
@@ -105,7 +104,7 @@ class BackendAuthenticationTests(unittest.TestCase):
                 self.assertEqual(response.json()["detail"], "Invalid backend authentication token")
 
     def test_non_ascii_configured_token_does_not_crash_authentication(self):
-        main.BACKEND_AUTH_TOKEN = "töken"
+        self.use_app(auth_token="töken")
 
         response = self.client.get("/health", headers={TOKEN_HEADER: "wrong"})
 
@@ -155,12 +154,7 @@ class BackendAuthenticationTests(unittest.TestCase):
         self.assertEqual(preflight.status_code, 200)
 
     def test_unauthenticated_oversize_requests_get_401_before_the_size_check(self):
-        original_max = main.MAX_UPLOAD_SIZE
-        original_overhead = main.UPLOAD_OVERHEAD_BYTES
-        self.addCleanup(setattr, main, "MAX_UPLOAD_SIZE", original_max)
-        self.addCleanup(setattr, main, "UPLOAD_OVERHEAD_BYTES", original_overhead)
-        main.MAX_UPLOAD_SIZE = 4
-        main.UPLOAD_OVERHEAD_BYTES = 1000
+        self.use_app(limits=Limits(max_upload_size=4, upload_overhead_bytes=1000))
         files = {"image": ("page.png", b"x" * 3000, "image/png")}
 
         unauthenticated = self.client.post("/translate", files=files)
@@ -173,19 +167,12 @@ class BackendAuthenticationTests(unittest.TestCase):
         self.assertEqual(self.pipeline.calls, [])
 
     def test_auth_and_size_rejections_are_logged_without_the_token_or_last_error(self):
-        original_max = main.MAX_UPLOAD_SIZE
-        original_overhead = main.UPLOAD_OVERHEAD_BYTES
-        original_last_error = main.last_error
-        self.addCleanup(setattr, main, "MAX_UPLOAD_SIZE", original_max)
-        self.addCleanup(setattr, main, "UPLOAD_OVERHEAD_BYTES", original_overhead)
-        self.addCleanup(setattr, main, "last_error", original_last_error)
-        main.last_error = None
-        main.MAX_UPLOAD_SIZE = 4
-        main.UPLOAD_OVERHEAD_BYTES = 1000
+        limits = Limits(max_upload_size=4, upload_overhead_bytes=1000)
+        self.use_app(limits=limits)
         oversize = {"image": ("page.png", b"x" * 3000, "image/png")}
         wrong_token = "wrong-secret-token"
 
-        with self.assertLogs(main.logger, level="INFO") as logs:
+        with self.assertLogs(API_LOGGER, level="INFO") as logs:
             self.client.get(
                 "/health", headers={TOKEN_HEADER: wrong_token, "X-Request-ID": "req-401"}
             )
@@ -194,7 +181,8 @@ class BackendAuthenticationTests(unittest.TestCase):
                 files=oversize,
                 headers={TOKEN_HEADER: "test-backend-token", "X-Request-ID": "req-413"},
             )
-            main.BACKEND_AUTH_TOKEN = ""
+            self.assertIsNone(self.app.state.backend.last_error)
+            self.use_app(auth_token="", limits=limits)
             self.client.get("/health", headers={"X-Request-ID": "req-503"})
 
         joined = "\n".join(logs.output)
@@ -203,7 +191,7 @@ class BackendAuthenticationTests(unittest.TestCase):
         self.assertIn("request_id=req-503 method=GET path=/health status=503", joined)
         self.assertNotIn(wrong_token, joined)
         self.assertNotIn("test-backend-token", joined)
-        self.assertIsNone(main.last_error)
+        self.assertIsNone(self.app.state.backend.last_error)
 
 
 if __name__ == "__main__":

@@ -2,15 +2,14 @@
 Deterministic backend API tests.
 
 These tests avoid the real model pipeline and external network calls. Run them
-with `npm run test:backend`, or set MANGA_TRANSLATOR_TESTING=1 first (it turns
-off the auth token check and keeps backend/.env out of the process), then from
-the backend directory:
-
-    python -m unittest test_api.py test_translator.py test_utils.py test_model_wrappers.py test_pipeline.py
+with `uv run --locked pytest` from the backend directory. Every test builds its
+own app with `create_app`, so no state is shared between tests.
 """
 
-import io
 import asyncio
+import io
+import json
+import logging
 import os
 import subprocess
 import sys
@@ -22,14 +21,29 @@ from unittest.mock import patch
 
 import httpx
 import numpy as np
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from PIL import Image
 
-BACKEND_DIR = Path(__file__).resolve().parents[1]
+from manga_backend import bootstrap
+from manga_backend.api import images
+from manga_backend.api.app import create_app
+from manga_backend.api.errors import INTERNAL_ERROR_DETAIL
+from manga_backend.api.sanitize import sanitize_error
+from manga_backend.config import Limits, Settings
+from manga_backend.models.translator import (
+    Translator,
+    TranslatorError,
+    TranslatorTimeoutError,
+)
+from manga_backend.pipeline import (
+    DetectorUnavailableError,
+    InpainterUnavailableError,
+    PaddleOCRUnavailableError,
+)
 
-from manga_backend import main
-from manga_backend.models.translator import Translator
-from manga_backend.pipeline import PaddleOCRUnavailableError
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+API_LOGGER = logging.getLogger("manga_backend.api")
 
 
 class FakePipeline:
@@ -94,24 +108,16 @@ def make_png_bytes(size=(16, 16), color=(255, 255, 255)):
 
 class BackendApiTests(unittest.TestCase):
     def setUp(self):
-        self.original_pipeline = main.pipeline
-        self.original_active_translate_requests = main.active_translate_requests
-        self.original_last_error = main.last_error
-        self.original_max_upload_size = main.MAX_UPLOAD_SIZE
-        self.addCleanup(self.restore_main_state)
-
         self.pipeline = FakePipeline()
-        main.pipeline = self.pipeline
-        main.active_translate_requests = 0
-        main.last_error = None
-        self.client = TestClient(main.app)
-        self.addCleanup(self.client.close)
+        self.use_app()
 
-    def restore_main_state(self):
-        main.pipeline = self.original_pipeline
-        main.active_translate_requests = self.original_active_translate_requests
-        main.last_error = self.original_last_error
-        main.MAX_UPLOAD_SIZE = self.original_max_upload_size
+    def use_app(self, **kwargs):
+        """(Re)build the app around self.pipeline; testing mode keeps auth off."""
+        settings = kwargs.pop("settings", None) or Settings(testing=True)
+        self.app = create_app(settings, pipeline=self.pipeline, **kwargs)
+        self.backend = self.app.state.backend
+        self.client = TestClient(self.app)
+        self.addCleanup(self.client.close)
 
     def test_health_reports_fake_pipeline_status(self):
         response = self.client.get("/health")
@@ -188,8 +194,8 @@ class BackendApiTests(unittest.TestCase):
 
             return wrapper
 
-        with patch.object(main, "decode_image", recording("decode", main.decode_image)), patch.object(
-            main, "encode_png", recording("encode", main.encode_png)
+        with patch.object(images, "decode_image", recording("decode", images.decode_image)), patch.object(
+            images, "encode_png", recording("encode", images.encode_png)
         ):
             response = self.client.post(
                 "/translate",
@@ -202,7 +208,7 @@ class BackendApiTests(unittest.TestCase):
         self.assertEqual(Image.open(io.BytesIO(response.content)).format, "PNG")
 
     def test_translate_logs_request_id_and_sanitized_metadata(self):
-        with self.assertLogs(main.logger, level="INFO") as logs:
+        with self.assertLogs(API_LOGGER, level="INFO") as logs:
             response = self.client.post(
                 "/translate",
                 headers={"X-Request-ID": "req-log-1"},
@@ -301,14 +307,10 @@ class BackendApiTests(unittest.TestCase):
         self.assertEqual(call["inpainter"], "lama_large")
 
     def test_translate_normalizes_lanpaint_alias(self):
-        headers = {}
-        if main.BACKEND_AUTH_TOKEN:
-            headers[main.BACKEND_AUTH_HEADER] = main.BACKEND_AUTH_TOKEN
         response = self.client.post(
             "/translate",
             files={"image": ("page.png", make_png_bytes(), "image/png")},
             data={"translator": "none", "inpainter": "lanpaint"},
-            headers=headers,
         )
 
         self.assertEqual(response.status_code, 200)
@@ -437,7 +439,7 @@ class BackendApiTests(unittest.TestCase):
 
     def test_detector_initialization_error_is_sanitized(self):
         async def fail_detect(*_args, **_kwargs):
-            raise main.DetectorUnavailableError(
+            raise DetectorUnavailableError(
                 "CUDA failed at C:\\private\\model.onnx", detector="animetext-yolo"
             )
 
@@ -455,10 +457,10 @@ class BackendApiTests(unittest.TestCase):
             "set ANIMETEXT_YOLO_MODEL or authenticate with Hugging Face",
         )
         self.assertNotIn("private", response.text)
-        self.assertNotIn("private", main.last_error["error"])
+        self.assertNotIn("private", self.backend.last_error.error)
 
     def test_inpainter_unavailable_error_returns_actionable_path_free_hint(self):
-        self.pipeline.translate_error = main.InpainterUnavailableError(
+        self.pipeline.translate_error = InpainterUnavailableError(
             "ComfyUI not reachable; model at /home/bob/models/flux.safetensors",
             inpainter="flux2_klein_lanpaint",
         )
@@ -474,10 +476,10 @@ class BackendApiTests(unittest.TestCase):
         self.assertIn("scripts/comfy-lanpaint/start.ps1", detail)
         self.assertIn("choose LaMa", detail)
         self.assertNotIn("bob", response.text)
-        self.assertNotIn("bob", main.last_error["error"])
+        self.assertNotIn("bob", self.backend.last_error.error)
 
     def test_inpainter_unavailable_error_without_option_stays_generic(self):
-        self.pipeline.translate_error = main.InpainterUnavailableError("boom")
+        self.pipeline.translate_error = InpainterUnavailableError("boom")
 
         response = self.client.post(
             "/translate",
@@ -521,7 +523,7 @@ class BackendApiTests(unittest.TestCase):
         self.assertIn("someone", self.pipeline.model_status["animetext_yolo"]["error"])
 
     def test_sanitize_error_scrubs_paths_but_keeps_urls(self):
-        text = main.sanitize_error(
+        text = sanitize_error(
             RuntimeError(
                 "load failed C:\\private\\m.onnx via http://localhost:8188/view and /tmp/x/y"
             )
@@ -539,7 +541,7 @@ class BackendApiTests(unittest.TestCase):
             side_effect=Exception("Incorrect API key provided: sk-secret"),
         ):
             with self.assertLogs("manga_backend.models.translator", level="ERROR") as logs:
-                with self.assertRaises(main.TranslatorError) as raised:
+                with self.assertRaises(TranslatorError) as raised:
                     asyncio.run(provider.translate(["text"], "English"))
         self.assertNotIn("sk-secret", "\n".join(logs.output))
         self.pipeline.translate_error = raised.exception
@@ -562,7 +564,7 @@ class BackendApiTests(unittest.TestCase):
             provider, "_translate_openai", side_effect=asyncio.TimeoutError()
         ):
             with self.assertLogs("manga_backend.models.translator", level="ERROR"):
-                with self.assertRaises(main.TranslatorTimeoutError) as raised:
+                with self.assertRaises(TranslatorTimeoutError) as raised:
                     asyncio.run(provider.translate(["text"], "English"))
         self.pipeline.translate_error = raised.exception
 
@@ -752,7 +754,7 @@ class BackendApiTests(unittest.TestCase):
         self.assertIn("Invalid image data", response.json()["detail"])
 
     def test_rejects_uploads_over_configured_limit(self):
-        main.MAX_UPLOAD_SIZE = 4
+        self.use_app(limits=Limits(max_upload_size=4))
 
         response = self.client.post(
             "/translate",
@@ -773,11 +775,10 @@ class BackendApiTests(unittest.TestCase):
                 self.read_sizes.append(size)
                 return b"12345"
 
-        main.MAX_UPLOAD_SIZE = 4
         upload = FakeUpload()
 
-        with self.assertRaises(main.HTTPException) as raised:
-            asyncio.run(main.read_upload_image(upload))
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(images.read_upload_image(upload, Limits(max_upload_size=4)))
 
         self.assertEqual(raised.exception.status_code, 413)
         self.assertEqual(upload.read_sizes, [5])
@@ -805,7 +806,7 @@ class BackendApiTests(unittest.TestCase):
         self.assertEqual(self.pipeline.translate_calls, [])
 
     def test_reports_503_when_pipeline_not_initialized(self):
-        main.pipeline = None
+        self.backend.pipeline = None
 
         response = self.client.post(
             "/translate",
@@ -835,12 +836,12 @@ class BackendApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 500)
-        self.assertEqual(response.json()["detail"], main.INTERNAL_ERROR_DETAIL)
+        self.assertEqual(response.json()["detail"], INTERNAL_ERROR_DETAIL)
 
     def test_translate_failure_updates_health_last_error_and_redacts_secrets(self):
         self.pipeline.translate_error = RuntimeError("model failed with secret-value")
 
-        with self.assertLogs(main.logger, level="ERROR") as logs:
+        with self.assertLogs(API_LOGGER, level="ERROR") as logs:
             response = self.client.post(
                 "/translate",
                 headers={"X-Request-ID": "req-fail-1"},
@@ -855,7 +856,7 @@ class BackendApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.headers.get("x-request-id"), "req-fail-1")
-        self.assertEqual(response.json()["detail"], main.INTERNAL_ERROR_DETAIL)
+        self.assertEqual(response.json()["detail"], INTERNAL_ERROR_DETAIL)
         self.assertNotIn("model failed with secret-value", response.text)
         self.assertNotIn("secret-value", response.text)
         self.assertNotIn("cloud-secret", response.text)
@@ -890,7 +891,7 @@ class BackendApiTests(unittest.TestCase):
         for path, data in cases:
             with self.subTest(path=path):
                 request_id = f"req{path.replace('/', '-')}"
-                with self.assertLogs(main.logger, level="ERROR") as logs:
+                with self.assertLogs(API_LOGGER, level="ERROR") as logs:
                     response = self.client.post(
                         path,
                         headers={"X-Request-ID": request_id},
@@ -933,17 +934,14 @@ def env_without(*names, **extra):
 
 class TranslatePreflightTests(unittest.TestCase):
     def setUp(self):
-        self.original_pipeline = main.pipeline
-        self.original_last_error = main.last_error
         self.pipeline = FakePipeline()
-        main.pipeline = self.pipeline
-        self.client = TestClient(main.app)
-        self.addCleanup(self.restore_main_state)
-        self.addCleanup(self.client.close)
+        self.use_settings()
 
-    def restore_main_state(self):
-        main.pipeline = self.original_pipeline
-        main.last_error = self.original_last_error
+    def use_settings(self, **overrides):
+        """Rebuild the app with server-side provider keys / defaults from Settings."""
+        self.app = create_app(Settings(testing=True, **overrides), pipeline=self.pipeline)
+        self.client = TestClient(self.app)
+        self.addCleanup(self.client.close)
 
     def post(self, **data):
         return self.client.post(
@@ -967,22 +965,21 @@ class TranslatePreflightTests(unittest.TestCase):
             "openai": "OPENAI_API_KEY",
             "openrouter": "OPENROUTER_API_KEY",
         }
-        with env_without(*set(cases.values())):
-            for translator, env_var in cases.items():
-                with self.subTest(translator=translator):
-                    response = self.post(translator=translator)
-                    self.assert_rejected_before_model_work(response, "api_key", env_var)
+        for translator, env_var in cases.items():
+            with self.subTest(translator=translator):
+                response = self.post(translator=translator)
+                self.assert_rejected_before_model_work(response, "api_key", env_var)
 
     def test_cloud_translator_accepts_form_key_or_matching_env_key(self):
-        with env_without("OPENAI_API_KEY", "GEMINI_API_KEY"):
-            self.assertEqual(self.post(translator="openai", api_key="form-key").status_code, 200)
-        with env_without("GEMINI_API_KEY", OPENAI_API_KEY="env-key"):
-            self.assertEqual(self.post(translator="openai").status_code, 200)
-            self.pipeline.translate_calls.clear()
-            self.assert_rejected_before_model_work(self.post(translator="gemini"), "GEMINI_API_KEY")
+        self.assertEqual(self.post(translator="openai", api_key="form-key").status_code, 200)
+
+        self.use_settings(openai_api_key="env-key")
+        self.assertEqual(self.post(translator="openai").status_code, 200)
+        self.pipeline.translate_calls.clear()
+        self.assert_rejected_before_model_work(self.post(translator="gemini"), "GEMINI_API_KEY")
 
     def test_local_translator_rejects_remote_base_url_before_model_work(self):
-        with env_without("ALLOW_REMOTE_LOCAL_LLM", "LOCAL_LLM_BASE_URL"):
+        with env_without("ALLOW_REMOTE_LOCAL_LLM"):
             response = self.post(translator="local", local_llm_base_url="http://example.com:8000/v1")
             self.assert_rejected_before_model_work(response, "localhost or a loopback")
 
@@ -990,7 +987,8 @@ class TranslatePreflightTests(unittest.TestCase):
             self.assert_rejected_before_model_work(response, "http(s) URL")
 
     def test_local_translator_checks_env_default_base_url(self):
-        with env_without("ALLOW_REMOTE_LOCAL_LLM", LOCAL_LLM_BASE_URL="http://example.com:8000/v1"):
+        self.use_settings(local_llm_base_url="http://example.com:8000/v1")
+        with env_without("ALLOW_REMOTE_LOCAL_LLM"):
             response = self.post(translator="local")
             self.assert_rejected_before_model_work(response, "localhost or a loopback")
 
@@ -1038,32 +1036,12 @@ class TranslatePreflightTests(unittest.TestCase):
 
 
 class RequestLimitTests(unittest.TestCase):
-    def setUp(self):
-        self.original_state = (
-            main.pipeline,
-            main.active_translate_requests,
-            main.last_error,
-            main.MAX_UPLOAD_SIZE,
-            main.UPLOAD_OVERHEAD_BYTES,
-            main.MAX_CONCURRENT_REQUESTS,
-            main.QUEUE_TIMEOUT_SECONDS,
-            main._request_limiter,
+    def make_app(self, pipeline, *, limits=None, **settings):
+        self.app = create_app(
+            Settings(testing=True, **settings), limits=limits, pipeline=pipeline
         )
-        self.addCleanup(self.restore_main_state)
-        main._request_limiter = None
-        main.active_translate_requests = 0
-
-    def restore_main_state(self):
-        (
-            main.pipeline,
-            main.active_translate_requests,
-            main.last_error,
-            main.MAX_UPLOAD_SIZE,
-            main.UPLOAD_OVERHEAD_BYTES,
-            main.MAX_CONCURRENT_REQUESTS,
-            main.QUEUE_TIMEOUT_SECONDS,
-            main._request_limiter,
-        ) = self.original_state
+        self.backend = self.app.state.backend
+        return self.app
 
     @staticmethod
     def make_blocking_pipeline():
@@ -1120,7 +1098,7 @@ class RequestLimitTests(unittest.TestCase):
 
     def run_scenario(self, scenario):
         async def runner():
-            transport = httpx.ASGITransport(app=main.app)
+            transport = httpx.ASGITransport(app=self.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
                 return await scenario(client)
 
@@ -1128,8 +1106,7 @@ class RequestLimitTests(unittest.TestCase):
 
     def test_pipeline_calls_never_exceed_the_concurrency_limit_on_any_route(self):
         pipeline = self.make_blocking_pipeline()
-        main.pipeline = pipeline
-        main.MAX_CONCURRENT_REQUESTS = 2
+        self.make_app(pipeline, max_concurrent=2)
 
         async def scenario(client):
             tasks = [
@@ -1140,7 +1117,7 @@ class RequestLimitTests(unittest.TestCase):
             await asyncio.sleep(0.1)
             self.assertEqual(pipeline.in_flight, 2)
             # All four routes count in the gauge, queued requests included.
-            self.assertEqual(main.active_translate_requests, 4)
+            self.assertEqual(self.backend.active_requests, 4)
             pipeline.gate.set()
             return await asyncio.gather(*tasks)
 
@@ -1148,12 +1125,11 @@ class RequestLimitTests(unittest.TestCase):
 
         self.assertEqual([response.status_code for response in responses], [200] * 4)
         self.assertEqual(pipeline.max_in_flight, 2)
-        self.assertEqual(main.active_translate_requests, 0)
+        self.assertEqual(self.backend.active_requests, 0)
 
     def test_concurrency_limit_of_one_serializes_requests(self):
         pipeline = self.make_blocking_pipeline()
-        main.pipeline = pipeline
-        main.MAX_CONCURRENT_REQUESTS = 1
+        self.make_app(pipeline, max_concurrent=1)
 
         async def scenario(client):
             tasks = [asyncio.create_task(self.post(client, "/translate")) for _ in range(3)]
@@ -1170,9 +1146,7 @@ class RequestLimitTests(unittest.TestCase):
 
     def test_request_returns_429_with_retry_after_only_after_queue_timeout(self):
         pipeline = self.make_blocking_pipeline()
-        main.pipeline = pipeline
-        main.MAX_CONCURRENT_REQUESTS = 1
-        main.QUEUE_TIMEOUT_SECONDS = 0.1
+        self.make_app(pipeline, max_concurrent=1, queue_timeout_seconds=0.1)
 
         async def scenario(client):
             first = asyncio.create_task(self.post(client, "/translate"))
@@ -1184,17 +1158,15 @@ class RequestLimitTests(unittest.TestCase):
         rejected, first = self.run_scenario(scenario)
 
         self.assertEqual(rejected.status_code, 429)
-        self.assertEqual(rejected.headers["retry-after"], str(main.QUEUE_RETRY_AFTER_SECONDS))
+        self.assertEqual(rejected.headers["retry-after"], str(Limits().queue_retry_after_seconds))
         self.assertEqual(first.status_code, 200)
         self.assertEqual(len(pipeline.translate_calls), 1)
-        self.assertEqual(main.active_translate_requests, 0)
+        self.assertEqual(self.backend.active_requests, 0)
 
     def test_slot_is_released_when_the_pipeline_call_fails(self):
         pipeline = FakePipeline()
         pipeline.translate_error = RuntimeError("model failed")
-        main.pipeline = pipeline
-        main.MAX_CONCURRENT_REQUESTS = 1
-        main.QUEUE_TIMEOUT_SECONDS = 0.5
+        self.make_app(pipeline, max_concurrent=1, queue_timeout_seconds=0.5)
 
         async def scenario(client):
             return [await self.post(client, "/translate") for _ in range(3)]
@@ -1202,15 +1174,15 @@ class RequestLimitTests(unittest.TestCase):
         responses = self.run_scenario(scenario)
 
         self.assertEqual([response.status_code for response in responses], [500] * 3)
-        self.assertEqual(main.active_translate_requests, 0)
+        self.assertEqual(self.backend.active_requests, 0)
 
     def test_oversize_content_length_is_rejected_before_the_body_is_parsed(self):
         pipeline = FakePipeline()
-        main.pipeline = pipeline
-        main.MAX_UPLOAD_SIZE = 4
-        main.UPLOAD_OVERHEAD_BYTES = 1000
+        app = self.make_app(
+            pipeline, limits=Limits(max_upload_size=4, upload_overhead_bytes=1000)
+        )
 
-        with TestClient(main.app) as client:
+        with TestClient(app) as client:
             response = client.post(
                 "/translate",
                 files={"image": ("page.png", b"x" * 3000, "image/png")},
@@ -1230,10 +1202,10 @@ class RequestLimitTests(unittest.TestCase):
 
     def test_absurdly_long_content_length_is_rejected_instead_of_crashing(self):
         pipeline = FakePipeline()
-        main.pipeline = pipeline
+        app = self.make_app(pipeline)
 
         # Python refuses to int() a digit string this long, so it must never get that far.
-        with TestClient(main.app) as client:
+        with TestClient(app) as client:
             response = client.post(
                 "/translate",
                 content=b"x",
@@ -1246,17 +1218,25 @@ class RequestLimitTests(unittest.TestCase):
 
     def test_limits_can_be_configured_from_the_environment(self):
         with patch.dict(os.environ, {"BACKEND_MAX_CONCURRENT": "5", "BACKEND_QUEUE_TIMEOUT_SECONDS": "12.5"}):
-            self.assertEqual(main._env_positive_number("BACKEND_MAX_CONCURRENT", 2), 5)
-            self.assertEqual(main._env_positive_number("BACKEND_QUEUE_TIMEOUT_SECONDS", 600.0, float), 12.5)
+            settings = Settings(_env_file=None)
+            self.assertEqual(settings.max_concurrent, 5)
+            self.assertEqual(settings.queue_timeout_seconds, 12.5)
         for raw in ("0", "-3", "abc", "nan", ""):
             with self.subTest(raw=raw), patch.dict(os.environ, {"BACKEND_MAX_CONCURRENT": raw}):
-                self.assertEqual(main._env_positive_number("BACKEND_MAX_CONCURRENT", 2), 2)
-        with env_without("BACKEND_MAX_CONCURRENT"):
-            self.assertEqual(main._env_positive_number("BACKEND_MAX_CONCURRENT", 2), 2)
+                self.assertEqual(Settings(_env_file=None).max_concurrent, 2)
+        for raw in ("0", "-1", "soon", "nan", ""):
+            with self.subTest(timeout=raw), patch.dict(
+                os.environ, {"BACKEND_QUEUE_TIMEOUT_SECONDS": raw}
+            ):
+                self.assertEqual(Settings(_env_file=None).queue_timeout_seconds, 600.0)
+        with env_without("BACKEND_MAX_CONCURRENT", "BACKEND_QUEUE_TIMEOUT_SECONDS"):
+            settings = Settings(_env_file=None)
+            self.assertEqual(settings.max_concurrent, 2)
+            self.assertEqual(settings.queue_timeout_seconds, 600.0)
 
     def test_module_constants_are_read_from_the_environment_at_import(self):
-        # Other tests overwrite main.MAX_CONCURRENT_REQUESTS in-process, so import
-        # main fresh in a child process to prove the env vars feed the constants.
+        # Import the ASGI entry point fresh in a child process to prove the env
+        # vars feed the default app's settings.
         env = {
             **os.environ,
             "MANGA_TRANSLATOR_TESTING": "1",
@@ -1268,7 +1248,7 @@ class RequestLimitTests(unittest.TestCase):
             [
                 sys.executable,
                 "-c",
-                "from manga_backend import main; print(main.MAX_CONCURRENT_REQUESTS, main.QUEUE_TIMEOUT_SECONDS)",
+                "from manga_backend import main; settings = main.app.state.backend.settings; print(settings.max_concurrent, settings.queue_timeout_seconds)",
             ],
             cwd=BACKEND_DIR,
             env=env,
@@ -1332,26 +1312,16 @@ class SlowStartPipeline(FakePipeline):
 
 class StartupLifecycleTests(unittest.TestCase):
     def setUp(self):
-        self.original_pipeline = main.pipeline
-        self.original_last_error = main.last_error
-        self.original_limiter = main._request_limiter
         SlowStartPipeline.instances = []
-        main.pipeline = None
-        main.last_error = None
-        main._request_limiter = None
-        patcher = patch.multiple(
-            main,
-            TranslationPipeline=SlowStartPipeline,
-            get_device=lambda use_gpu=False: "cpu",
-        )
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        self.addCleanup(self.restore_main_state)
+        self.app = self.make_app()
 
-    def restore_main_state(self):
-        main.pipeline = self.original_pipeline
-        main.last_error = self.original_last_error
-        main._request_limiter = self.original_limiter
+    @staticmethod
+    def make_app(*, testing=True, pipeline=None):
+        return create_app(
+            Settings(testing=testing),
+            pipeline=pipeline,
+            pipeline_factory=lambda use_gpu: SlowStartPipeline(device="cpu"),
+        )
 
     def wait_for_health_status(self, client, expected, timeout=5.0):
         deadline = time.monotonic() + timeout
@@ -1372,7 +1342,7 @@ class StartupLifecycleTests(unittest.TestCase):
         )
 
     def test_backend_serves_while_models_load_and_becomes_ready(self):
-        with TestClient(main.app) as client:
+        with TestClient(self.app) as client:
             pipeline = SlowStartPipeline.instances[0]
 
             root = client.get("/")
@@ -1397,7 +1367,7 @@ class StartupLifecycleTests(unittest.TestCase):
             self.assertEqual(self.translate(client).status_code, 200)
 
         self.assertTrue(pipeline.disposed)
-        self.assertIsNone(main.pipeline)
+        self.assertIsNone(self.app.state.backend.pipeline)
 
     def test_backend_stays_loading_until_the_inpainter_warm_up_finishes(self):
         warm_release = threading.Event()
@@ -1409,7 +1379,7 @@ class StartupLifecycleTests(unittest.TestCase):
             warm_calls.append("finished")
 
         with patch.object(SlowStartPipeline, "warm_up", warm_up, create=True):
-            with TestClient(main.app) as client:
+            with TestClient(self.app) as client:
                 pipeline = SlowStartPipeline.instances[0]
                 pipeline.release.set()
 
@@ -1426,20 +1396,20 @@ class StartupLifecycleTests(unittest.TestCase):
                 self.assertEqual(self.translate(client).status_code, 200)
 
     def test_shutdown_cancels_a_pending_initialization_and_disposes(self):
-        with TestClient(main.app) as client:
+        with TestClient(self.app) as client:
             pipeline = SlowStartPipeline.instances[0]
             self.assertEqual(client.get("/health").json()["status"], "loading")
-            task = main.app.state.pipeline_init_task
+            task = self.app.state.backend.pipeline_init_task
             self.assertFalse(task.done())
 
         self.assertTrue(pipeline.init_cancelled)
         self.assertTrue(task.cancelled())
         self.assertTrue(pipeline.disposed)
-        self.assertIsNone(main.app.state.pipeline_init_task)
-        self.assertIsNone(main.pipeline)
+        self.assertIsNone(self.app.state.backend.pipeline_init_task)
+        self.assertIsNone(self.app.state.backend.pipeline)
 
     def test_failed_initialization_is_recorded_and_reported_degraded(self):
-        with TestClient(main.app) as client:
+        with TestClient(self.app) as client:
             pipeline = SlowStartPipeline.instances[0]
             pipeline.fail_with = RuntimeError("download failed")
             pipeline.release.set()
@@ -1454,23 +1424,21 @@ class StartupLifecycleTests(unittest.TestCase):
 
     def test_injected_pipeline_is_used_without_initialization_or_disposal(self):
         injected = FakePipeline()
-        main.pipeline = injected
+        app = self.make_app(pipeline=injected)
 
-        with TestClient(main.app) as client:
+        with TestClient(app) as client:
             self.assertEqual(client.get("/health").json()["status"], "ok")
-            self.assertIsNone(main.app.state.pipeline_init_task)
+            self.assertIsNone(app.state.backend.pipeline_init_task)
 
         self.assertEqual(SlowStartPipeline.instances, [])
-        self.assertIs(main.pipeline, injected)
+        self.assertIs(app.state.backend.pipeline, injected)
 
     def test_testing_mode_logs_a_warning_that_auth_is_disabled(self):
-        main.pipeline = FakePipeline()
-
         for testing_mode, expect_warning in ((True, True), (False, False)):
             with self.subTest(testing_mode=testing_mode):
-                with patch.object(main, "TESTING_MODE", testing_mode), \
-                        self.assertLogs(main.logger, level="INFO") as logs:
-                    with TestClient(main.app):
+                app = self.make_app(testing=testing_mode, pipeline=FakePipeline())
+                with self.assertLogs(API_LOGGER, level="INFO") as logs:
+                    with TestClient(app):
                         pass
 
                 warned = [
@@ -1485,8 +1453,8 @@ class StartupLifecycleTests(unittest.TestCase):
 class BackendEnvLoadingTests(unittest.TestCase):
     def test_testing_flag_keeps_backend_dotenv_out_of_the_process(self):
         with patch.dict(os.environ, {"MANGA_TRANSLATOR_TESTING": "1"}), \
-                patch.object(main, "load_dotenv") as load_dotenv:
-            self.assertFalse(main.load_backend_env())
+                patch.object(bootstrap, "load_dotenv") as load_dotenv:
+            self.assertFalse(bootstrap.load_backend_env())
 
         load_dotenv.assert_not_called()
 
@@ -1495,8 +1463,8 @@ class BackendEnvLoadingTests(unittest.TestCase):
             with self.subTest(flag=value):
                 overrides = {} if value is None else {"MANGA_TRANSLATOR_TESTING": value}
                 with env_without("MANGA_TRANSLATOR_TESTING", **overrides), \
-                        patch.object(main, "load_dotenv") as load_dotenv:
-                    self.assertTrue(main.load_backend_env())
+                        patch.object(bootstrap, "load_dotenv") as load_dotenv:
+                    self.assertTrue(bootstrap.load_backend_env())
 
                 load_dotenv.assert_called_once()
                 self.assertEqual(Path(load_dotenv.call_args.args[0]).name, ".env")
