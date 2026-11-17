@@ -21,8 +21,8 @@ import {
   canAutoProcessImages,
   mutationTouchesCanvasReader,
   reconcileVisibleCanvases,
-  scheduleCanvasReconcile,
 } from './reconcile';
+import { scheduleCanvasReconcile } from './reconcile-scheduler';
 import { ensureSettingsLoaded } from './settings-store';
 import { state } from './state';
 import { processImage, translatePage } from './translate';

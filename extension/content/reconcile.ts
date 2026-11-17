@@ -91,15 +91,6 @@ export function syncCanvasOverlays(): void {
   }
 }
 
-/** Debounced `reconcileVisibleCanvases`. */
-export function scheduleCanvasReconcile(autoProcess = false, delayMs = 120): void {
-  if (!state.siteEnabled) return;
-  if (state.canvasReconcileDebounce !== null) clearTimeout(state.canvasReconcileDebounce);
-  state.canvasReconcileDebounce = setTimeout(() => {
-    reconcileVisibleCanvases(autoProcess);
-  }, delayMs);
-}
-
 export function reconcileVisibleCanvases(autoProcess = false): void {
   if (!state.siteEnabled) return;
   syncCanvasOverlays();

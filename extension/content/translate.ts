@@ -52,7 +52,7 @@ import { discoverImages, isAlreadyTranslatedElement } from './discovery';
 import { getPageId } from './dom';
 import { isNonRetryableImageError, isTranslationTransportError } from './errors';
 import { getCachedPageImage } from './page-cache';
-import { scheduleCanvasReconcile } from './reconcile';
+import { scheduleCanvasReconcile } from './reconcile-scheduler';
 import { replaceWithTranslatedImage } from './render';
 import {
   clearImageRetryBlock,

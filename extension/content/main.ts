@@ -6,6 +6,8 @@
 import { browser } from 'wxt/browser';
 import { clearPageTranslations, requestStopTranslation } from './clear';
 import { handleMessage } from './messages';
+import { reconcileVisibleCanvases } from './reconcile';
+import { setCanvasReconciler } from './reconcile-scheduler';
 import { startRegionSelection } from './region';
 import { refreshSiteActivation, startInitialSiteRuntime } from './runtime';
 import { loadSettings } from './settings-store';
@@ -27,6 +29,7 @@ function handleStorageChanged(changes: StorageChanges, areaName: string): void {
 }
 
 export async function initContentScript(): Promise<void> {
+  setCanvasReconciler(reconcileVisibleCanvases);
   setUiActions({
     translatePage,
     startRegionSelection,
