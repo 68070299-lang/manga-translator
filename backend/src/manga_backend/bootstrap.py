@@ -79,7 +79,7 @@ def add_cuda_dll_directories() -> list[str]:
         if os.path.isdir(directory := os.path.join(root, "nvidia", component, "bin"))
     ]
     for directory in extra_paths:
-        if hasattr(os, "add_dll_directory"):
+        if sys.platform == "win32":
             _dll_directory_handles.append(os.add_dll_directory(directory))
     if extra_paths:
         os.environ["PATH"] = ";".join([*extra_paths, os.environ.get("PATH", "")])
