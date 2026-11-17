@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class WorkflowSettings:
     diffusion_model: str = "flux-2-klein-4b-fp8.safetensors"
     text_encoder: str = "qwen_3_4b_fp4_flux2.safetensors"

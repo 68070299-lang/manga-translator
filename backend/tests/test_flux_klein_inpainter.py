@@ -51,15 +51,12 @@ class FluxKleinInitializeTests(unittest.TestCase):
 
     def test_missing_llm_names_models_dir_env_var(self):
         with writable_temp_directory() as td:
-            cli = os.path.join(td, "sd-cli.exe")
-            Path(cli).write_bytes(b"x")
+            cli = Path(td, "sd-cli.exe")
+            cli.write_bytes(b"x")
+            Path(td, GGUF_NAME).write_bytes(b"x")
             with patch.dict(
-                os.environ, {"SD_CPP_CLI": cli, "SD_CPP_MODELS_DIR": td}
-            ), patch(
-                "manga_backend.models.flux_klein_inpainter.os.path.exists",
-                side_effect=lambda path: path == cli
-                or path.endswith(GGUF_NAME),
-            ):
+                os.environ, {"SD_CPP_CLI": str(cli), "SD_CPP_MODELS_DIR": td}
+            ), patch.object(flux_klein_inpainter, "FLUX_DIR", Path(td)):
                 with self.assertRaises(RuntimeError) as raised:
                     asyncio.run(FluxKleinInpainter().initialize())
 
@@ -69,15 +66,12 @@ class FluxKleinInitializeTests(unittest.TestCase):
 
     def test_initialize_succeeds_when_every_file_exists(self):
         with writable_temp_directory() as td:
-            cli = os.path.join(td, "sd-cli.exe")
-            Path(cli).write_bytes(b"x")
+            cli = Path(td, "sd-cli.exe")
+            for name in (cli.name, GGUF_NAME, LLM_NAME, VAE_NAME):
+                Path(td, name).write_bytes(b"x")
             with patch.dict(
-                os.environ, {"SD_CPP_CLI": cli, "SD_CPP_MODELS_DIR": td}
-            ), patch(
-                "manga_backend.models.flux_klein_inpainter.os.path.exists", return_value=True
-            ), patch(
-                "manga_backend.models.flux_klein_inpainter.os.path.getsize", return_value=1
-            ):
+                os.environ, {"SD_CPP_CLI": str(cli), "SD_CPP_MODELS_DIR": td}
+            ), patch.object(flux_klein_inpainter, "FLUX_DIR", Path(td)):
                 inpainter = FluxKleinInpainter()
                 asyncio.run(inpainter.initialize())
 
@@ -139,7 +133,7 @@ class FluxKleinSubprocessTests(unittest.TestCase):
 
         self.assertEqual(
             seen["cmd"][0],
-            os.path.join(flux_klein_inpainter.FLUX_DIR, "sd-cli.exe"),
+            str(flux_klein_inpainter.FLUX_DIR / "sd-cli.exe"),
         )
         self.assertEqual(seen["kwargs"]["timeout"], 120.0)
 

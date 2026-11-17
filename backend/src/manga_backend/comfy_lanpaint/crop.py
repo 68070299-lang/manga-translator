@@ -13,7 +13,7 @@ class CropBudgetExceeded(ValueError):
     """A masked component cannot fit the crop pixel budget even without context."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CropRegion:
     """One contextual crop and its mapping back into the source image."""
 

@@ -1,5 +1,4 @@
-"""
-Translation using LLM APIs.
+"""Translation using LLM APIs.
 
 Supports multiple translation backends:
 - Gemini
@@ -8,14 +7,22 @@ Supports multiple translation backends:
 - None (returns original text)
 """
 
+from __future__ import annotations
+
 import asyncio
-import os
-import logging
 import ipaddress
 import json
+import logging
+import os
 import re
-from typing import List, Optional
+from collections.abc import Awaitable, Callable
+from types import ModuleType
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlparse
+
+if TYPE_CHECKING:
+    import httpx
+    from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +38,7 @@ GEMINI_STALL_SECONDS = 12.0
 GEMINI_THINKING_STALL_SECONDS = 60.0
 
 
-def gemini_thinking_level(model_name: str) -> Optional[str]:
+def gemini_thinking_level(model_name: str) -> str | None:
     """Thinking level to request, or None to leave the model's default.
 
     Gemma 4 reasons at length by default (about 4,000 thinking tokens and 90 s
@@ -86,17 +93,26 @@ class TranslatorTimeoutError(TranslatorError):
 class Translator:
     """Translation using LLM APIs."""
 
-    def __init__(self, translator_type: str = "none", api_key: str = None, model: str = None,
-                 local_llm_base_url: str = None, local_llm_api_key: str = None):
+    def __init__(
+        self,
+        translator_type: str = "none",
+        api_key: str | None = None,
+        model: str | None = None,
+        local_llm_base_url: str | None = None,
+        local_llm_api_key: str | None = None,
+    ) -> None:
         self.translator_type = translator_type
         self.api_key = api_key
         self.model_name = model
         self.local_llm_base_url = local_llm_base_url
         self.local_llm_api_key = local_llm_api_key
-        self.client = None
-        self.model = None
+        # An AsyncOpenAI client, the google.generativeai module when that SDK is
+        # installed, or "gemini_http" for the plain HTTP fallback.
+        self.client: AsyncOpenAI | ModuleType | Literal["gemini_http"] | None = None
+        # google.generativeai.GenerativeModel when the SDK is installed.
+        self.model: Any = None
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Initialize the translation client."""
         if self.translator_type == "none":
             logger.info("Translation disabled (pass-through mode)")
@@ -111,18 +127,18 @@ class Translator:
         else:
             raise ValueError(f"Unsupported translator type: {self.translator_type}")
 
-    async def close(self):
+    async def close(self) -> None:
         """Release the HTTP connections held by an OpenAI-compatible client."""
         close = getattr(self.client, "close", None)
         if self.translator_type in ["openai", "openrouter", "local"] and callable(close):
             try:
-                await close()
+                await cast("Callable[[], Awaitable[None]]", close)()
             except Exception as error:
                 # A finished translation must not fail because cleanup did.
                 logger.warning("Translator client close failed: %s", type(error).__name__)
         self.client = None
 
-    async def _init_gemini(self):
+    async def _init_gemini(self) -> None:
         """Initialize Gemini API client."""
         api_key = self.api_key or os.environ.get("GEMINI_API_KEY")
         if not api_key:
@@ -131,18 +147,18 @@ class Translator:
         self.model_name = self.model_name or os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
 
         try:
-            import google.generativeai as genai
+            import google.generativeai as genai  # pyright: ignore[reportMissingImports]
             genai.configure(api_key=api_key)
             self.client = genai
             self.model = genai.GenerativeModel(self.model_name)
-            logger.info(f"Gemini translator initialized: {self.model_name}")
+            logger.info("Gemini translator initialized: %s", self.model_name)
         except ImportError:
             # Fall back to HTTP API
             logger.info("Using Gemini HTTP API")
             self.client = "gemini_http"
             self.api_key = api_key
 
-    async def _init_openai(self):
+    async def _init_openai(self) -> None:
         """Initialize OpenAI/OpenRouter API client."""
         if self.translator_type == "openrouter":
             api_key = self.api_key or os.environ.get("OPENROUTER_API_KEY")
@@ -157,10 +173,11 @@ class Translator:
             raise ValueError(f"API key not set for {self.translator_type}")
 
         from openai import AsyncOpenAI
-        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        logger.info(f"OpenAI-compatible translator initialized: {base_url}")
 
-    async def _init_local(self):
+        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        logger.info("OpenAI-compatible translator initialized: %s", base_url)
+
+    async def _init_local(self) -> None:
         """Initialize local LLM client (llama.cpp, vLLM, etc.)."""
         base_url = self.local_llm_base_url or os.environ.get("LOCAL_LLM_BASE_URL", "http://localhost:8000/v1")
         base_url = validate_local_llm_base_url(base_url)
@@ -168,16 +185,18 @@ class Translator:
         self.model_name = self.model_name or os.environ.get("LOCAL_LLM_MODEL", "")
 
         from openai import AsyncOpenAI
+
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        logger.info(f"Local LLM translator initialized: {base_url} (model: {self.model_name or 'server default'})")
+        logger.info(
+            "Local LLM translator initialized: %s (model: %s)",
+            base_url,
+            self.model_name or "server default",
+        )
 
     async def translate(
-        self,
-        texts: List[str],
-        target_lang: str = "English"
-    ) -> List[str]:
-        """
-        Translate a list of texts.
+        self, texts: list[str], target_lang: str = "English"
+    ) -> list[str]:
+        """Translate a list of texts.
 
         Args:
             texts: List of source texts to translate
@@ -204,23 +223,23 @@ class Translator:
                 return await self._translate_openai(prompt, len(texts))
             else:
                 raise ValueError(f"Unsupported translator type: {self.translator_type}")
-        except Exception as e:
+        except Exception as error:
             # Provider errors can embed upstream response bodies or credentials, so
             # only the exception class and HTTP status are logged.
-            status = getattr(e, "status_code", None)
+            status = getattr(error, "status_code", None)
             if status is None:
-                status = getattr(getattr(e, "response", None), "status_code", None)
+                status = getattr(getattr(error, "response", None), "status_code", None)
             logger.error(
                 "Translation failed: %s%s",
-                type(e).__name__,
+                type(error).__name__,
                 f" (HTTP {status})" if status else "",
             )
-            is_timeout = any("Timeout" in cls.__name__ for cls in type(e).__mro__)
+            is_timeout = any("Timeout" in cls.__name__ for cls in type(error).__mro__)
             raise (TranslatorTimeoutError if is_timeout else TranslatorError)(
                 "Translation request failed"
-            ) from e
+            ) from error
 
-    def _build_prompt(self, texts: List[str], target_lang: str) -> str:
+    def _build_prompt(self, texts: list[str], target_lang: str) -> str:
         """Build the translation prompt."""
         numbered_texts = "\n".join(f"{i+1}. {text}" for i, text in enumerate(texts))
 
@@ -234,7 +253,7 @@ Input:
 
 Output (translated, same numbering):"""
 
-    async def _translate_gemini(self, prompt: str, count: int) -> List[str]:
+    async def _translate_gemini(self, prompt: str, count: int) -> list[str]:
         """Translate using Gemini API."""
         if self.client == "gemini_http":
             return await self._translate_gemini_http(prompt, count)
@@ -242,7 +261,7 @@ Output (translated, same numbering):"""
         response = await self.model.generate_content_async(prompt)
         return self._parse_numbered_response(response.text, count)
 
-    async def _translate_gemini_http(self, prompt: str, count: int) -> List[str]:
+    async def _translate_gemini_http(self, prompt: str, count: int) -> list[str]:
         """Translate using the Gemini HTTP API (Gemini and Gemma models).
 
         The reply is streamed so a request that never starts answering is given
@@ -253,19 +272,19 @@ Output (translated, same numbering):"""
         model_name = self.model_name or "gemini-2.0-flash"
         model_path = model_name if model_name.startswith("models/") else f"models/{model_name}"
         url = f"{GEMINI_API_ROOT}/{model_path}:streamGenerateContent?alt=sse"
-        headers = {"x-goog-api-key": self.api_key, "Content-Type": "application/json"}
-        body = {"contents": [{"parts": [{"text": prompt}]}]}
+        headers = {"x-goog-api-key": self.api_key or "", "Content-Type": "application/json"}
+        body: dict[str, Any] = {"contents": [{"parts": [{"text": prompt}]}]}
         thinking_level = gemini_thinking_level(model_name)
         if thinking_level:
             body["generationConfig"] = {"thinkingConfig": {"thinkingLevel": thinking_level}}
 
-        def stall_timeout(level: Optional[str]) -> "httpx.Timeout":
+        def stall_timeout(level: str | None) -> httpx.Timeout:
             # Without thinking the first words arrive within a couple of seconds; a
             # model left to think may stay silent for much longer before it answers.
             stall = GEMINI_STALL_SECONDS if level == "minimal" else GEMINI_THINKING_STALL_SECONDS
             return httpx.Timeout(stall, connect=10.0)
 
-        text = None
+        text: str | None = None
         failure: Exception = RuntimeError("Gemini request was not attempted")
         timeout = stall_timeout(thinking_level)
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -312,18 +331,18 @@ Output (translated, same numbering):"""
                 )
                 await asyncio.sleep(delay)
 
-        if not text.strip():
+        if text is None or not text.strip():
             raise RuntimeError("Gemini returned no text")
         return self._parse_numbered_response(text, count)
 
     @staticmethod
-    async def _read_gemini_stream(response) -> str:
+    async def _read_gemini_stream(response: httpx.Response) -> str:
         """Join the answer text of a server-sent-events reply.
 
         Thinking models send their reasoning as separate parts marked "thought";
         those are left out.
         """
-        pieces: List[str] = []
+        pieces: list[str] = []
         async for line in response.aiter_lines():
             if not line.startswith("data:"):
                 continue
@@ -334,24 +353,25 @@ Output (translated, same numbering):"""
                         pieces.append(part.get("text", ""))
         return "".join(pieces)
 
-    async def _translate_openai(self, prompt: str, count: int) -> List[str]:
+    async def _translate_openai(self, prompt: str, count: int) -> list[str]:
         """Translate using OpenAI-compatible API."""
+        client = cast("AsyncOpenAI", self.client)
         model = self.model_name if self.model_name else "default"
-        logger.info(f"Sending request to {self.translator_type} (model: {model})...")
-        response = await self.client.chat.completions.create(
+        logger.info("Sending request to %s (model: %s)...", self.translator_type, model)
+        response = await client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": "You are a professional manga translator."},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ],
-            temperature=0.3
+            temperature=0.3,
         )
 
         text = response.choices[0].message.content
-        logger.info(f"Received response from {self.translator_type}")
+        logger.info("Received response from %s", self.translator_type)
         return self._parse_numbered_response(text, count)
 
-    def _parse_numbered_response(self, text: str, expected_count: int) -> List[str]:
+    def _parse_numbered_response(self, text: str | None, expected_count: int) -> list[str]:
         """Parse numbered translation response."""
         cleaned = self._strip_code_fence(text)
 
@@ -359,15 +379,15 @@ Output (translated, same numbering):"""
         if parsed_json:
             return parsed_json
 
-        lines = cleaned.split('\n')
+        lines = cleaned.split("\n")
         # Place each translation by its number so a skipped or empty item cannot
         # shift every later translation onto the wrong bubble.
-        parts: List[List[str]] = [[] for _ in range(expected_count)]
-        seen = set()
-        current = None
+        parts: list[list[str]] = [[] for _ in range(expected_count)]
+        seen: set[int] = set()
+        current: int | None = None
         # Unnumbered lines count as a wrapped item only once another numbered line
         # follows them; trailing prose after the last item must not reach a bubble.
-        pending: List[str] = []
+        pending: list[str] = []
         accepting = False
 
         for line in lines:
@@ -399,13 +419,15 @@ Output (translated, same numbering):"""
 
         if len(translations) < expected_count:
             logger.warning(
-                f"Parser returned {len(translations)} translations but expected {expected_count}. "
-                f"Missing blocks will be left blank (not rendered)."
+                "Parser returned %s translations but expected %s. "
+                "Missing blocks will be left blank (not rendered).",
+                len(translations),
+                expected_count,
             )
 
         return translations
 
-    def _strip_code_fence(self, text: str) -> str:
+    def _strip_code_fence(self, text: str | None) -> str:
         """Remove a single Markdown code fence around a model response."""
         stripped = (text or "").strip()
         if not stripped.startswith("```"):
@@ -418,7 +440,7 @@ Output (translated, same numbering):"""
             lines = lines[:-1]
         return "\n".join(lines).strip()
 
-    def _parse_json_response(self, text: str, expected_count: int) -> List[str]:
+    def _parse_json_response(self, text: str, expected_count: int) -> list[str]:
         """Parse JSON array/object responses some models return despite prompting."""
         try:
             parsed = json.loads(text)
@@ -435,8 +457,10 @@ Output (translated, same numbering):"""
 
         if len(translations) < expected_count:
             logger.warning(
-                f"Parser returned {len(translations)} translations but expected {expected_count}. "
-                f"Missing blocks will be left blank (not rendered)."
+                "Parser returned %s translations but expected %s. "
+                "Missing blocks will be left blank (not rendered).",
+                len(translations),
+                expected_count,
             )
 
         return translations[:expected_count]

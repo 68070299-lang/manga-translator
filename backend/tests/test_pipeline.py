@@ -19,12 +19,28 @@ from manga_backend.comfy_lanpaint.client import ComfyUIError, ComfyUIUnreachable
 from manga_backend.pipeline import (
     DEFAULT_INPAINTER,
     DetectorUnavailableError,
-    GOOGLE_OCR_CONCURRENCY,
     GoogleOCRError,
     InpainterUnavailableError,
     PaddleOCRUnavailableError,
     TranslationPipeline,
-    text_block_to_dict,
+)
+from manga_backend.pipeline.bubbles import bubble_body_center, infer_bubble_render_bounds
+from manga_backend.pipeline.detection import normalize_detector_type, text_block_to_dict
+from manga_backend.pipeline.layout import (
+    build_render_regions,
+    expand_short_standalone_regions,
+)
+from manga_backend.pipeline.masks import (
+    bubble_interior_mask_for_block,
+    contour_safe_mask_for_block,
+    create_mask,
+    prepare_flux_inpainting,
+)
+from manga_backend.pipeline.ocr import GOOGLE_OCR_CONCURRENCY, google_ocr
+from manga_backend.pipeline.rendering import (
+    auto_fit_font_size,
+    render_text,
+    wrap_text_to_lines,
 )
 from manga_backend.utils.textblock import TextBlock
 
@@ -121,7 +137,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
             async def detect(self, _image):
                 return [TextBlock([1, 2, 10, 11])]
 
-        pipeline._optional_detectors["animetext-yolo"] = FakeAnimeTextDetector()
+        pipeline._detectors.optional["animetext-yolo"] = FakeAnimeTextDetector()
         pipeline._ocr = FakeOcrEngine()
         result = await pipeline.translate(
             image,
@@ -137,15 +153,15 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
     async def test_advertised_default_inpainter_reuses_preloaded_session(self):
         pipeline = TranslationPipeline(device="cpu")
         active = object()
-        pipeline._inpainter = active
+        pipeline._inpainters.instance = active
         pipeline.model_status["inpainter"]["status"] = "loaded"
 
-        with patch("manga_backend.pipeline.Inpainter") as inpainter_constructor:
-            selected = await pipeline._get_inpainter(
+        with patch("manga_backend.pipeline.inpainting.Inpainter") as inpainter_constructor:
+            selected = await pipeline._inpainters.get(
                 pipeline.model_status["inpainter"]["name"]
             )
 
-        self.assertEqual(pipeline._inpainter_type, DEFAULT_INPAINTER)
+        self.assertEqual(pipeline._inpainters.type, DEFAULT_INPAINTER)
         self.assertIs(selected, active)
         inpainter_constructor.assert_not_called()
 
@@ -169,7 +185,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
         image = np.zeros((12, 24, 3), dtype=np.uint8)
 
         with patch(
-            "manga_backend.pipeline.get_paddle_ocr", return_value=fake_paddle
+            "manga_backend.pipeline.components.get_paddle_ocr", return_value=fake_paddle
         ) as mock_get_paddle:
             texts = await pipeline.ocr(
                 image, [{"bbox": [1, 2, 10, 11]}], ocr="paddle-ocr"
@@ -186,7 +202,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
         fake_paddle = FakePaddleEngine()
         image = np.zeros((12, 24, 3), dtype=np.uint8)
 
-        with patch("manga_backend.pipeline.get_paddle_ocr", return_value=fake_paddle):
+        with patch("manga_backend.pipeline.components.get_paddle_ocr", return_value=fake_paddle):
             blocks = await pipeline.paddle_ocr_full(image, lang="en")
 
         self.assertEqual(blocks, [{"text": "full-paddle"}])
@@ -201,8 +217,8 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
             async def detect(self, _image):
                 return [TextBlock([1, 2, 10, 11])]
 
-        pipeline._detector = FakeDetector()
-        with patch("manga_backend.pipeline.get_paddle_ocr", return_value=fake_paddle):
+        pipeline._detectors.default = FakeDetector()
+        with patch("manga_backend.pipeline.components.get_paddle_ocr", return_value=fake_paddle):
             result = await pipeline.translate(
                 image,
                 ocr="paddle-ocr",
@@ -227,7 +243,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
             seen_statuses.append(pipeline.model_status["paddle_ocr"]["status"])
             raise RuntimeError("ort exploded")
 
-        with patch("manga_backend.pipeline.get_paddle_ocr", return_value=fake_paddle):
+        with patch("manga_backend.pipeline.components.get_paddle_ocr", return_value=fake_paddle):
             fake_paddle.recognize_regions = failing
             with self.assertRaisesRegex(RuntimeError, "ort exploded"):
                 await pipeline.ocr(image, regions, ocr="paddle-ocr")
@@ -254,7 +270,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
 
         fake_paddle.recognize_regions = cancelled
         fake_paddle.detect_and_recognize = cancelled
-        with patch("manga_backend.pipeline.get_paddle_ocr", return_value=fake_paddle):
+        with patch("manga_backend.pipeline.components.get_paddle_ocr", return_value=fake_paddle):
             with self.assertRaises(asyncio.CancelledError):
                 await pipeline.ocr(image, [{"bbox": [1, 2, 10, 11]}], ocr="paddle-ocr")
             self.assertEqual(pipeline.model_status["paddle_ocr"]["status"], "loaded")
@@ -271,7 +287,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError("missing model")
 
         fake_paddle.initialize = broken_initialize
-        with patch("manga_backend.pipeline.get_paddle_ocr", return_value=fake_paddle):
+        with patch("manga_backend.pipeline.components.get_paddle_ocr", return_value=fake_paddle):
             with self.assertRaisesRegex(RuntimeError, "missing model"):
                 await pipeline.paddle_ocr_full(image)
         self.assertEqual(pipeline.model_status["paddle_ocr"]["status"], "error")
@@ -281,7 +297,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
 
         pipeline.model_status["paddle_ocr"]["status"] = "not_loaded"
         fake_paddle.initialize = cancelled_initialize
-        with patch("manga_backend.pipeline.get_paddle_ocr", return_value=fake_paddle):
+        with patch("manga_backend.pipeline.components.get_paddle_ocr", return_value=fake_paddle):
             with self.assertRaises(asyncio.CancelledError):
                 await pipeline.paddle_ocr_full(image)
         self.assertEqual(pipeline.model_status["paddle_ocr"]["status"], "not_loaded")
@@ -301,7 +317,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
             return ["slow"]
 
         fake_paddle.recognize_regions = slow_recognize
-        with patch("manga_backend.pipeline.get_paddle_ocr", return_value=fake_paddle):
+        with patch("manga_backend.pipeline.components.get_paddle_ocr", return_value=fake_paddle):
             task = asyncio.create_task(
                 pipeline.ocr(image, [{"bbox": [1, 2, 10, 11]}], ocr="paddle-ocr")
             )
@@ -311,7 +327,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await task, ["slow"])
 
     def test_paddle_engine_is_shared_across_languages(self):
-        import manga_backend.pipeline as pipeline_module
+        from manga_backend.pipeline import components as components_module
 
         created = []
 
@@ -321,12 +337,12 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
 
         fake_module = types.ModuleType("manga_backend.models.paddle_ocr_onnx")
         fake_module.PaddleOCROnnxEngine = Engine
-        with patch.dict(pipeline_module._paddle_ocr_engines, {}, clear=True), patch.dict(
+        with patch.dict(components_module._paddle_ocr_engines, {}, clear=True), patch.dict(
             sys.modules, {"manga_backend.models.paddle_ocr_onnx": fake_module}
         ):
-            english = pipeline_module.get_paddle_ocr(lang="en", device="cpu")
-            chinese = pipeline_module.get_paddle_ocr(lang="ch", device="cpu")
-            gpu = pipeline_module.get_paddle_ocr(lang="en", device="cuda")
+            english = components_module.get_paddle_ocr(lang="en", device="cpu")
+            chinese = components_module.get_paddle_ocr(lang="ch", device="cpu")
+            gpu = components_module.get_paddle_ocr(lang="en", device="cuda")
 
         self.assertIs(english, chinese)
         self.assertIsNot(english, gpu)
@@ -341,9 +357,9 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0)
 
         pipeline = TranslationPipeline(device="cpu")
-        with patch("manga_backend.pipeline.TextDetector", FakeCore), patch(
-            "manga_backend.pipeline.OCREngine", FakeCore
-        ), patch("manga_backend.pipeline.get_paddle_ocr") as get_paddle:
+        with patch("manga_backend.pipeline.orchestrator.TextDetector", FakeCore), patch(
+            "manga_backend.pipeline.orchestrator.OCREngine", FakeCore
+        ), patch("manga_backend.pipeline.components.get_paddle_ocr") as get_paddle:
             await pipeline.initialize()
 
         get_paddle.assert_not_called()
@@ -371,7 +387,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
             fake_paddle.initialized = True
 
         fake_paddle.initialize = flaky_initialize
-        with patch("manga_backend.pipeline.get_paddle_ocr", return_value=fake_paddle):
+        with patch("manga_backend.pipeline.components.get_paddle_ocr", return_value=fake_paddle):
             with self.assertRaises(PaddleOCRUnavailableError) as raised:
                 await pipeline.ocr(image, blocks, ocr="paddle-ocr")
 
@@ -396,7 +412,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(pipeline.component_ready("paddle_ocr"))
 
     async def test_concurrent_first_paddle_requests_share_one_engine_and_one_load(self):
-        import manga_backend.pipeline as pipeline_module
+        from manga_backend.pipeline import components as components_module
 
         created = []
 
@@ -427,7 +443,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
         pipeline.is_initialized = True
         image = np.zeros((12, 24, 3), dtype=np.uint8)
 
-        with patch.dict(pipeline_module._paddle_ocr_engines, {}, clear=True), patch.dict(
+        with patch.dict(components_module._paddle_ocr_engines, {}, clear=True), patch.dict(
             sys.modules, {"manga_backend.models.paddle_ocr_onnx": fake_module}
         ):
             results = await asyncio.gather(
@@ -459,13 +475,13 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
                 return source.copy()
 
         inpainter = FakeInpainter()
-        pipeline._detector = FakeDetector()
+        pipeline._detectors.default = FakeDetector()
         pipeline._ocr = FakeOcrEngine()
-        pipeline._inpainter = inpainter
-        pipeline._inpainter_type = "test"
+        pipeline._inpainters.instance = inpainter
+        pipeline._inpainters.type = "test"
         pipeline.model_status["inpainter"] = {"status": "loaded", "name": "test"}
 
-        with patch.object(pipeline, "_render_text", return_value=image):
+        with patch("manga_backend.pipeline.orchestrator.render_text", return_value=image):
             await pipeline.translate(
                 image,
                 translator="none",
@@ -475,7 +491,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
 
         np.testing.assert_array_equal(
             inpainter.mask,
-            pipeline._create_mask(image, [block]),
+            create_mask(image, [block]),
         )
 
     async def test_translation_uses_rectangular_mask_for_animetext_yolo(self):
@@ -495,13 +511,13 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
                 return source.copy()
 
         inpainter = FakeInpainter()
-        pipeline._optional_detectors["animetext-yolo"] = FakeDetector()
+        pipeline._detectors.optional["animetext-yolo"] = FakeDetector()
         pipeline._ocr = FakeOcrEngine()
-        pipeline._inpainter = inpainter
-        pipeline._inpainter_type = "test"
+        pipeline._inpainters.instance = inpainter
+        pipeline._inpainters.type = "test"
         pipeline.model_status["inpainter"] = {"status": "loaded", "name": "test"}
 
-        with patch.object(pipeline, "_render_text", return_value=image):
+        with patch("manga_backend.pipeline.orchestrator.render_text", return_value=image):
             await pipeline.translate(
                 image,
                 detector="anime-text-yolo",
@@ -512,25 +528,26 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
 
         np.testing.assert_array_equal(
             inpainter.mask,
-            pipeline._create_mask(image, [block], rectangular=True),
+            create_mask(image, [block], rectangular=True),
         )
 
     async def test_ocr_routes_google_with_api_key_and_language_hint(self):
         pipeline = TranslationPipeline(device="cpu")
         image = np.zeros((12, 24, 3), dtype=np.uint8)
-        pipeline._google_ocr = AsyncMock(return_value=["google-text"])
+        fake_google_ocr = AsyncMock(return_value=["google-text"])
 
-        texts = await pipeline.ocr(
-            image,
-            [{"bbox": [1, 2, 10, 11]}],
-            ocr="google-ocr",
-            google_ocr_api_key="vision-key",
-            google_ocr_language_hint="ja",
-        )
+        with patch("manga_backend.pipeline.ocr.google_ocr", fake_google_ocr):
+            texts = await pipeline.ocr(
+                image,
+                [{"bbox": [1, 2, 10, 11]}],
+                ocr="google-ocr",
+                google_ocr_api_key="vision-key",
+                google_ocr_language_hint="ja",
+            )
 
         self.assertEqual(texts, ["google-text"])
-        pipeline._google_ocr.assert_awaited_once()
-        _image, blocks, api_key, language_hint = pipeline._google_ocr.await_args.args
+        fake_google_ocr.assert_awaited_once()
+        _image, blocks, api_key, language_hint = fake_google_ocr.await_args.args
         self.assertEqual(blocks[0].xyxy.tolist(), [1, 2, 10, 11])
         self.assertEqual(api_key, "vision-key")
         self.assertEqual(language_hint, "ja")
@@ -538,7 +555,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
     async def test_translate_closes_translator_client_after_success_and_failure(self):
         for error in (None, RuntimeError("provider down")):
             pipeline = TranslationPipeline(device="cpu")
-            pipeline._detector = types.SimpleNamespace(
+            pipeline._detectors.default = types.SimpleNamespace(
                 detect=AsyncMock(return_value=[TextBlock(xyxy=[1, 1, 8, 8])])
             )
             pipeline._ocr = types.SimpleNamespace(process=AsyncMock(return_value=["テキスト"]))
@@ -548,7 +565,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
                 close=AsyncMock(),
             )
 
-            with patch("manga_backend.pipeline.Translator", return_value=provider):
+            with patch("manga_backend.pipeline.translation.Translator", return_value=provider):
                 if error:
                     with self.assertRaises(RuntimeError):
                         await pipeline.translate(
@@ -605,7 +622,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
         return FakeSession, state
 
     async def test_google_ocr_runs_concurrently_within_limit_and_keeps_block_order(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.zeros((40, 40, 3), dtype=np.uint8)
         blocks = [TextBlock(xyxy=[0, 0, 10, 10]) for _ in range(GOOGLE_OCR_CONCURRENCY * 2)]
         blocks.insert(1, TextBlock(xyxy=[5, 5, 5, 5]))  # empty crop makes no request
@@ -617,7 +634,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
 
         session, state = self._fake_google_session(respond)
         with patch("aiohttp.ClientSession", session):
-            texts = await pipeline._google_ocr(image, blocks, "vision-key")
+            texts = await google_ocr(image, blocks, "vision-key")
 
         self.assertEqual(len(texts), len(blocks))
         self.assertEqual(texts[1], "")
@@ -627,7 +644,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.peak, GOOGLE_OCR_CONCURRENCY)
 
     async def test_google_ocr_failure_cancels_remaining_requests_and_stays_sanitized(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.zeros((40, 40, 3), dtype=np.uint8)
         blocks = [TextBlock(xyxy=[0, 0, 10, 10]) for _ in range(GOOGLE_OCR_CONCURRENCY * 3)]
 
@@ -640,7 +657,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
         session, state = self._fake_google_session(respond)
         with patch("aiohttp.ClientSession", session):
             with self.assertRaises(GoogleOCRError) as raised:
-                await asyncio.wait_for(pipeline._google_ocr(image, blocks, "vision-key"), timeout=5)
+                await asyncio.wait_for(google_ocr(image, blocks, "vision-key"), timeout=5)
 
         self.assertNotIn("vision-key", str(raised.exception))
         self.assertEqual(state.active, 0)
@@ -654,7 +671,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
             await pipeline.ocr(image, [{"bbox": [1, 2, 10, 11]}], ocr="google-ocr")
 
     async def test_google_ocr_skips_zero_area_regions(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.zeros((12, 24, 3), dtype=np.uint8)
         blocks = [
             TextBlock([5, 5, 5, 8]),
@@ -662,7 +679,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
             TextBlock([30, 30, 40, 40]),
         ]
 
-        texts = await pipeline._google_ocr(image, blocks, api_key="vision-key")
+        texts = await google_ocr(image, blocks, api_key="vision-key")
 
         self.assertEqual(texts, ["", "", ""])
 
@@ -687,18 +704,18 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
             def dispose(self):
                 self.disposed = True
 
-        with patch("manga_backend.pipeline.Inpainter", FakeInpainter):
+        with patch("manga_backend.pipeline.inpainting.Inpainter", FakeInpainter):
             first, second = await __import__("asyncio").gather(
-                pipeline._get_inpainter("lama"),
-                pipeline._get_inpainter("lama_large"),
+                pipeline._inpainters.get("lama"),
+                pipeline._inpainters.get("lama_large"),
             )
 
         self.assertEqual(
             [first.inpainter_type, second.inpainter_type], ["lama", "lama_large"]
         )
         self.assertTrue(all(instance.initialized for instance in created))
-        self.assertIs(pipeline._inpainter, second)
-        self.assertEqual(pipeline._inpainter_type, "lama_large")
+        self.assertIs(pipeline._inpainters.instance, second)
+        self.assertEqual(pipeline._inpainters.type, "lama_large")
         self.assertTrue(first.disposed)
         self.assertFalse(second.disposed)
 
@@ -715,15 +732,15 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
             async def initialize(self):
                 await __import__("asyncio").sleep(0)
 
-        with patch("manga_backend.pipeline.Inpainter", FakeInpainter):
+        with patch("manga_backend.pipeline.inpainting.Inpainter", FakeInpainter):
             first, second = await __import__("asyncio").gather(
-                pipeline._get_inpainter("lama_large"),
-                pipeline._get_inpainter("lama_large"),
+                pipeline._inpainters.get("lama_large"),
+                pipeline._inpainters.get("lama_large"),
             )
 
         self.assertEqual(len(created), 1)
         self.assertIs(first, second)
-        self.assertIs(pipeline._inpainter, first)
+        self.assertIs(pipeline._inpainters.instance, first)
 
     async def test_inpainter_initialization_error_is_reported_without_publishing(self):
         pipeline = TranslationPipeline(device="cpu")
@@ -739,11 +756,11 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
             def dispose(self):
                 self.disposed = True
 
-        with patch("manga_backend.pipeline.Inpainter", BrokenInpainter):
+        with patch("manga_backend.pipeline.inpainting.Inpainter", BrokenInpainter):
             with self.assertRaisesRegex(RuntimeError, "model load failed"):
-                await pipeline._get_inpainter("lama")
+                await pipeline._inpainters.get("lama")
 
-        self.assertIsNone(pipeline._inpainter)
+        self.assertIsNone(pipeline._inpainters.instance)
         self.assertTrue(pipeline.broken_candidate.disposed)
         self.assertEqual(pipeline.model_status["inpainter"]["status"], "error")
         self.assertEqual(pipeline.model_status["inpainter"]["name"], "lama")
@@ -768,8 +785,8 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
     ):
         pipeline = TranslationPipeline(device="cpu")
         active = object()
-        pipeline._inpainter = active
-        pipeline._inpainter_type = "lama_large"
+        pipeline._inpainters.instance = active
+        pipeline._inpainters.type = "lama_large"
         pipeline.is_initialized = True
         pipeline.model_status["detector"]["status"] = "loaded"
         pipeline.model_status["ocr"]["status"] = "loaded"
@@ -782,19 +799,19 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
             async def initialize(self):
                 raise RuntimeError("replacement failed")
 
-        with patch("manga_backend.pipeline.Inpainter", BrokenInpainter):
+        with patch("manga_backend.pipeline.inpainting.Inpainter", BrokenInpainter):
             with self.assertRaisesRegex(RuntimeError, "replacement failed"):
-                await pipeline._get_inpainter("lama")
+                await pipeline._inpainters.get("lama")
 
-        self.assertIs(pipeline._inpainter, active)
-        self.assertEqual(pipeline._inpainter_type, "lama_large")
+        self.assertIs(pipeline._inpainters.instance, active)
+        self.assertEqual(pipeline._inpainters.type, "lama_large")
         self.assertTrue(pipeline.is_ready)
         self.assertEqual(
             pipeline.model_status["inpainter"]["last_load_error"],
             {"name": "lama", "error": "replacement failed"},
         )
 
-        restored = await pipeline._get_inpainter("lama_large")
+        restored = await pipeline._inpainters.get("lama_large")
         self.assertIs(restored, active)
         self.assertTrue(pipeline.is_ready)
 
@@ -812,7 +829,7 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertEqual(payload["bubble_center"], [38.5, 51.25])
 
     def test_auto_direction_keeps_translated_latin_text_horizontal(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((120, 80, 3), 255, dtype=np.uint8)
         block = TextBlock([20, 5, 45, 115], translated_text="TRAIN ME")
 
@@ -821,30 +838,29 @@ class PipelineRenderTests(unittest.TestCase):
                 "auto direction should not stack translated Latin text vertically"
             )
 
-        pipeline._draw_vertical_text = fail_vertical
-
-        rendered = pipeline._render_text(
-            image.copy(),
-            [block],
-            text_direction="auto",
-            bg_opacity=0,
-        )
+        with patch("manga_backend.pipeline.rendering.draw_vertical_text", fail_vertical):
+            rendered = render_text(
+                image.copy(),
+                [block],
+                text_direction="auto",
+                bg_opacity=0,
+            )
 
         self.assertFalse(np.array_equal(rendered, image))
 
     def test_render_text_honors_vertical_direction(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((90, 90, 3), 255, dtype=np.uint8)
         block = TextBlock([25, 5, 65, 85], translated_text="ABCD")
 
-        horizontal = pipeline._render_text(
+        horizontal = render_text(
             image.copy(),
             [block],
             text_direction="horizontal",
             bg_opacity=0,
             auto_scale=False,
         )
-        vertical = pipeline._render_text(
+        vertical = render_text(
             image.copy(),
             [block],
             text_direction="vertical",
@@ -858,9 +874,9 @@ class PipelineRenderTests(unittest.TestCase):
     def test_latin_wrapping_keeps_words_that_fit_intact(self):
         from PIL import ImageFont
 
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
 
-        lines = pipeline._wrap_text_to_lines(
+        lines = wrap_text_to_lines(
             "A SENSE OF FAMILIARITY", ImageFont.load_default(), width=90
         )
 
@@ -870,10 +886,10 @@ class PipelineRenderTests(unittest.TestCase):
     def test_latin_wrapping_splits_only_oversized_tokens(self):
         from PIL import ImageFont
 
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         font = ImageFont.load_default()
 
-        lines = pipeline._wrap_text_to_lines(
+        lines = wrap_text_to_lines(
             "UNBREAKABLYLONGWORD", font, width=30, stroke_width=1
         )
 
@@ -885,27 +901,27 @@ class PipelineRenderTests(unittest.TestCase):
     def test_latin_wrapping_can_break_at_em_dash_without_adding_space(self):
         from PIL import ImageFont
 
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         font = ImageFont.load_default(size=12)
         word_width = max(
             font.getbbox("NICE—")[2] - font.getbbox("NICE—")[0],
             font.getbbox("LIVING")[2] - font.getbbox("LIVING")[0],
         )
 
-        lines = pipeline._wrap_text_to_lines(
+        lines = wrap_text_to_lines(
             "NICE—LIVING", font, width=word_width
         )
 
         self.assertEqual(lines, ["NICE—", "LIVING"])
 
     def test_rtdetr_blocks_sharing_a_bubble_render_as_one_region(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         first = TextBlock([40, 20, 60, 50], text="A", translated_text="FIRST")
         second = TextBlock([42, 55, 62, 80], text="B", translated_text="SECOND")
         first.bubble_xyxy = [30, 10, 90, 100]
         second.bubble_xyxy = [30, 10, 90, 100]
 
-        regions = pipeline._build_render_regions([second, first], (120, 120, 3))
+        regions = build_render_regions([second, first], (120, 120, 3))
 
         self.assertEqual(len(regions), 1)
         self.assertEqual(regions[0].translated_text, "FIRST SECOND")
@@ -913,12 +929,12 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertEqual(second.xyxy.tolist(), [42, 55, 62, 80])
 
     def test_yolo_regions_are_clipped_and_cannot_draw_into_neighbors(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((80, 140, 3), 255, dtype=np.uint8)
         left = TextBlock([5, 10, 40, 70], translated_text="UNBREAKABLYLONGWORD")
         right = TextBlock([100, 10, 135, 70], translated_text="ANOTHERLONGWORD")
 
-        rendered = pipeline._render_text(
+        rendered = render_text(
             image.copy(),
             [left, right],
             text_direction="horizontal",
@@ -935,13 +951,13 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertFalse(changed[:, 40:100].any())
 
     def test_tiny_short_label_expands_without_overlapping_neighbor(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         short = TextBlock([120, 691, 142, 724], translated_text="Hey")
-        short._render_from_bubble = False
+        short.render_from_bubble = False
         neighbor = TextBlock([72, 724, 134, 841], translated_text="Hurry up!")
-        neighbor._render_from_bubble = True
+        neighbor.render_from_bubble = True
 
-        expanded = pipeline._expand_short_standalone_regions(
+        expanded = expand_short_standalone_regions(
             [short, neighbor], (902, 1240, 3)
         )
 
@@ -950,7 +966,7 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertEqual(short.y2, neighbor.y1)
 
     def test_small_bubble_text_can_overflow_to_reach_readable_font(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((120, 120, 3), 255, dtype=np.uint8)
         block = TextBlock(
             [45, 35, 75, 85],
@@ -959,7 +975,7 @@ class PipelineRenderTests(unittest.TestCase):
         )
         block.bubble_xyxy = [40, 20, 80, 100]
 
-        rendered = pipeline._render_text(
+        rendered = render_text(
             image,
             [block],
             bg_opacity=0,
@@ -973,13 +989,13 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertTrue(xs.min() < 42 or xs.max() >= 78)
 
     def test_narrow_text_is_fitted_without_touching_clip_boundary(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((90, 60, 3), 255, dtype=np.uint8)
         block = TextBlock(
             [10, 10, 45, 80], translated_text="UNBREAKABLYLONGWORD"
         )
 
-        rendered = pipeline._render_text(
+        rendered = render_text(
             image.copy(),
             [block],
             text_direction="horizontal",
@@ -995,19 +1011,19 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertFalse(changed[10:80, 44].any())
 
     def test_distinct_bubbles_are_not_merged(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         first = TextBlock([10, 10, 30, 30], translated_text="ONE")
         second = TextBlock([20, 20, 40, 40], translated_text="TWO")
         first.bubble_xyxy = [5, 5, 45, 45]
         second.bubble_xyxy = [6, 5, 45, 45]
 
-        regions = pipeline._build_render_regions([first, second], (60, 60, 3))
+        regions = build_render_regions([first, second], (60, 60, 3))
 
         self.assertEqual(len(regions), 2)
         self.assertLessEqual(regions[0].x2, regions[1].x1)
 
     def test_yolo_exact_composite_is_suppressed_before_partitioning(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         parent = TextBlock(
             [0, 0, 80, 120], text="WA MIKI", translated_text="Oh, it is Miki"
         )
@@ -1015,7 +1031,7 @@ class PipelineRenderTests(unittest.TestCase):
         left = TextBlock([0, 30, 40, 120], text="MIKI", translated_text="Miki")
         right.bubble_xyxy = [42, 0, 90, 40]
 
-        regions = pipeline._build_render_regions(
+        regions = build_render_regions(
             [parent, left, right], (140, 100, 3)
         )
 
@@ -1023,7 +1039,7 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertNotIn("Oh, it is Miki", [region.translated_text for region in regions])
 
     def test_same_translation_sfx_inside_bubble_renders_once(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         sfx = TextBlock(
             [19, 15, 55, 91], text="SAME", translated_text="Same translation"
         )
@@ -1033,14 +1049,14 @@ class PipelineRenderTests(unittest.TestCase):
         sfx.block_type = "sfx"
         text.bubble_xyxy = [12, 13, 60, 94]
 
-        regions = pipeline._build_render_regions([sfx, text], (110, 80, 3))
+        regions = build_render_regions([sfx, text], (110, 80, 3))
 
         self.assertEqual(len(regions), 1)
         self.assertEqual(regions[0].translated_text, "Same translation")
-        self.assertTrue(getattr(regions[0], "_render_from_bubble", False))
+        self.assertTrue(getattr(regions[0], "render_from_bubble", False))
 
     def test_bubble_group_deduplicates_identical_detector_blocks(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         first = TextBlock([20, 20, 50, 80], text="SAME", translated_text="Once")
         duplicate = TextBlock(
             [20, 20, 50, 80], text="SAME", translated_text="Once"
@@ -1048,19 +1064,19 @@ class PipelineRenderTests(unittest.TestCase):
         first.bubble_xyxy = [10, 10, 60, 90]
         duplicate.bubble_xyxy = [10, 10, 60, 90]
 
-        regions = pipeline._build_render_regions([first, duplicate], (100, 100, 3))
+        regions = build_render_regions([first, duplicate], (100, 100, 3))
 
         self.assertEqual(len(regions), 1)
         self.assertEqual(regions[0].translated_text, "Once")
 
     def test_nonmatching_nested_regions_are_partitioned_not_suppressed(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         parent = TextBlock([10, 10, 90, 90], text="WHOLE", translated_text="Whole")
         child = TextBlock([30, 30, 70, 70], text="PART", translated_text="Part")
         original_parent = parent.xyxy.copy()
         original_child = child.xyxy.copy()
 
-        regions = pipeline._build_render_regions([parent, child], (100, 100, 3))
+        regions = build_render_regions([parent, child], (100, 100, 3))
 
         self.assertEqual(len(regions), 2)
         first, second = regions
@@ -1071,19 +1087,19 @@ class PipelineRenderTests(unittest.TestCase):
         np.testing.assert_array_equal(child.xyxy, original_child)
 
     def test_partition_discards_weaker_region_when_no_usable_split_exists(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         stronger = TextBlock([10, 10, 30, 30], text="A", translated_text="Keep")
         weaker = TextBlock([10, 10, 30, 30], text="B", translated_text="Drop")
         stronger.confidence = 0.9
         weaker.confidence = 0.4
 
-        regions = pipeline._build_render_regions([weaker, stronger], (50, 50, 3))
+        regions = build_render_regions([weaker, stronger], (50, 50, 3))
 
         self.assertEqual(len(regions), 1)
         self.assertEqual(regions[0].translated_text, "Keep")
 
     def test_render_partition_is_stable_when_input_order_is_reversed(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
 
         def build(reverse=False):
             blocks = [
@@ -1093,7 +1109,7 @@ class PipelineRenderTests(unittest.TestCase):
             ]
             if reverse:
                 blocks.reverse()
-            return pipeline._build_render_regions(blocks, (100, 100, 3))
+            return build_render_regions(blocks, (100, 100, 3))
 
         forward = [(region.text, region.xyxy.tolist()) for region in build()]
         reversed_regions = [
@@ -1103,11 +1119,11 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertEqual(forward, reversed_regions)
 
     def test_explicit_white_background_is_rendered(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.zeros((80, 120, 3), dtype=np.uint8)
         block = TextBlock([10, 10, 110, 70], translated_text="HELLO")
 
-        rendered = pipeline._render_text(
+        rendered = render_text(
             image.copy(),
             [block],
             text_direction="horizontal",
@@ -1118,9 +1134,9 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertGreater(float(rendered[12, 12].mean()), 200)
 
     def test_short_latin_text_does_not_scale_to_title_size(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
 
-        font_size = pipeline._auto_fit_font_size(
+        font_size = auto_fit_font_size(
             font_path=None,
             text="THAT.",
             width=360,
@@ -1132,9 +1148,9 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertLessEqual(font_size, 28)
 
     def test_auto_fit_uses_preferred_size_when_it_fits(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
 
-        font_size = pipeline._auto_fit_font_size(
+        font_size = auto_fit_font_size(
             font_path=None,
             text="HELLO",
             width=240,
@@ -1150,7 +1166,7 @@ class PipelineRenderTests(unittest.TestCase):
         import os
         import tempfile
 
-        import manga_backend.pipeline as pipeline_module
+        from manga_backend.pipeline import fonts as fonts_module
 
         bundled = (BACKEND_DIR / "src" / "manga_backend" / "fonts" / "CCWildWords.ttf").resolve()
         self.assertTrue(bundled.is_file())
@@ -1159,8 +1175,8 @@ class PipelineRenderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             try:
                 os.chdir(temp_dir)
-                with patch.dict(pipeline_module._font_cache, clear=True):
-                    font_path = pipeline_module._get_cached_font("english")
+                with patch.dict(fonts_module._font_cache, clear=True):
+                    font_path = fonts_module.get_cached_font("english")
             finally:
                 os.chdir(original_cwd)
 
@@ -1168,12 +1184,12 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertEqual(Path(font_path).resolve(), bundled)
 
     def test_auto_fit_reduces_from_preferred_size_to_largest_fit(self):
-        import manga_backend.pipeline as pipeline_module
+        from manga_backend.pipeline import fonts as fonts_module
 
-        pipeline = TranslationPipeline(device="cpu")
-        font_path = pipeline_module._get_cached_font("english")
+        TranslationPipeline(device="cpu")
+        font_path = fonts_module.get_cached_font("english")
 
-        font_size = pipeline._auto_fit_font_size(
+        font_size = auto_fit_font_size(
             font_path=font_path,
             text="A translation that needs several wrapped lines",
             width=70,
@@ -1188,12 +1204,12 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertLess(font_size, 16)
 
     def test_auto_fit_reduces_size_instead_of_splitting_short_words(self):
-        import manga_backend.pipeline as pipeline_module
+        from manga_backend.pipeline import fonts as fonts_module
 
-        pipeline = TranslationPipeline(device="cpu")
-        font_path = pipeline_module._get_cached_font("english")
+        TranslationPipeline(device="cpu")
+        font_path = fonts_module.get_cached_font("english")
 
-        font_size = pipeline._auto_fit_font_size(
+        font_size = auto_fit_font_size(
             font_path=font_path,
             text="Hurry up!",
             width=56,
@@ -1208,12 +1224,12 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertLess(font_size, 16)
 
     def test_font_fit_scales_stroke_and_preserves_words(self):
-        import manga_backend.pipeline as pipeline_module
+        from manga_backend.pipeline import fonts as fonts_module
 
-        pipeline = TranslationPipeline(device="cpu")
-        font_path = pipeline_module._get_cached_font("english")
+        TranslationPipeline(device="cpu")
+        font_path = fonts_module.get_cached_font("english")
 
-        font_size = pipeline._auto_fit_font_size(
+        font_size = auto_fit_font_size(
             font_path=font_path,
             text="Must be nice—living so close.",
             width=34,
@@ -1226,9 +1242,9 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertEqual(font_size, 5)
 
     def test_impossible_region_still_reports_no_font_fit(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
 
-        font_size = pipeline._auto_fit_font_size(
+        font_size = auto_fit_font_size(
             font_path=None,
             text="TOO LARGE",
             width=3,
@@ -1241,12 +1257,12 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertEqual(font_size, 0)
 
     def test_auto_fit_can_use_a_tiny_readable_fallback_in_narrow_regions(self):
-        import manga_backend.pipeline as pipeline_module
+        from manga_backend.pipeline import fonts as fonts_module
 
-        pipeline = TranslationPipeline(device="cpu")
-        font_path = pipeline_module._get_cached_font("english")
+        TranslationPipeline(device="cpu")
+        font_path = fonts_module.get_cached_font("english")
 
-        font_size = pipeline._auto_fit_font_size(
+        font_size = auto_fit_font_size(
             font_path=font_path,
             text="My husband's an engineer. Not much to look at, though.",
             width=20,
@@ -1261,19 +1277,18 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertLess(font_size, 6)
 
     def test_create_mask_follows_rtdetr_bubble_contour_not_its_rectangle(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((140, 180, 3), 150, dtype=np.uint8)
         cv2.ellipse(image, (90, 70), (55, 45), 0, 0, 360, (255, 255, 255), -1)
         cv2.ellipse(image, (90, 70), (55, 45), 0, 0, 360, (0, 0, 0), 2)
         block = TextBlock([72, 58, 108, 72], translated_text="TEXT")
         block.bubble_xyxy = [33, 23, 147, 117]
 
-        with patch.object(
-            pipeline,
-            "_glyph_mask_for_block",
+        with patch(
+            "manga_backend.pipeline.masks.glyph_mask_for_block",
             return_value=(np.zeros((1, 1), dtype=np.uint8), (0, 0, 1, 1)),
         ):
-            mask = pipeline._create_mask(image, [block])
+            mask = create_mask(image, [block])
 
         self.assertEqual(mask[70, 90], 255)
         self.assertEqual(mask[25, 35], 0)
@@ -1281,11 +1296,11 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertEqual(mask[23, 33], 0)
 
     def test_yolo_mask_is_exact_clipped_detection_rectangle(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.zeros((30, 40, 3), dtype=np.uint8)
         block = TextBlock([0, 5, 10, 20])
 
-        mask = pipeline._create_mask(image, [block], rectangular=True)
+        mask = create_mask(image, [block], rectangular=True)
 
         self.assertTrue(np.all(mask[5:20, 0:10] == 255))
         self.assertFalse(np.any(mask[:5]))
@@ -1293,30 +1308,30 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertFalse(np.any(mask[5:20, 10:]))
 
     def test_animetext_aliases_normalize_to_yolo_rectangle_route(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
 
         for detector in ("animetext", "animetext_yolo", "anime-text-yolo"):
             self.assertEqual(
-                pipeline._normalize_detector_type(detector),
+                normalize_detector_type(detector),
                 "animetext-yolo",
             )
 
     def test_yolo_block_finds_bubble_contour_without_detector_bubble_box(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((140, 180, 3), 150, dtype=np.uint8)
         cv2.ellipse(image, (90, 70), (55, 45), 0, 0, 360, (255, 255, 255), -1)
         cv2.ellipse(image, (90, 70), (55, 45), 0, 0, 360, (0, 0, 0), 2)
         block = TextBlock([72, 58, 108, 72], translated_text="TEXT")
 
         interior, (x1, y1, _x2, _y2) = (
-            pipeline._bubble_interior_mask_for_block(image, block)
+            bubble_interior_mask_for_block(image, block)
         )
 
         self.assertEqual(interior[70 - y1, 90 - x1], 255)
         self.assertEqual(interior[25 - y1, 35 - x1], 0)
 
     def test_bubble_contour_ignores_text_connected_near_outline(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((150, 190, 3), 145, dtype=np.uint8)
         cv2.ellipse(image, (95, 75), (58, 52), 0, 0, 360, (255, 255, 255), -1)
         cv2.ellipse(image, (95, 75), (58, 52), 0, 0, 360, (0, 0, 0), 2)
@@ -1324,21 +1339,21 @@ class PipelineRenderTests(unittest.TestCase):
         block = TextBlock([82, 42, 140, 100], translated_text="TEXT")
 
         interior, (x1, y1, _x2, _y2) = (
-            pipeline._bubble_interior_mask_for_block(image, block)
+            bubble_interior_mask_for_block(image, block)
         )
 
         self.assertEqual(interior[60 - y1, 135 - x1], 255)
         self.assertEqual(interior[20 - y1, 25 - x1], 0)
 
     def test_yolo_dialogue_infers_bubble_bounds_for_rendering(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((140, 180, 3), 150, dtype=np.uint8)
         cv2.ellipse(image, (90, 70), (55, 45), 0, 0, 360, (255, 255, 255), -1)
         cv2.ellipse(image, (90, 70), (55, 45), 0, 0, 360, (0, 0, 0), 2)
         dialogue = TextBlock([72, 58, 108, 72], translated_text="OH?")
         sfx = TextBlock([10, 10, 30, 30], block_type="sfx", translated_text="THUD")
 
-        inferred = pipeline._infer_bubble_render_bounds(image, [dialogue, sfx])
+        inferred = infer_bubble_render_bounds(image, [dialogue, sfx])
 
         self.assertEqual(inferred, 1)
         bx1, by1, bx2, by2 = dialogue.bubble_xyxy
@@ -1349,18 +1364,17 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertIsNone(getattr(sfx, "bubble_xyxy", None))
 
     def test_yolo_rejects_off_center_ui_aggregate_as_bubble(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((120, 160, 3), 128, dtype=np.uint8)
         interior = np.zeros((120, 160), dtype=np.uint8)
         interior[10:110, 10:150] = 255
         block = TextBlock([55, 14, 105, 30], translated_text="MESSAGE")
 
-        with patch.object(
-            pipeline,
-            "_bubble_interior_mask_for_block",
+        with patch(
+            "manga_backend.pipeline.bubbles.bubble_interior_mask_for_block",
             return_value=(interior, (0, 0, 160, 120)),
         ):
-            inferred = pipeline._infer_bubble_render_bounds(image, [block])
+            inferred = infer_bubble_render_bounds(image, [block])
 
         self.assertEqual(inferred, 0)
         self.assertIsNone(block.bubble_xyxy)
@@ -1374,14 +1388,14 @@ class PipelineRenderTests(unittest.TestCase):
             255,
         )
 
-        center = TranslationPipeline._bubble_body_center(interior, (0, 0))
+        center = bubble_body_center(interior, (0, 0))
 
         self.assertAlmostEqual(center[0], 60.5, delta=1.0)
         self.assertAlmostEqual(center[1], 60.5, delta=1.0)
         self.assertLess(center[0], 70)
 
     def test_all_render_paths_center_on_bubble_body_not_tail_bounds(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((120, 160, 3), 255, dtype=np.uint8)
         interior = np.zeros((120, 160), dtype=np.uint8)
         cv2.ellipse(interior, (60, 60), (35, 48), 0, 0, 360, 255, -1)
@@ -1393,12 +1407,11 @@ class PipelineRenderTests(unittest.TestCase):
         block = TextBlock([48, 45, 72, 75], translated_text="CENTER")
         block.bubble_xyxy = [25, 12, 136, 109]
 
-        with patch.object(
-            pipeline,
-            "_bubble_interior_mask_for_block",
+        with patch(
+            "manga_backend.pipeline.bubbles.bubble_interior_mask_for_block",
             return_value=(interior, (0, 0, 160, 120)),
         ):
-            rendered = pipeline._render_text(
+            rendered = render_text(
                 image,
                 [block],
                 bg_opacity=0,
@@ -1413,7 +1426,7 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertLess(float(np.median(xs)), 75)
 
     def test_yolo_composite_children_receive_separate_padded_regions(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((140, 140, 3), 128, dtype=np.uint8)
         parent = TextBlock([40, 20, 110, 120], text="RIGHTLEFT")
         right = TextBlock(
@@ -1423,15 +1436,15 @@ class PipelineRenderTests(unittest.TestCase):
             [46, 55, 74, 105], text="LEFT", translated_text="Cosmetics"
         )
 
-        pipeline._infer_bubble_render_bounds(image, [parent, left, right])
+        infer_bubble_render_bounds(image, [parent, left, right])
 
         self.assertEqual(right.bubble_xyxy, [80, 24, 112, 76])
         self.assertEqual(left.bubble_xyxy, [40, 50, 80, 110])
         self.assertEqual(
-            right._composite_render_group, left._composite_render_group
+            right.composite_render_group, left.composite_render_group
         )
 
-        regions = pipeline._build_render_regions(
+        regions = build_render_regions(
             [parent, left, right], image.shape
         )
         self.assertEqual([region.xyxy.tolist() for region in regions], [
@@ -1440,7 +1453,7 @@ class PipelineRenderTests(unittest.TestCase):
         ])
 
     def test_primary_glyph_mask_is_clipped_inside_bubble_outline(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((140, 180, 3), 150, dtype=np.uint8)
         cv2.ellipse(image, (90, 70), (55, 45), 0, 0, 360, (255, 255, 255), -1)
         cv2.ellipse(image, (90, 70), (55, 45), 0, 0, 360, (0, 0, 0), 2)
@@ -1449,7 +1462,7 @@ class PipelineRenderTests(unittest.TestCase):
         block.bubble_xyxy = [33, 23, 147, 117]
 
         mask, (x1, y1, _x2, _y2), strategy = (
-            pipeline._contour_safe_mask_for_block(image, block)
+            contour_safe_mask_for_block(image, block)
         )
 
         self.assertEqual(strategy, "bubble-clipped-glyph")
@@ -1457,7 +1470,7 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertEqual(mask[25 - y1, 90 - x1], 0)
 
     def test_bubble_mask_keeps_compact_glyph_touching_detector_edge(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((100, 130, 3), 150, dtype=np.uint8)
         cv2.ellipse(image, (65, 50), (45, 38), 0, 0, 360, (255, 255, 255), -1)
         cv2.ellipse(image, (65, 50), (45, 38), 0, 0, 360, (0, 0, 0), 2)
@@ -1466,26 +1479,25 @@ class PipelineRenderTests(unittest.TestCase):
         interior = np.zeros((100, 130), dtype=np.uint8)
         cv2.ellipse(interior, (65, 50), (42, 35), 0, 0, 360, 255, -1)
 
-        with patch.object(
-            pipeline,
-            "_bubble_interior_mask_for_block",
+        with patch(
+            "manga_backend.pipeline.masks.bubble_interior_mask_for_block",
             return_value=(interior, (0, 0, 130, 100)),
         ):
             mask, (x1, y1, _x2, _y2), strategy = (
-                pipeline._contour_safe_mask_for_block(image, block)
+                contour_safe_mask_for_block(image, block)
         )
 
         self.assertEqual(strategy, "bubble-clipped-glyph")
         self.assertEqual(mask[46 - y1, 90 - x1], 255)
 
     def test_flux_hybrid_direct_fills_only_dark_glyphs_on_white(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((60, 100, 3), 255, dtype=np.uint8)
         image[25:35, 35:65] = 0
         block = TextBlock([33, 23, 67, 37], translated_text="TEXT")
 
         cleaned, flux_mask, white_count, textured_count = (
-            pipeline._prepare_flux_inpainting(image, [block])
+            prepare_flux_inpainting(image, [block])
         )
 
         self.assertEqual(white_count, 1)
@@ -1495,13 +1507,13 @@ class PipelineRenderTests(unittest.TestCase):
         np.testing.assert_array_equal(cleaned[0:10, 0:10], image[0:10, 0:10])
 
     def test_flux_yolo_white_region_direct_fills_only_glyphs(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((60, 100, 3), 255, dtype=np.uint8)
         image[25:35, 35:65] = 0
         block = TextBlock([30, 20, 70, 40], translated_text="TEXT")
 
         cleaned, flux_mask, white_count, textured_count = (
-            pipeline._prepare_flux_inpainting(
+            prepare_flux_inpainting(
                 image, [block], rectangular=True
             )
         )
@@ -1512,14 +1524,14 @@ class PipelineRenderTests(unittest.TestCase):
         np.testing.assert_array_equal(cleaned[0:20, :], image[0:20, :])
 
     def test_flux_yolo_glyph_mask_direct_fills_white_interior(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((80, 120, 3), 40, dtype=np.uint8)
         image[20:60, 30:90] = 255
         image[32:48, 52:68] = 0
         block = TextBlock([30, 20, 90, 60], translated_text="TEXT")
 
         cleaned, flux_mask, white_count, textured_count = (
-            pipeline._prepare_flux_inpainting(
+            prepare_flux_inpainting(
                 image, [block], rectangular=True
             )
         )
@@ -1530,13 +1542,13 @@ class PipelineRenderTests(unittest.TestCase):
         np.testing.assert_array_equal(cleaned[0:18, :], image[0:18, :])
 
     def test_flux_yolo_uses_glyph_mask_within_detection_box(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((80, 120, 3), 255, dtype=np.uint8)
         image[30:36, 40:50] = 0
         image[24:28, 76:84] = 180
         block = TextBlock([30, 20, 90, 60], translated_text="TEXT")
         cleaned, flux_mask, white_count, textured_count = (
-            pipeline._prepare_flux_inpainting(
+            prepare_flux_inpainting(
                 image, [block], rectangular=True
             )
         )
@@ -1547,14 +1559,14 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertTrue(np.any(cleaned[24:28, 76:84] == 180))
 
     def test_flux_yolo_keeps_textured_glyphs_for_flux(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         yy, xx = np.indices((80, 120))
         pattern = np.where((xx + yy) % 2 == 0, 160, 205).astype(np.uint8)
         image = np.repeat(pattern[:, :, None], 3, axis=2)
         image[32:48, 52:68] = 0
         block = TextBlock([30, 20, 90, 60], translated_text="TEXT")
         cleaned, flux_mask, white_count, textured_count = (
-            pipeline._prepare_flux_inpainting(
+            prepare_flux_inpainting(
                 image, [block], rectangular=True
             )
         )
@@ -1565,7 +1577,7 @@ class PipelineRenderTests(unittest.TestCase):
         np.testing.assert_array_equal(cleaned, image)
 
     def test_flux_yolo_masks_light_glyphs_on_dark_ui(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((60, 120, 3), 110, dtype=np.uint8)
         cv2.putText(
             image,
@@ -1580,7 +1592,7 @@ class PipelineRenderTests(unittest.TestCase):
         block = TextBlock([28, 17, 86, 43], translated_text="TEXT")
 
         _cleaned, flux_mask, white_count, textured_count = (
-            pipeline._prepare_flux_inpainting(
+            prepare_flux_inpainting(
                 image, [block], rectangular=True
             )
         )
@@ -1590,7 +1602,7 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertFalse(np.any(flux_mask[0:12, :]))
 
     def test_flux_yolo_preserves_bubble_outline_crossing_detection_box(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((100, 120, 3), 255, dtype=np.uint8)
         cv2.ellipse(image, (70, 50), (32, 40), 0, 0, 360, (0, 0, 0), 2)
         outline = np.all(image == 0, axis=2)
@@ -1598,7 +1610,7 @@ class PipelineRenderTests(unittest.TestCase):
         block = TextBlock([35, 10, 78, 90], translated_text="TEXT")
 
         _cleaned, flux_mask, white_count, textured_count = (
-            pipeline._prepare_flux_inpainting(
+            prepare_flux_inpainting(
                 image, [block], rectangular=True
             )
         )
@@ -1608,7 +1620,7 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertFalse(np.any(np.all(_cleaned[outline] == 255, axis=1)))
 
     def test_flux_hybrid_queues_glyph_mask_for_textured_region(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         yy, xx = np.indices((60, 100))
         pattern = np.where((xx + yy) % 2 == 0, 160, 205).astype(np.uint8)
         image = np.repeat(pattern[:, :, None], 3, axis=2)
@@ -1616,7 +1628,7 @@ class PipelineRenderTests(unittest.TestCase):
         block = TextBlock([33, 23, 67, 37], translated_text="TEXT")
 
         cleaned, flux_mask, white_count, textured_count = (
-            pipeline._prepare_flux_inpainting(image, [block])
+            prepare_flux_inpainting(image, [block])
         )
 
         self.assertEqual(white_count, 0)
@@ -1626,14 +1638,14 @@ class PipelineRenderTests(unittest.TestCase):
         np.testing.assert_array_equal(cleaned, image)
 
     def test_flux_hybrid_preserves_white_region_line_art(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         image = np.full((60, 100, 3), 255, dtype=np.uint8)
         image[20, 20:80] = 0
         image[27:33, 42:58] = 0
         block = TextBlock([20, 18, 80, 35], translated_text="TEXT")
 
         cleaned, flux_mask, white_count, textured_count = (
-            pipeline._prepare_flux_inpainting(image, [block])
+            prepare_flux_inpainting(image, [block])
         )
 
         self.assertEqual((white_count, textured_count), (1, 0))
@@ -1642,18 +1654,18 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertTrue(np.all(cleaned[27:33, 42:58] == 255))
 
     def test_unchanged_punctuation_is_not_rendered_again(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         block = TextBlock([10, 10, 30, 25], text="...", translated_text="...")
 
-        regions = pipeline._build_render_regions([block], (60, 80, 3))
+        regions = build_render_regions([block], (60, 80, 3))
 
         self.assertEqual(regions, [])
 
     def test_translated_punctuation_with_words_is_rendered(self):
-        pipeline = TranslationPipeline(device="cpu")
+        TranslationPipeline(device="cpu")
         block = TextBlock([10, 10, 40, 30], text="？", translated_text="WHAT?")
 
-        regions = pipeline._build_render_regions([block], (60, 80, 3))
+        regions = build_render_regions([block], (60, 80, 3))
 
         self.assertEqual(len(regions), 1)
 
@@ -1676,10 +1688,10 @@ class PipelineUnavailableHintTests(unittest.IsolatedAsyncioTestCase):
                 FluxKleinInpainter=BrokenInpainter,
             )
         with patch.dict(sys.modules, modules), patch(
-            "manga_backend.pipeline.Inpainter", BrokenInpainter
+            "manga_backend.pipeline.inpainting.Inpainter", BrokenInpainter
         ):
             with self.assertRaises(InpainterUnavailableError) as raised:
-                await pipeline._get_inpainter(inpainter_type)
+                await pipeline._inpainters.get(inpainter_type)
         return raised.exception
 
     async def test_lanpaint_failure_hint_is_selected_by_requested_option(self):
@@ -1754,13 +1766,13 @@ class InpainterFallbackTests(unittest.IsolatedAsyncioTestCase):
                 )
             return LamaInpainter()
 
-        pipeline._get_inpainter = get_inpainter
+        pipeline._inpainters.get = get_inpainter
         return pipeline, attempts
 
     async def test_unavailable_lanpaint_falls_back_to_lama(self):
         pipeline, attempts = self.make_pipeline()
 
-        _model, loaded = await pipeline._get_inpainter_or_fallback("flux2_klein_lanpaint")
+        _model, loaded = await pipeline._inpainters.get_or_fallback("flux2_klein_lanpaint")
 
         self.assertEqual(loaded, "lama_large")
         self.assertEqual(attempts, ["flux2_klein_lanpaint", "lama_large"])
@@ -1768,12 +1780,12 @@ class InpainterFallbackTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_runtime_is_not_probed_again_until_the_retry_time(self):
         pipeline, attempts = self.make_pipeline()
 
-        await pipeline._get_inpainter_or_fallback("flux2_klein_lanpaint")
-        await pipeline._get_inpainter_or_fallback("flux2_klein_lanpaint")
+        await pipeline._inpainters.get_or_fallback("flux2_klein_lanpaint")
+        await pipeline._inpainters.get_or_fallback("flux2_klein_lanpaint")
         self.assertEqual(attempts, ["flux2_klein_lanpaint", "lama_large", "lama_large"])
 
-        pipeline._inpainter_retry_at["flux2_klein_lanpaint"] = 0.0
-        await pipeline._get_inpainter_or_fallback("flux2_klein_lanpaint")
+        pipeline._inpainters.retry_at["flux2_klein_lanpaint"] = 0.0
+        await pipeline._inpainters.get_or_fallback("flux2_klein_lanpaint")
         self.assertEqual(attempts[-2:], ["flux2_klein_lanpaint", "lama_large"])
 
     async def test_fallback_can_be_switched_off(self):
@@ -1781,7 +1793,7 @@ class InpainterFallbackTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.dict("os.environ", {"INPAINTER_FALLBACK": "off"}):
             with self.assertRaises(InpainterUnavailableError):
-                await pipeline._get_inpainter_or_fallback("flux2_klein_lanpaint")
+                await pipeline._inpainters.get_or_fallback("flux2_klein_lanpaint")
 
         self.assertEqual(attempts, ["flux2_klein_lanpaint"])
 
@@ -1791,11 +1803,11 @@ class InpainterFallbackTests(unittest.IsolatedAsyncioTestCase):
         async def get_inpainter(inpainter_type):
             raise InpainterUnavailableError("missing", inpainter=inpainter_type)
 
-        pipeline._get_inpainter = get_inpainter
+        pipeline._inpainters.get = get_inpainter
 
         for inpainter_type in ("lama_large", "flux2_klein_q4"):
             with self.assertRaises(InpainterUnavailableError):
-                await pipeline._get_inpainter_or_fallback(inpainter_type)
+                await pipeline._inpainters.get_or_fallback(inpainter_type)
 
     async def test_translate_reports_the_inpainter_that_actually_ran(self):
         pipeline, _attempts = self.make_pipeline()
@@ -1807,10 +1819,10 @@ class InpainterFallbackTests(unittest.IsolatedAsyncioTestCase):
             async def detect(self, _image):
                 return [block]
 
-        pipeline._detector = FakeDetector()
+        pipeline._detectors.default = FakeDetector()
         pipeline._ocr = FakeOcrEngine()
 
-        with patch.object(pipeline, "_render_text", return_value=image):
+        with patch("manga_backend.pipeline.orchestrator.render_text", return_value=image):
             result = await pipeline.translate(
                 image,
                 translator="none",
@@ -1833,12 +1845,12 @@ class InpainterFallbackTests(unittest.IsolatedAsyncioTestCase):
                 lama_errors.append(error)
             raise error
 
-        pipeline._get_inpainter = get_inpainter
+        pipeline._inpainters.get = get_inpainter
 
         # First request probes ComfyUI; the second is inside the retry window.
         for _attempt in range(2):
             with self.assertRaises(InpainterUnavailableError) as raised:
-                await pipeline._get_inpainter_or_fallback("flux2_klein_lanpaint")
+                await pipeline._inpainters.get_or_fallback("flux2_klein_lanpaint")
 
             self.assertIn("start ComfyUI", raised.exception.public_detail)
             self.assertIs(raised.exception.__cause__, lama_errors[-1])
@@ -1901,7 +1913,7 @@ class LostInpainterRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 },
             )
         )
-        self.enterContext(patch("manga_backend.pipeline.Inpainter", FakeLama))
+        self.enterContext(patch("manga_backend.pipeline.inpainting.Inpainter", FakeLama))
 
         self.image = np.full((80, 120, 3), 128, dtype=np.uint8)
         self.image[30:38, 40:70] = 0
@@ -1911,12 +1923,12 @@ class LostInpainterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             async def detect(self, _image):
                 return [block]
 
-        pipeline._detector = FakeDetector()
+        pipeline._detectors.default = FakeDetector()
         pipeline._ocr = FakeOcrEngine()
         return pipeline
 
     async def translate(self, pipeline):
-        with patch.object(pipeline, "_render_text", return_value=self.image):
+        with patch("manga_backend.pipeline.orchestrator.render_text", return_value=self.image):
             return await pipeline.translate(
                 self.image,
                 translator="none",
@@ -1936,13 +1948,13 @@ class LostInpainterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["inpainter_used"], "lama_large")
         self.assertTrue(result["inpainting_fallback"])
         self.assertTrue(lost.disposed)
-        self.assertIs(pipeline._inpainter, self.lamas[0])
+        self.assertIs(pipeline._inpainters.instance, self.lamas[0])
         self.assertEqual(
             pipeline.model_status["inpainter"],
             {"status": "loaded", "name": "lama_large"},
         )
         self.assertGreater(
-            pipeline._inpainter_retry_at["flux2_klein_lanpaint"], time.monotonic()
+            pipeline._inpainters.retry_at["flux2_klein_lanpaint"], time.monotonic()
         )
 
         # Inside the retry window ComfyUI is left alone.
@@ -1951,7 +1963,7 @@ class LostInpainterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.lanpaints), 1)
 
         self.daemon_up = True
-        pipeline._inpainter_retry_at["flux2_klein_lanpaint"] = 0.0
+        pipeline._inpainters.retry_at["flux2_klein_lanpaint"] = 0.0
         back = await self.translate(pipeline)
 
         self.assertEqual(back["inpainter_used"], "flux2_klein_lanpaint")
@@ -1973,7 +1985,7 @@ class LostInpainterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("start ComfyUI", raised.exception.public_detail)
             self.assertIsInstance(raised.exception.__cause__, ComfyUIUnreachableError)
             self.assertTrue(lost.disposed)
-            self.assertIsNone(pipeline._inpainter)
+            self.assertIsNone(pipeline._inpainters.instance)
             self.assertEqual(pipeline.model_status["inpainter"]["status"], "error")
             self.assertEqual(self.lamas, [])
 
@@ -1994,9 +2006,9 @@ class LostInpainterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             await self.translate(pipeline)
 
         self.assertIs(raised.exception, self.job_error)
-        self.assertIs(pipeline._inpainter, loaded)
+        self.assertIs(pipeline._inpainters.instance, loaded)
         self.assertFalse(loaded.disposed)
-        self.assertEqual(pipeline._inpainter_retry_at, {})
+        self.assertEqual(pipeline._inpainters.retry_at, {})
         self.assertEqual(self.lamas, [])
 
     async def test_lost_runtime_with_a_failed_fallback_keeps_the_comfyui_hint(self):
@@ -2012,10 +2024,10 @@ class LostInpainterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(raised.exception.__cause__, InpainterUnavailableError)
         self.assertTrue(lost.disposed)
         # The dead instance is not restored as the "previous" inpainter.
-        self.assertIsNone(pipeline._inpainter)
+        self.assertIsNone(pipeline._inpainters.instance)
 
         self.daemon_up = True
-        pipeline._inpainter_retry_at["flux2_klein_lanpaint"] = 0.0
+        pipeline._inpainters.retry_at["flux2_klein_lanpaint"] = 0.0
         result = await self.translate(pipeline)
         self.assertEqual(result["inpainter_used"], "flux2_klein_lanpaint")
         self.assertEqual(len(self.lanpaints), 2)
@@ -2026,7 +2038,7 @@ class InpainterWarmUpTests(unittest.IsolatedAsyncioTestCase):
 
     def make_pipeline(self, inpainter_type=DEFAULT_INPAINTER, fail=False):
         pipeline = TranslationPipeline(device="cpu")
-        pipeline._inpainter_type = inpainter_type
+        pipeline._inpainters.type = inpainter_type
         loaded = []
 
         async def get_inpainter(requested):
@@ -2035,7 +2047,7 @@ class InpainterWarmUpTests(unittest.IsolatedAsyncioTestCase):
                 raise InpainterUnavailableError("no model", inpainter=requested)
             return object()
 
-        pipeline._get_inpainter = get_inpainter
+        pipeline._inpainters.get = get_inpainter
         return pipeline, loaded
 
     async def test_default_inpainter_warms_its_lama_stand_in(self):
@@ -2056,7 +2068,7 @@ class InpainterWarmUpTests(unittest.IsolatedAsyncioTestCase):
     async def test_nothing_is_loaded_for_none_or_an_already_loaded_inpainter(self):
         none_pipeline, none_loaded = self.make_pipeline("none")
         ready_pipeline, ready_loaded = self.make_pipeline("lama_large")
-        ready_pipeline._inpainter = object()
+        ready_pipeline._inpainters.instance = object()
 
         await none_pipeline.warm_up()
         await ready_pipeline.warm_up()
@@ -2085,13 +2097,13 @@ class PipelineEventLoopTests(unittest.TestCase):
                 return [block]
 
         pipeline = TranslationPipeline(device="cpu")
-        pipeline._detector = FakeDetector()
+        pipeline._detectors.default = FakeDetector()
         pipeline._ocr = FakeOcrEngine()
 
         # An empty mask skips inpainter initialization entirely.
         outputs = {
-            "_create_mask": np.zeros(image.shape[:2], dtype=np.uint8),
-            "_render_text": image,
+            "create_mask": np.zeros(image.shape[:2], dtype=np.uint8),
+            "render_text": image,
         }
 
         def blocked_step(*_args, **_kwargs):
@@ -2114,7 +2126,7 @@ class PipelineEventLoopTests(unittest.TestCase):
                 for name in outputs
             }
             overrides[step_name] = blocked_step
-            with patch.multiple(pipeline, **overrides):
+            with patch.multiple("manga_backend.pipeline.orchestrator", **overrides):
                 task = asyncio.create_task(
                     pipeline.translate(
                         image,
@@ -2143,13 +2155,13 @@ class PipelineEventLoopTests(unittest.TestCase):
             watchdog.join()
 
     def test_mask_building_does_not_block_the_event_loop(self):
-        responsive, health = self.run_translate_with_blocked_step("_create_mask")
+        responsive, health = self.run_translate_with_blocked_step("create_mask")
 
         self.assertTrue(responsive)
         self.assertEqual(health, "ok")
 
     def test_text_rendering_does_not_block_the_event_loop(self):
-        responsive, health = self.run_translate_with_blocked_step("_render_text")
+        responsive, health = self.run_translate_with_blocked_step("render_text")
 
         self.assertTrue(responsive)
         self.assertEqual(health, "ok")
@@ -2157,7 +2169,7 @@ class PipelineEventLoopTests(unittest.TestCase):
 
 class FontObjectCacheTests(unittest.TestCase):
     def test_concurrent_requests_load_each_font_once(self):
-        import manga_backend.pipeline as pipeline_module
+        from manga_backend.pipeline import fonts as fonts_module
 
         calls = []
         barrier = threading.Barrier(6)
@@ -2169,10 +2181,10 @@ class FontObjectCacheTests(unittest.TestCase):
 
         def worker(results):
             barrier.wait()
-            results.append(pipeline_module._get_font_object("fake.ttf", 17))
+            results.append(fonts_module.get_font_object("fake.ttf", 17))
 
         results = []
-        with patch.dict(pipeline_module._font_object_cache, clear=True), patch(
+        with patch.dict(fonts_module._font_object_cache, clear=True), patch(
             "PIL.ImageFont.truetype", slow_truetype
         ):
             threads = [

@@ -1,5 +1,4 @@
-"""
-Optional Flux.2 Klein Q4_K_M GGUF inpainter driven by a local sd-cli (stable-diffusion.cpp).
+"""Optional Flux.2 Klein Q4_K_M GGUF inpainter driven by a local sd-cli (stable-diffusion.cpp).
 
 Used as the local fallback for the ComfyUI LanPaint path and selectable as the
 `flux2_klein_q4` inpainter. White mask = regenerate, black = preserve.
@@ -12,19 +11,25 @@ Configuration (all optional; set in backend/.env):
 The diffusion GGUF itself is read from <models_cache>/flux2_klein_q4.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
 import subprocess
 import tempfile
+from pathlib import Path
+from typing import Any
+
+import cv2
 import numpy as np
 from PIL import Image, ImageFilter
+
 from manga_backend.paths import MODELS_CACHE_DIR
 
 logger = logging.getLogger(__name__)
 
-MODELS_DIR = str(MODELS_CACHE_DIR)
-FLUX_DIR = os.path.join(MODELS_DIR, "flux2_klein_q4")
+FLUX_DIR = MODELS_CACHE_DIR / "flux2_klein_q4"
 GGUF_NAME = "flux-2-klein-4b-Q4_K_M.gguf"
 
 DEFAULT_SD_TIMEOUT_SECONDS = 120.0
@@ -32,12 +37,14 @@ LLM_NAME = "qwen3-4b-Q4_K_M.gguf"
 VAE_NAME = "flux2-vae.safetensors"
 
 
-def _sd_cli_path() -> str:
-    return os.getenv("SD_CPP_CLI", "").strip() or os.path.join(FLUX_DIR, "sd-cli.exe")
+def _sd_cli_path() -> Path:
+    configured = os.getenv("SD_CPP_CLI", "").strip()
+    return Path(configured) if configured else FLUX_DIR / "sd-cli.exe"
 
 
-def _sd_models_dir() -> str:
-    return os.getenv("SD_CPP_MODELS_DIR", "").strip() or FLUX_DIR
+def _sd_models_dir() -> Path:
+    configured = os.getenv("SD_CPP_MODELS_DIR", "").strip()
+    return Path(configured) if configured else FLUX_DIR
 
 
 def _sd_timeout_seconds() -> float:
@@ -63,12 +70,12 @@ MODEL_ID = "black-forest-labs/FLUX.2-klein-4B (Q4_K_M GGUF applied)"
 class FluxKleinInpainter:
     """Q4_K_M GGUF inpaint through a local sd-cli process."""
 
-    def __init__(self, device: str = "cuda"):
+    def __init__(self, device: str = "cuda") -> None:
         self.device = device
         self._initialized = False
         self._inference_lock = asyncio.Lock()
 
-    def blur(self, mask, blur_factor=8):
+    def blur(self, mask: Image.Image, blur_factor: int = 8) -> Image.Image:
         try:
             if blur_factor > 0:
                 # blur_factor=8 ~ radius ~8
@@ -77,28 +84,28 @@ class FluxKleinInpainter:
             pass
         return mask
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         if self._initialized:
             return
-        gguf_path = os.path.join(FLUX_DIR, GGUF_NAME)
+        gguf_path = FLUX_DIR / GGUF_NAME
         sd_cli = _sd_cli_path()
-        llm_path = os.path.join(_sd_models_dir(), LLM_NAME)
-        vae_path = os.path.join(_sd_models_dir(), VAE_NAME)
-        if not os.path.exists(sd_cli):
+        llm_path = _sd_models_dir() / LLM_NAME
+        vae_path = _sd_models_dir() / VAE_NAME
+        if not sd_cli.exists():
             raise RuntimeError(
                 "sd-cli not found; set SD_CPP_CLI (flux2_klein_q4 is an optional inpainter)"
             )
-        if not os.path.exists(gguf_path):
+        if not gguf_path.exists():
             raise RuntimeError(
                 f"Q4 GGUF {GGUF_NAME} missing from the backend models_cache/flux2_klein_q4 "
                 "directory (flux2_klein_q4 is an optional inpainter)"
             )
-        if not os.path.exists(llm_path):
+        if not llm_path.exists():
             raise RuntimeError(
                 f"LLM {LLM_NAME} not found; set SD_CPP_MODELS_DIR "
                 "(flux2_klein_q4 is an optional inpainter)"
             )
-        if not os.path.exists(vae_path):
+        if not vae_path.exists():
             raise RuntimeError(
                 f"VAE {VAE_NAME} not found; set SD_CPP_MODELS_DIR "
                 "(flux2_klein_q4 is an optional inpainter)"
@@ -107,14 +114,20 @@ class FluxKleinInpainter:
         logger.info(
             "Flux2Klein Q4_K_M ready: GGUF %s (%d bytes), LLM %s, VAE %s",
             GGUF_NAME,
-            os.path.getsize(gguf_path),
+            gguf_path.stat().st_size,
             LLM_NAME,
             VAE_NAME,
         )
 
-    async def inpaint(self, image: np.ndarray, mask: np.ndarray, prompt: str = "plain manga paper background, clean empty background matching surrounding texture", **kwargs) -> np.ndarray:
-        """
-        Inpaint the white mask area of an RGB image with sd-cli.
+    async def inpaint(
+        self,
+        image: np.ndarray,
+        mask: np.ndarray,
+        prompt: str = "plain manga paper background, clean empty background matching surrounding texture",
+        **kwargs: Any,
+    ) -> np.ndarray:
+        """Inpaint the white mask area of an RGB image with sd-cli.
+
         Optional kwargs: num_inference_steps, guidance_scale, strength, prompt
         (mapped to sd-cli --steps/--cfg-scale/--strength/--prompt); others are ignored.
         """
@@ -140,9 +153,7 @@ class FluxKleinInpainter:
             prompt = kwargs["prompt"]
 
         async with self._inference_lock:
-            def _run():
-                import cv2
-
+            def _run() -> np.ndarray:
                 # Prepare mask: blur like pipeline + padding crop handling
                 mask_pil = Image.fromarray((mask > 127).astype(np.uint8) * 255).convert("L")
                 if mask_pil.size != (orig_w, orig_h):
@@ -158,30 +169,31 @@ class FluxKleinInpainter:
                 mask_dilated = cv2.dilate((mask_np > 127).astype(np.uint8) * 255, kernel, iterations=1)
 
                 with tempfile.TemporaryDirectory() as td:
-                    init_path = os.path.join(td, "init.png")
-                    mask_path = os.path.join(td, "mask.png")
-                    out_path = os.path.join(td, "out.png")
+                    temp_dir = Path(td)
+                    init_path = temp_dir / "init.png"
+                    mask_path = temp_dir / "mask.png"
+                    out_path = temp_dir / "out.png"
                     Image.fromarray(image).save(init_path)
                     Image.fromarray(mask_dilated).save(mask_path)
-                    gguf_path = os.path.join(FLUX_DIR, GGUF_NAME)
+                    gguf_path = FLUX_DIR / GGUF_NAME
                     models_dir = _sd_models_dir()
                     # Map pipeline params to sd-cli
                     # strength 1.0 -> sd strength 0.85-1.0, guidance ignored for distilled but pass cfg
                     sd_strength = max(0.4, min(1.0, strength * 0.85 + 0.15))  # 1.0 -> 1.0, 0.5 -> 0.575
                     cmd = [
-                        _sd_cli_path(),
-                        "--diffusion-model", gguf_path,
-                        "--llm", os.path.join(models_dir, LLM_NAME),
-                        "--vae", os.path.join(models_dir, VAE_NAME),
-                        "--init-img", init_path,
-                        "--mask", mask_path,
+                        str(_sd_cli_path()),
+                        "--diffusion-model", str(gguf_path),
+                        "--llm", str(models_dir / LLM_NAME),
+                        "--vae", str(models_dir / VAE_NAME),
+                        "--init-img", str(init_path),
+                        "--mask", str(mask_path),
                         "--prompt", prompt,
                         "--strength", str(sd_strength),
                         "--steps", str(num_inference_steps),
                         "--cfg-scale", str(guidance_scale),
                         "--diffusion-fa",
                         "--offload-to-cpu",
-                        "-o", out_path,
+                        "-o", str(out_path),
                         "-v",
                     ]
                     timeout = _sd_timeout_seconds()
@@ -196,23 +208,22 @@ class FluxKleinInpainter:
                         ) from error
                     if result.returncode != 0:
                         raise RuntimeError(f"sd-cli Q4 failed {result.returncode}: {result.stderr[-800:]}")
-                    if not os.path.exists(out_path):
+                    if not out_path.exists():
                         # sd-cli may add suffix like out.png -> out_0.png
-                        candidates = [os.path.join(td, f) for f in os.listdir(td) if f.startswith("out")]
+                        candidates = [path for path in temp_dir.iterdir() if path.name.startswith("out")]
                         if candidates:
                             out_path = candidates[0]
                         else:
                             raise RuntimeError(f"sd-cli no output: {result.stdout[-800:]} {result.stderr[-800:]}")
-                    res = np.array(Image.open(out_path).convert("RGB"))
-                    return res
+                    return np.array(Image.open(out_path).convert("RGB"))
 
             result = await asyncio.to_thread(_run)
 
         if result.shape[:2] != (orig_h, orig_w):
-            result = np.array(Image.fromarray(result).resize((orig_w, orig_h), Image.LANCZOS))
+            result = np.array(Image.fromarray(result).resize((orig_w, orig_h), Image.Resampling.LANCZOS))
         composite = image.copy()
         composite[commit_mask] = result.astype(np.uint8)[commit_mask]
         return composite
 
-    def dispose(self):
+    def dispose(self) -> None:
         self._initialized = False

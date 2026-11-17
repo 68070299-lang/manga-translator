@@ -245,9 +245,9 @@ class DownloadUtilityTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertFalse(mock_download.called)
             self.assertEqual(progress, [(1, 1)])
-            self.assertEqual(paths["encoder"], str(Path(tmpdir, "encoder_model.onnx")))
-            self.assertEqual(paths["decoder"], str(Path(tmpdir, "decoder_model.onnx")))
-            self.assertEqual(paths["vocab"], str(Path(tmpdir, "vocab.txt")))
+            self.assertEqual(paths["encoder"], Path(tmpdir, "encoder_model.onnx"))
+            self.assertEqual(paths["decoder"], Path(tmpdir, "decoder_model.onnx"))
+            self.assertEqual(paths["vocab"], Path(tmpdir, "vocab.txt"))
 
     async def test_manga_ocr_downloads_missing_files_with_patched_hub(self):
         calls = []
@@ -285,7 +285,7 @@ class DownloadUtilityTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertFalse(mock_download.called)
             self.assertEqual(progress, [(1, 1)])
-            self.assertEqual(result, str(model_path))
+            self.assertEqual(result, model_path)
 
     async def test_lama_download_rejects_empty_existing_file(self):
         with writable_temp_directory() as tmpdir:

@@ -1,25 +1,25 @@
-"""
-Inpainting using LaMa ONNX model.
+"""Inpainting using LaMa ONNX model.
 
 Based on comic-translate's inpainting implementation.
 """
+
+from __future__ import annotations
 
 import asyncio
 import functools
 import logging
 import os
 import subprocess
-from typing import List, Optional, Tuple
+from typing import cast
 
 import numpy as np
+import onnxruntime as ort
 
-from manga_backend.utils.device import get_onnx_providers, create_onnx_session
-from manga_backend.utils.download import download_lama_onnx
 from manga_backend.paths import MODELS_CACHE_DIR
+from manga_backend.utils.device import create_onnx_session, get_onnx_providers
+from manga_backend.utils.download import download_lama_onnx
 
 logger = logging.getLogger(__name__)
-
-MODELS_DIR = str(MODELS_CACHE_DIR)
 
 # LaMa's activations need roughly 2.2-2.8 GiB of GPU memory per megapixel. A page
 # that does not fit spills into shared system memory and gets several times
@@ -37,11 +37,11 @@ TILE_OVERLAP = 192
 # An axis is not split further once its tiles are this small.
 MIN_TILE_SIDE = 2 * TILE_OVERLAP + 64
 
-Span = Tuple[int, int]
+Span = tuple[int, int]
 
 
 @functools.lru_cache(maxsize=1)
-def _gpu_total_gib() -> Optional[float]:
+def _gpu_total_gib() -> float | None:
     """Total memory of the first NVIDIA GPU, or None when it cannot be read.
 
     nvidia-smi takes about a tenth of a second and LanPaint builds a new LaMa
@@ -61,7 +61,7 @@ def _gpu_total_gib() -> Optional[float]:
         return None
 
 
-def resolve_max_pixels(device: str) -> Optional[int]:
+def resolve_max_pixels(device: str) -> int | None:
     """Largest array LaMa should see in one pass; None means no limit.
 
     LAMA_MAX_PIXELS overrides it (0 removes the limit). The CPU has no limit.
@@ -87,7 +87,7 @@ def resolve_max_pixels(device: str) -> Optional[int]:
     return max(MIN_GPU_MAX_PIXELS, int(usable * 1_000_000))
 
 
-def _equal_spans(length: int, count: int, multiple: int) -> List[Span]:
+def _equal_spans(length: int, count: int, multiple: int) -> list[Span]:
     """Split a length into `count` equal spans that overlap by TILE_OVERLAP."""
     if count <= 1:
         return [(0, length)]
@@ -102,8 +102,8 @@ def _equal_spans(length: int, count: int, multiple: int) -> List[Span]:
 
 
 def plan_tiles(
-    height: int, width: int, max_pixels: Optional[int], multiple: int = 8
-) -> Tuple[List[Span], List[Span]]:
+    height: int, width: int, max_pixels: int | None, multiple: int = 8
+) -> tuple[list[Span], list[Span]]:
     """Return row and column spans of equal tiles that each fit `max_pixels`.
 
     Height and width must already be multiples of `multiple`. One span per axis
@@ -128,7 +128,7 @@ def plan_tiles(
     return _equal_spans(height, rows, multiple), _equal_spans(width, cols, multiple)
 
 
-def _owned_spans(spans: List[Span]) -> List[Span]:
+def _owned_spans(spans: list[Span]) -> list[Span]:
     """Give each pixel to one span by cutting every overlap at its middle."""
     cuts = [0]
     for (_start, end), (next_start, _next_end) in zip(spans, spans[1:]):
@@ -140,39 +140,41 @@ def _owned_spans(spans: List[Span]) -> List[Span]:
 class Inpainter:
     """LaMa inpainting using ONNX runtime."""
 
-    def __init__(self, inpainter_type: str = "lama", device: str = "cpu"):
+    def __init__(self, inpainter_type: str = "lama", device: str = "cpu") -> None:
         self.inpainter_type = inpainter_type
         self.device = device
-        self.session = None
+        self.session: ort.InferenceSession | None = None
         self.pad_mod = 8
-        self.max_pixels: Optional[int] = None
-        self._release_options = None
-        self.model_dir = os.path.join(MODELS_DIR, "inpainting")
+        self.max_pixels: int | None = None
+        self._release_options: ort.RunOptions | None = None
+        self.model_dir = MODELS_CACHE_DIR / "inpainting"
         self._initialized = False
         self._inference_lock = asyncio.Lock()
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Download and load the inpainting model."""
         if self._initialized:
             return
 
-        os.makedirs(self.model_dir, exist_ok=True)
+        self.model_dir.mkdir(parents=True, exist_ok=True)
 
         if self.inpainter_type == "none":
             logger.info("Inpainting disabled")
             self._initialized = True
             return
 
-        model_path = os.path.join(self.model_dir, "lama-manga-dynamic.onnx")
-        if os.path.exists(model_path):
-            logger.info(f"Loading cached {self.inpainter_type} inpainting model...")
+        if (self.model_dir / "lama-manga-dynamic.onnx").exists():
+            logger.info("Loading cached %s inpainting model...", self.inpainter_type)
         else:
-            logger.info(f"Downloading {self.inpainter_type} inpainting model (this may take a while)...")
+            logger.info(
+                "Downloading %s inpainting model (this may take a while)...",
+                self.inpainter_type,
+            )
 
         model_path = await download_lama_onnx(self.model_dir)
 
         providers = get_onnx_providers(self.device)
-        logger.info(f"Inpainting session providers: {providers}")
+        logger.info("Inpainting session providers: %s", providers)
 
         self.session = await asyncio.to_thread(
             create_onnx_session, model_path, providers
@@ -185,7 +187,7 @@ class Inpainter:
             self.max_pixels or "unlimited",
         )
 
-    def _arena_release_options(self):
+    def _arena_release_options(self) -> ort.RunOptions | None:
         """Run options that hand the GPU arena's free memory back after a run.
 
         ONNX Runtime keeps every block it ever allocated. A page of a new size
@@ -193,9 +195,10 @@ class Inpainter:
         grows with each size until the GPU is full and everything slows down.
         """
         get_providers = getattr(self.session, "get_providers", None)
-        if not callable(get_providers) or get_providers()[:1] != ["CUDAExecutionProvider"]:
+        if not callable(get_providers) or cast(list[str], get_providers())[:1] != [
+            "CUDAExecutionProvider"
+        ]:
             return None
-        import onnxruntime as ort
 
         options = ort.RunOptions()
         options.add_run_config_entry("memory.enable_memory_arena_shrinkage", "gpu:0")
@@ -232,15 +235,15 @@ class Inpainter:
         pad_w = (self.pad_mod - orig_w % self.pad_mod) % self.pad_mod
         padded, padded_mask = image, binary
         if pad_h > 0 or pad_w > 0:
-            pad_mode = 'reflect' if orig_h > 1 and orig_w > 1 else 'edge'
+            pad_mode = "reflect" if orig_h > 1 and orig_w > 1 else "edge"
             padded = np.pad(image, ((0, pad_h), (0, pad_w), (0, 0)), mode=pad_mode)
-            padded_mask = np.pad(binary, ((0, pad_h), (0, pad_w)), mode='constant', constant_values=0)
+            padded_mask = np.pad(binary, ((0, pad_h), (0, pad_w)), mode="constant", constant_values=0)
 
         row_spans, col_spans = plan_tiles(
             padded.shape[0], padded.shape[1], self.max_pixels, self.pad_mod
         )
         # Tiles the model must see, each with the region whose pixels it owns.
-        jobs = []
+        jobs: list[tuple[tuple[int, int, int, int], tuple[int, int, int, int]]] = []
         for (y0, y1), (own_y0, own_y1) in zip(row_spans, _owned_spans(row_spans)):
             for (x0, x1), (own_x0, own_x1) in zip(col_spans, _owned_spans(col_spans)):
                 owned = (own_y0, min(own_y1, orig_h), own_x0, min(own_x1, orig_w))
@@ -266,15 +269,18 @@ class Inpainter:
         self, image: np.ndarray, mask: np.ndarray, release_memory: bool = False
     ) -> np.ndarray:
         """Run LaMa on one array whose sides are multiples of the model stride."""
-        session_inputs = self.session.get_inputs()
+        session = self.session
+        if session is None:
+            raise RuntimeError("Inpainting model not initialized")
+        session_inputs = session.get_inputs()
         inputs = {
             session_inputs[0].name: (image.astype(np.float32) / 255.0).transpose(2, 0, 1)[np.newaxis, ...],
-            session_inputs[1].name: self._normalize_mask(mask)[np.newaxis, ...]
+            session_inputs[1].name: self._normalize_mask(mask)[np.newaxis, ...],
         }
         if release_memory and self._release_options is not None:
-            output = self.session.run(None, inputs, self._release_options)[0]
+            output = np.asarray(session.run(None, inputs, self._release_options)[0])
         else:
-            output = self.session.run(None, inputs)[0]
+            output = np.asarray(session.run(None, inputs)[0])
 
         # (C, H, W) -> (H, W, C)
         return np.clip(output[0].transpose(1, 2, 0) * 255, 0, 255).astype(np.uint8)
@@ -283,6 +289,6 @@ class Inpainter:
         """Binarize a mask into the model's (1, H, W) float input."""
         return (mask > 0).astype(np.float32)[np.newaxis, ...]
 
-    def dispose(self):
+    def dispose(self) -> None:
         self.session = None
         self._initialized = False

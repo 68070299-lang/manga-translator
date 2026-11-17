@@ -9,15 +9,28 @@ import os
 import secrets
 import socket
 from dataclasses import replace
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 from urllib.parse import urlparse
 
 import aiohttp
 import cv2
 import numpy as np
 
-from manga_backend.comfy_lanpaint.client import ComfyUIClient, ComfyUIError, ComfyUIUnreachableError
-from manga_backend.comfy_lanpaint.crop import CropBudgetExceeded, build_crop_regions, stitch_region
+from manga_backend.comfy_lanpaint.client import (
+    ComfyUIClient,
+    ComfyUIError,
+    ComfyUIUnreachableError,
+)
+from manga_backend.comfy_lanpaint.crop import (
+    CropBudgetExceeded,
+    build_crop_regions,
+    stitch_region,
+)
 from manga_backend.comfy_lanpaint.workflow import WorkflowSettings
+
+if TYPE_CHECKING:
+    from manga_backend.models.flux_klein_inpainter import FluxKleinInpainter
+    from manga_backend.models.inpainter import Inpainter
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +46,14 @@ UNREACHABLE_ERRORS = (
     TimeoutError,
 )
 
-PROFILE_DEFAULTS = {
+class ProfileDefaults(TypedDict):
+    context: int
+    steps: int
+    lanpaint_steps: int
+    max_crop_pixels: int
+
+
+PROFILE_DEFAULTS: dict[str, ProfileDefaults] = {
     "fast": {
         "context": 96,
         "steps": 4,
@@ -69,7 +89,7 @@ DEFAULT_PROMPT = (
 class FluxLanPaintInpainter:
     """Cropped LanPaint inpainting with an optional local Q4 safety fallback."""
 
-    def __init__(self, device: str = "cuda"):
+    def __init__(self, device: str = "cuda") -> None:
         self.device = device
         self.profile = os.getenv("COMFY_LANPAINT_PROFILE", "fast").strip().lower()
         if self.profile not in PROFILE_DEFAULTS:
@@ -143,13 +163,13 @@ class FluxLanPaintInpainter:
             != "0",
             prompt_mode=os.getenv("COMFY_LANPAINT_PROMPT_MODE", "Image First"),
         )
-        self._fallback = None
+        self._fallback: FluxKleinInpainter | None = None
         self._initialized = False
         self._inference_lock = asyncio.Lock()
         self.last_backend_used = "flux2_klein_lanpaint"
         self.last_structural_prefill_used = False
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         if self._initialized:
             return
         try:
@@ -192,7 +212,9 @@ class FluxLanPaintInpainter:
             return False
         addresses = list(dict.fromkeys(info[4][:2] for info in infos))
         attempts = [
-            asyncio.ensure_future(self._accepts_connection(host, address_port))
+            asyncio.ensure_future(
+                self._accepts_connection(cast(str, host), cast(int, address_port))
+            )
             for host, address_port in addresses
         ]
         try:
@@ -216,19 +238,20 @@ class FluxLanPaintInpainter:
         writer.close()
         return True
 
-    async def _initialize_fallback(self):
+    async def _initialize_fallback(self) -> FluxKleinInpainter:
         if self._fallback is None:
             from manga_backend.models.flux_klein_inpainter import FluxKleinInpainter
 
             self._fallback = FluxKleinInpainter(device=self.device)
             await self._fallback.initialize()
+        return self._fallback
 
     async def inpaint(
         self,
         image: np.ndarray,
         mask: np.ndarray,
         prompt: str = DEFAULT_PROMPT,
-        **kwargs,
+        **kwargs: Any,
     ) -> np.ndarray:
         if not self._initialized:
             raise RuntimeError("FluxLanPaintInpainter is not initialized")
@@ -316,14 +339,14 @@ class FluxLanPaintInpainter:
                 logger.exception(
                     "LanPaint failed; using the local Flux.2 Klein Q4 fallback"
                 )
-                await self._initialize_fallback()
-                fallback_result = await self._fallback.inpaint(
+                fallback = await self._initialize_fallback()
+                fallback_result = await fallback.inpaint(
                     structural_source, mask, prompt=prompt, **kwargs
                 )
                 self.last_backend_used = "flux2_klein_q4"
                 return fallback_result
 
-    def _create_structure_inpainter(self):
+    def _create_structure_inpainter(self) -> Inpainter:
         from manga_backend.models.inpainter import Inpainter
 
         return Inpainter(inpainter_type="lama_large", device=self.device)
@@ -365,7 +388,7 @@ class FluxLanPaintInpainter:
             gc.collect()
 
     async def _crop_structure_prefill(
-        self, inpainter, image: np.ndarray, structural_mask: np.ndarray
+        self, inpainter: Inpainter, image: np.ndarray, structural_mask: np.ndarray
     ) -> np.ndarray:
         """Run LaMa on each padded crop (context included) and stitch it back."""
 
@@ -418,7 +441,7 @@ class FluxLanPaintInpainter:
             return image
         return cv2.inpaint(image, binary_mask, self.prefill_radius, cv2.INPAINT_TELEA)
 
-    def dispose(self):
+    def dispose(self) -> None:
         if self._fallback is not None:
             self._fallback.dispose()
         self._initialized = False

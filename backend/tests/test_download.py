@@ -200,8 +200,8 @@ class DownloadWorkflowPinTests(unittest.IsolatedAsyncioTestCase):
             ):
                 result = await download_lama_onnx(tmpdir)
 
-            self.assertEqual(result, str(model_path))
-            mock_verify.assert_called_once_with(str(model_path), None)
+            self.assertEqual(result, model_path)
+            mock_verify.assert_called_once_with(model_path, None)
 
     async def test_lama_download_forwards_revision_and_surfaces_checksum_error(self):
         calls = []

@@ -28,7 +28,7 @@ class ComfyUIUnreachableError(ComfyUIError):
     """The ComfyUI daemon could not be reached, or dropped the connection mid-job."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class UploadedImage:
     name: str
     subfolder: str = ""

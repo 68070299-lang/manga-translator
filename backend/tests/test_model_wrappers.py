@@ -571,7 +571,7 @@ class InpainterPixelLimitTests(unittest.TestCase):
         ) as run:
             for _ in range(2):
                 inpainter = Inpainter(device="cuda")
-                inpainter.model_dir = model_dir
+                inpainter.model_dir = Path(model_dir)
                 asyncio.run(inpainter.initialize())
                 limits.append(inpainter.max_pixels)
 
@@ -636,7 +636,7 @@ class DetectorWrapperTests(unittest.TestCase):
 
         pins = {(detector.repo_id, "detector.onnx"): {"revision": "rev9", "sha256": None}}
         with writable_temp_directory() as tmpdir:
-            detector.model_dir = tmpdir
+            detector.model_dir = Path(tmpdir)
             with (
                 patch.dict(MODEL_PINS, pins, clear=False),
                 patch("manga_backend.utils.download.hf_hub_download", side_effect=fake_download),
@@ -646,14 +646,14 @@ class DetectorWrapperTests(unittest.TestCase):
                 asyncio.run(detector.initialize())
 
         self.assertEqual(calls[0]["revision"], "rev9")
-        self.assertEqual(calls[0]["local_dir"], tmpdir)
+        self.assertEqual(Path(calls[0]["local_dir"]), Path(tmpdir))
         create.assert_called_once()
 
     def test_initialize_rejects_cached_model_with_wrong_checksum(self):
         detector = TextDetector()
         pins = {(detector.repo_id, "detector.onnx"): {"revision": None, "sha256": "0" * 64}}
         with writable_temp_directory() as tmpdir:
-            detector.model_dir = tmpdir
+            detector.model_dir = Path(tmpdir)
             model_path = Path(tmpdir, "detector.onnx")
             model_path.write_bytes(b"model")
             with (
@@ -703,14 +703,14 @@ class PaddleOcrWrapperTests(unittest.TestCase):
 
         with writable_temp_directory() as tmpdir:
             engine = PaddleOCROnnxEngine()
-            engine.models_dir = tmpdir
+            engine.models_dir = Path(tmpdir)
             with (
                 patch.dict(MODEL_PINS, {key: {"revision": "rev3", "sha256": None}}, clear=False),
                 patch("manga_backend.utils.download.hf_hub_download", side_effect=fake_download),
             ):
                 downloaded = engine._download_model_sync(key[1], key[0])
             self.assertEqual(calls[0]["revision"], "rev3")
-            self.assertEqual(downloaded, str(Path(tmpdir, key[1])))
+            self.assertEqual(downloaded, Path(tmpdir, key[1]))
 
             with patch.dict(MODEL_PINS, {key: {"revision": None, "sha256": "0" * 64}}, clear=False):
                 with self.assertRaisesRegex(RuntimeError, "Model checksum mismatch"):
@@ -811,7 +811,7 @@ class PaddleOcrWrapperTests(unittest.TestCase):
         key = ("xberg-io/paddleocr-onnx-models", "rec/chinese/model.onnx")
         with writable_temp_directory() as tmpdir:
             engine = PaddleOCROnnxEngine()
-            engine.models_dir = tmpdir
+            engine.models_dir = Path(tmpdir)
             model = Path(tmpdir, "rec", "chinese", "model.onnx")
             model.parent.mkdir(parents=True)
             model.write_bytes(b"onnx")

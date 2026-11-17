@@ -9,7 +9,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from manga_backend.models.flux_lanpaint_inpainter import DEFAULT_PROMPT, FluxLanPaintInpainter
+from manga_backend.models.flux_lanpaint_inpainter import (
+    DEFAULT_PROMPT,
+    FluxLanPaintInpainter,
+)
 
 
 def _parser() -> argparse.ArgumentParser:

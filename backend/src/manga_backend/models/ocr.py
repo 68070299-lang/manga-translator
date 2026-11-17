@@ -1,32 +1,34 @@
-"""
-Manga OCR using ONNX runtime.
+"""Manga OCR using ONNX runtime.
 
 Based on comic-translate's manga_ocr implementation.
 Uses the manga-ocr-base model from HuggingFace.
 """
 
+from __future__ import annotations
+
 import asyncio
+import logging
 import os
 import re
-import logging
-from typing import List
+from collections.abc import Sequence
+from types import ModuleType
+
 import numpy as np
+import onnxruntime as ort
 from PIL import Image
 
-from manga_backend.utils.device import get_onnx_providers, create_onnx_session
-from manga_backend.utils.textblock import TextBlock
-from manga_backend.utils.download import download_manga_ocr_onnx
 from manga_backend.paths import MODELS_CACHE_DIR
+from manga_backend.utils.device import create_onnx_session, get_onnx_providers
+from manga_backend.utils.download import download_manga_ocr_onnx
+from manga_backend.utils.textblock import TextBlock
 
 logger = logging.getLogger(__name__)
 
-MODELS_DIR = str(MODELS_CACHE_DIR)
-
+_jaconv: ModuleType | None
 try:
-    import jaconv
-    HAS_JACONV = True
+    import jaconv as _jaconv
 except ImportError:
-    HAS_JACONV = False
+    _jaconv = None
     logger.warning("jaconv not installed, Japanese text normalization disabled")
 
 
@@ -45,13 +47,17 @@ class OCREngine:
     # or sound effect (うおおおお, ゴゴゴゴ) survives in shortened form.
     REPEAT_KEEP_COPIES = 4
 
-    def __init__(self, device: str = "cpu"):
+    def __init__(self, device: str = "cpu") -> None:
         self.device = device
-        self.encoder = None
-        self.decoder = None
-        self.vocab = None
+        self.encoder: ort.InferenceSession | None = None
+        self.decoder: ort.InferenceSession | None = None
+        self.vocab: list[str] = []
+        self.encoder_image_input = ""
+        self.encoder_output_name = ""
+        self.decoder_token_input = ""
+        self.decoder_encoder_input = ""
         self.expansion_percentage = 5
-        self.model_dir = os.path.join(MODELS_DIR, "manga_ocr")
+        self.model_dir = MODELS_CACHE_DIR / "manga_ocr"
         self.batch_size = self._resolve_batch_size()
         self._inference_lock = asyncio.Lock()
 
@@ -63,38 +69,38 @@ class OCREngine:
             logger.warning("Invalid MANGA_OCR_BATCH_SIZE; using %s", default)
             return default
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Download and load the OCR model."""
-        os.makedirs(self.model_dir, exist_ok=True)
+        self.model_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info("Downloading manga-ocr model...")
         model_files = await download_manga_ocr_onnx(self.model_dir)
 
         providers = get_onnx_providers(self.device)
-        logger.info(f"Loading OCR model with providers: {providers}")
+        logger.info("Loading OCR model with providers: %s", providers)
 
         self.encoder = await asyncio.to_thread(create_onnx_session, model_files["encoder"], providers)
         self.decoder = await asyncio.to_thread(create_onnx_session, model_files["decoder"], providers)
-        with open(model_files["vocab"], 'r', encoding='utf-8') as f:
-            self.vocab = f.read().splitlines()
-        self._setup_io_names()
+        self.vocab = model_files["vocab"].read_text(encoding="utf-8").splitlines()
+        self._setup_io_names(self.encoder, self.decoder)
 
         logger.info("OCR model loaded successfully (batch_size=%s)", self.batch_size)
 
-    def _setup_io_names(self):
+    def _setup_io_names(self, encoder: ort.InferenceSession, decoder: ort.InferenceSession) -> None:
         """Discover input/output names from ONNX models."""
-        encoder_inputs = [inp.name for inp in self.encoder.get_inputs()]
-        self.encoder_image_input = self._find_name(encoder_inputs, ['image', 'pixel_values', 'input'])
-        self.encoder_output_name = self.encoder.get_outputs()[0].name
+        encoder_inputs = [inp.name for inp in encoder.get_inputs()]
+        self.encoder_image_input = self._find_name(encoder_inputs, ["image", "pixel_values", "input"])
+        self.encoder_output_name = encoder.get_outputs()[0].name
 
-        decoder_inputs = [inp.name for inp in self.decoder.get_inputs()]
-        self.decoder_token_input = self._find_name(decoder_inputs, ['token_ids', 'input_ids', 'input'])
+        decoder_inputs = [inp.name for inp in decoder.get_inputs()]
+        self.decoder_token_input = self._find_name(decoder_inputs, ["token_ids", "input_ids", "input"])
         self.decoder_encoder_input = self._find_name(
             decoder_inputs,
-            ['encoder_hidden_states', 'encoder_outputs', 'encoder_last_hidden_state']
+            ["encoder_hidden_states", "encoder_outputs", "encoder_last_hidden_state"],
         )
 
-    def _find_name(self, names: List[str], candidates: List[str]) -> str:
+    @staticmethod
+    def _find_name(names: Sequence[str], candidates: Sequence[str]) -> str:
         """Find a matching name from candidates."""
         for cand in candidates:
             for name in names:
@@ -102,14 +108,14 @@ class OCREngine:
                     return name
         return names[0] if names else ""
 
-    async def process(self, image: np.ndarray, blocks: List[TextBlock]) -> List[str]:
+    async def process(self, image: np.ndarray, blocks: list[TextBlock]) -> list[str]:
         """Extract text from each block of an RGB image, storing it on the block."""
         if self.encoder is None or self.decoder is None:
             raise RuntimeError("OCR model not initialized")
 
         results = [""] * len(blocks)
-        crops = []
-        crop_indexes = []
+        crops: list[np.ndarray] = []
+        crop_indexes: list[int] = []
         h, w = image.shape[:2]
 
         for index, block in enumerate(blocks):
@@ -144,9 +150,9 @@ class OCREngine:
 
         return results
 
-    def _ocr_batch(self, images: List[np.ndarray]) -> List[str]:
+    def _ocr_batch(self, images: list[np.ndarray]) -> list[str]:
         """Run OCR in bounded batches to amortize encoder and decoder launches."""
-        results = []
+        results: list[str] = []
         for offset in range(0, len(images), self.batch_size):
             chunk = images[offset:offset + self.batch_size]
             image_batch = np.concatenate([self._preprocess(image) for image in chunk], axis=0)
@@ -154,8 +160,8 @@ class OCREngine:
             results.extend(self._postprocess(self._decode(tokens)) for tokens in token_batches)
         return results
 
-    def _ocr_individual_fallback(self, images: List[np.ndarray]) -> List[str]:
-        results = []
+    def _ocr_individual_fallback(self, images: list[np.ndarray]) -> list[str]:
+        results: list[str] = []
         for image in images:
             try:
                 results.append(self._ocr_single(image))
@@ -174,8 +180,8 @@ class OCREngine:
         if image is None or image.size == 0:
             raise ValueError("Empty image")
 
-        pil_img = Image.fromarray(image).convert('L').convert('RGB')
-        pil_img = pil_img.resize((224, 224), resample=Image.BILINEAR)
+        pil_img = Image.fromarray(image).convert("L").convert("RGB")
+        pil_img = pil_img.resize((224, 224), resample=Image.Resampling.BILINEAR)
 
         arr = np.array(pil_img, dtype=np.float32) / 255.0
         arr = (arr - 0.5) / 0.5
@@ -183,9 +189,12 @@ class OCREngine:
         # (H, W, C) -> (1, C, H, W)
         return arr.transpose((2, 0, 1))[np.newaxis, ...]
 
-    def _generate_batch(self, images: np.ndarray, max_length: int = 300) -> List[List[int]]:
+    def _generate_batch(self, images: np.ndarray, max_length: int = 300) -> list[list[int]]:
         """Greedy-decode multiple crops with one model launch per token step."""
-        encoder_hidden = self.encoder.run(None, {self.encoder_image_input: images})[0]
+        encoder, decoder = self.encoder, self.decoder
+        if encoder is None or decoder is None:
+            raise RuntimeError("OCR model not initialized")
+        encoder_hidden = np.asarray(encoder.run(None, {self.encoder_image_input: images})[0])
         batch_size = int(images.shape[0])
         sequences = [[self.BOS_TOKEN] for _ in range(batch_size)]
         active_indexes = np.arange(batch_size)
@@ -193,10 +202,15 @@ class OCREngine:
         active_hidden = encoder_hidden
 
         for _ in range(max_length):
-            logits = self.decoder.run(None, {
-                self.decoder_token_input: active_tokens,
-                self.decoder_encoder_input: active_hidden
-            })[0]
+            logits = np.asarray(
+                decoder.run(
+                    None,
+                    {
+                        self.decoder_token_input: active_tokens,
+                        self.decoder_encoder_input: active_hidden,
+                    },
+                )[0]
+            )
             next_tokens = np.argmax(logits[:, -1, :], axis=-1).astype(np.int64)
             active_tokens = np.concatenate([active_tokens, next_tokens[:, np.newaxis]], axis=1)
             unfinished = next_tokens != self.EOS_TOKEN
@@ -216,7 +230,7 @@ class OCREngine:
         return sequences
 
     @classmethod
-    def _trim_runaway_repetition(cls, tokens: List[int]) -> bool:
+    def _trim_runaway_repetition(cls, tokens: list[int]) -> bool:
         """Shorten a runaway repetition at the end of `tokens` in place.
 
         Returns True, meaning this crop's decode should stop, once the last
@@ -242,9 +256,9 @@ class OCREngine:
                 return True
         return False
 
-    def _decode(self, token_ids: List[int]) -> str:
+    def _decode(self, token_ids: Sequence[int]) -> str:
         """Decode token IDs to text."""
-        return ''.join(
+        return "".join(
             self.vocab[tid]
             for tid in token_ids
             if self.SKIP_TOKEN_RANGE <= tid < len(self.vocab)
@@ -252,17 +266,17 @@ class OCREngine:
 
     def _postprocess(self, text: str) -> str:
         """Clean up the OCR output."""
-        text = ''.join(text.split())
+        text = "".join(text.split())
 
-        text = text.replace('…', '...')
+        text = text.replace("…", "...")
 
-        text = re.sub(r'[・.]{2,}', lambda x: '.' * (x.end() - x.start()), text)
+        text = re.sub(r"[・.]{2,}", lambda x: "." * (x.end() - x.start()), text)
 
-        if HAS_JACONV:
-            text = jaconv.h2z(text, ascii=True, digit=True)
+        if _jaconv is not None:
+            text = _jaconv.h2z(text, ascii=True, digit=True)
 
         return text
 
-    def dispose(self):
+    def dispose(self) -> None:
         self.encoder = None
         self.decoder = None

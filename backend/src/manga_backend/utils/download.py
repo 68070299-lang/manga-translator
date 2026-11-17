@@ -1,25 +1,34 @@
-"""
-Model download utilities.
+"""Model download utilities.
 
 Downloads ONNX models from HuggingFace Hub.
 """
 
-import os
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import logging
-from typing import Dict, Callable, Optional, Tuple
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any, TypedDict
+
 from huggingface_hub import hf_hub_download
 
 logger = logging.getLogger(__name__)
+
+
+class ModelPin(TypedDict):
+    revision: str | None
+    sha256: str | None
+
 
 # Optional per-file pins: {(repo_id, filename): {"revision": commit, "sha256": hex}}.
 # None means "not pinned" and keeps the previous behaviour (latest revision, no
 # checksum). Fill these in from a trusted download to make downloads reproducible.
 # Pins are keyed by the default repos; a repo overridden through the environment
 # is never pinned.
-_UNPINNED = {"revision": None, "sha256": None}
-MODEL_PINS: Dict[Tuple[str, str], Dict[str, Optional[str]]] = {
+_UNPINNED: ModelPin = {"revision": None, "sha256": None}
+MODEL_PINS: dict[tuple[str, str], ModelPin] = {
     # manga-ocr, LaMa and RT-DETR files pinned to the Hugging Face commit whose files
     # match the cached models_cache copies byte for byte (sha256 = LFS oid; vocab.txt
     # downloaded at that commit and hashed).
@@ -59,7 +68,7 @@ MODEL_PINS: Dict[Tuple[str, str], Dict[str, Optional[str]]] = {
     },
     # AnimeText stays unpinned: the repo is gated and hides its sha256s without auth.
     **{
-        ("deepghs/AnimeText_yolo", f"yolo12{variant}_animetext/model.onnx"): dict(_UNPINNED)
+        ("deepghs/AnimeText_yolo", f"yolo12{variant}_animetext/model.onnx"): ModelPin(**_UNPINNED)
         for variant in ("n", "s", "m", "l", "x")
     },
 }
@@ -69,23 +78,24 @@ class ModelChecksumError(RuntimeError):
     """A model file did not match its pinned sha256."""
 
 
-def get_model_pin(repo_id: str, filename: str) -> Dict[str, Optional[str]]:
+def get_model_pin(repo_id: str, filename: str) -> ModelPin:
     pin = MODEL_PINS.get((repo_id, filename)) or {}
     return {"revision": pin.get("revision"), "sha256": pin.get("sha256")}
 
 
-def verify_sha256(path: str, expected: Optional[str]) -> None:
+def verify_sha256(path: str | Path, expected: str | None) -> None:
     """Check a file against a pinned sha256; delete it and raise on mismatch."""
     if not expected:
         return
+    path = Path(path)
     digest = hashlib.sha256()
-    with open(path, "rb") as handle:
+    with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     if digest.hexdigest().lower() != expected.strip().lower():
-        filename = os.path.basename(path)
+        filename = path.name
         try:
-            os.remove(path)
+            path.unlink()
         except OSError as error:
             logger.warning("Could not delete %s after checksum mismatch: %s", filename, error)
         raise ModelChecksumError(
@@ -93,12 +103,12 @@ def verify_sha256(path: str, expected: Optional[str]) -> None:
         )
 
 
-def verify_cached_model(repo_id: str, filename: str, path: str) -> None:
+def verify_cached_model(repo_id: str, filename: str, path: str | Path) -> None:
     """Verify an already-downloaded file when a sha256 is pinned for it."""
     verify_sha256(path, get_model_pin(repo_id, filename)["sha256"])
 
 
-def download_pinned_model(repo_id: str, filename: str, **kwargs) -> str:
+def download_pinned_model(repo_id: str, filename: str, **kwargs: Any) -> str:
     """hf_hub_download that forwards a pinned revision and verifies a pinned sha256."""
     pin = get_model_pin(repo_id, filename)
     if pin["revision"]:
@@ -108,8 +118,8 @@ def download_pinned_model(repo_id: str, filename: str, **kwargs) -> str:
     return path
 
 
-def _is_nonempty(path: str) -> bool:
-    return os.path.exists(path) and os.path.getsize(path) > 0
+def _is_nonempty(path: Path) -> bool:
+    return path.exists() and path.stat().st_size > 0
 
 
 MANGA_OCR_REPO = "mayocream/manga-ocr-onnx"
@@ -121,20 +131,18 @@ MANGA_OCR_FILES = {
 
 
 async def download_manga_ocr_onnx(
-    model_dir: str,
-    progress_callback: Optional[Callable[[int, int], None]] = None,
-) -> Dict[str, str]:
-    await asyncio.to_thread(os.makedirs, model_dir, exist_ok=True)
+    model_dir: str | Path,
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> dict[str, Path]:
+    model_dir = Path(model_dir)
+    await asyncio.to_thread(model_dir.mkdir, parents=True, exist_ok=True)
 
-    paths = {
-        label: os.path.join(model_dir, filename)
-        for label, filename in MANGA_OCR_FILES.items()
-    }
-    downloaded = set()
+    paths = {label: model_dir / filename for label, filename in MANGA_OCR_FILES.items()}
+    downloaded: set[str] = set()
 
     try:
         for label, filename in MANGA_OCR_FILES.items():
-            if not await asyncio.to_thread(os.path.exists, paths[label]):
+            if not await asyncio.to_thread(paths[label].exists):
                 logger.info("Downloading manga-ocr %s...", label)
                 await asyncio.to_thread(
                     download_pinned_model,
@@ -146,12 +154,12 @@ async def download_manga_ocr_onnx(
                 downloaded.add(filename)
     except ModelChecksumError:
         raise
-    except Exception as e:
-        logger.error(f"Failed to download manga-ocr model from {MANGA_OCR_REPO}: {e}")
+    except Exception as error:
+        logger.error("Failed to download manga-ocr model from %s: %s", MANGA_OCR_REPO, error)
         raise RuntimeError(
             "Could not download manga-ocr ONNX model from mayocream/manga-ocr-onnx. "
             "Please check your network or manually download the model."
-        )
+        ) from error
 
     for label, path in paths.items():
         if not await asyncio.to_thread(_is_nonempty, path):
@@ -169,19 +177,20 @@ async def download_manga_ocr_onnx(
 
 
 async def download_lama_onnx(
-    model_dir: str,
-    progress_callback: Optional[Callable[[int, int], None]] = None,
-) -> str:
-    await asyncio.to_thread(os.makedirs, model_dir, exist_ok=True)
+    model_dir: str | Path,
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> Path:
+    model_dir = Path(model_dir)
+    await asyncio.to_thread(model_dir.mkdir, parents=True, exist_ok=True)
 
     filename = "lama-manga-dynamic.onnx"
-    model_path = os.path.join(model_dir, filename)
+    model_path = model_dir / filename
     repo_id = "ogkalu/lama-manga-onnx-dynamic"
-    cached = await asyncio.to_thread(os.path.exists, model_path)
+    cached = await asyncio.to_thread(model_path.exists)
 
     if not cached:
         try:
-            logger.info(f"Downloading LaMa inpainting model to {model_path}...")
+            logger.info("Downloading LaMa inpainting model to %s...", model_path)
             await asyncio.to_thread(
                 download_pinned_model,
                 repo_id,
@@ -192,9 +201,9 @@ async def download_lama_onnx(
             logger.info("LaMa model download complete")
         except ModelChecksumError:
             raise
-        except Exception as e:
-            logger.error(f"Failed to download LaMa model from {repo_id}: {e}")
-            raise RuntimeError("Could not download LaMa inpainting model.")
+        except Exception as error:
+            logger.error("Failed to download LaMa model from %s: %s", repo_id, error)
+            raise RuntimeError("Could not download LaMa inpainting model.") from error
 
     if not await asyncio.to_thread(_is_nonempty, model_path):
         raise RuntimeError(f"Download failed: {model_path} is empty or missing")

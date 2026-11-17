@@ -1,23 +1,30 @@
-"""
-Device and ONNX runtime utilities.
+"""Device and ONNX runtime utilities.
 
 Based on comic-translate's device.py
 """
 
+from __future__ import annotations
+
 import ctypes
 import logging
 import os
+from collections.abc import Sequence
 from pathlib import Path
-from typing import List, Any, Optional
+from typing import Any
+
 import onnxruntime as ort
 
 logger = logging.getLogger(__name__)
+
+# A provider is a bare name or a (name, options) pair.
+Provider = str | tuple[str, dict[str, Any]]
+
 _gpu_dlls_preloaded = False
-_gpu_dll_directory_handles = []
-_gpu_library_handles = []
+_gpu_dll_directory_handles: list[Any] = []
+_gpu_library_handles: list[Any] = []
 
 
-def preload_onnx_gpu_dependencies(providers) -> None:
+def preload_onnx_gpu_dependencies(providers: Sequence[Provider]) -> None:
     """Load CUDA DLLs shipped as Python packages before ORT creates a session."""
     global _gpu_dlls_preloaded
     if _gpu_dlls_preloaded or not providers or not hasattr(ort, "preload_dlls"):
@@ -67,7 +74,7 @@ def _intra_op_threads(first_provider: str) -> int:
 CUDNN_CONV_ALGO_SEARCH_MODES = {"EXHAUSTIVE", "HEURISTIC", "DEFAULT"}
 
 
-def cuda_provider_options() -> dict:
+def cuda_provider_options() -> dict[str, Any]:
     """CUDA settings for a pipeline whose input shapes change with every page.
 
     ONNX Runtime's default (EXHAUSTIVE) benchmarks every cuDNN convolution
@@ -86,20 +93,23 @@ def cuda_provider_options() -> dict:
     }
 
 
-def with_provider_options(providers) -> list:
+def with_provider_options(providers: Sequence[Provider]) -> list[Provider]:
     """Attach the shared CUDA options to a bare CUDAExecutionProvider entry."""
     return [
         (provider, cuda_provider_options())
-        if provider == "CUDAExecutionProvider"
+        if isinstance(provider, str) and provider == "CUDAExecutionProvider"
         else provider
         for provider in providers
     ]
 
 
-def create_onnx_session(model_path: str, providers=None) -> ort.InferenceSession:
+def create_onnx_session(
+    model_path: str | os.PathLike[str],
+    providers: Sequence[Provider] | str | None = None,
+) -> ort.InferenceSession:
     """Create an ONNX session with shared optimization settings; providers default to CPU."""
     if providers is None:
-        providers = ['CPUExecutionProvider']
+        providers = ["CPUExecutionProvider"]
     elif isinstance(providers, str):
         providers = [providers]
     providers = with_provider_options(providers)
@@ -118,6 +128,7 @@ def create_onnx_session(model_path: str, providers=None) -> ort.InferenceSession
             f"Requested ONNX provider {requested} failed to initialize; active providers: {actual}"
         )
     return session
+
 
 PROVIDER_BY_DEVICE = {
     "cuda": "CUDAExecutionProvider",
@@ -159,7 +170,7 @@ AUTO_PROVIDER_ORDER = (
 )
 
 
-def get_onnx_providers(device: Optional[str] = None) -> List[Any]:
+def get_onnx_providers(device: str | None = None) -> list[Provider]:
     """Get ONNX Runtime execution providers for a device, or auto-select when None."""
     try:
         available = ort.get_available_providers()
@@ -167,25 +178,27 @@ def get_onnx_providers(device: Optional[str] = None) -> List[Any]:
         available = []
 
     if not available:
-        return ['CPUExecutionProvider']
+        return ["CPUExecutionProvider"]
 
     if device:
         device = device.strip().lower()
 
-    if device == 'cpu':
-        return ['CPUExecutionProvider']
+    if device == "cpu":
+        return ["CPUExecutionProvider"]
 
     if device in PROVIDER_BY_DEVICE:
         requested = PROVIDER_BY_DEVICE[device]
         if requested not in available:
-            logger.warning(f"Requested ONNX provider {requested} is not available, falling back to CPU")
-            return ['CPUExecutionProvider']
-        providers = [requested]
-        if 'CPUExecutionProvider' in available:
-            providers.append('CPUExecutionProvider')
+            logger.warning(
+                "Requested ONNX provider %s is not available, falling back to CPU", requested
+            )
+            return ["CPUExecutionProvider"]
+        providers: list[Provider] = [requested]
+        if "CPUExecutionProvider" in available:
+            providers.append("CPUExecutionProvider")
     else:
         providers = [provider for provider in AUTO_PROVIDER_ORDER if provider in available]
-        providers.append('CPUExecutionProvider')
+        providers.append("CPUExecutionProvider")
 
-    logger.info(f"ONNX providers: {providers}")
+    logger.info("ONNX providers: %s", providers)
     return providers

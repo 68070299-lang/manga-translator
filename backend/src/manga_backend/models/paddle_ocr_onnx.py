@@ -1,25 +1,31 @@
-"""
-PaddleOCR ONNX engine for manga text recognition.
+"""PaddleOCR ONNX engine for manga text recognition.
 
 Uses PP-OCRv5 ONNX models for Japanese/Chinese text detection and recognition.
 No PaddlePaddle dependency - uses pure ONNX Runtime for inference.
 """
 
+from __future__ import annotations
+
 import asyncio
-import os
 import logging
-from typing import List, Tuple
+import os
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any, cast
+
+import cv2
 import numpy as np
 import onnxruntime as ort
-import cv2
+import yaml
 
+from manga_backend.paths import MODELS_CACHE_DIR
 from manga_backend.utils.device import (
+    Provider,
     get_onnx_providers,
     preload_onnx_gpu_dependencies,
     with_provider_options,
 )
 from manga_backend.utils.download import download_pinned_model, verify_cached_model
-from manga_backend.paths import MODELS_CACHE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +56,7 @@ REC_BATCH_SIZE = 8
 REC_ROTATE_RATIO = 1.5  # crops at least this much taller than wide are read sideways
 
 
-def _sort_box_points(pts):
+def _sort_box_points(pts: Any) -> np.ndarray:
     pts = np.array(pts, dtype=np.float32)
     s = pts.sum(axis=1)
     d = np.diff(pts, axis=1).flatten()
@@ -68,26 +74,26 @@ class PaddleOCROnnxEngine:
     IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
     IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
-    def __init__(self, lang: str = "japan", device: str = "cpu"):
+    def __init__(self, lang: str = "japan", device: str = "cpu") -> None:
         self.lang = lang
         self.device = device
-        self.det_session = None
-        self.rec_session = None
-        self.char_dict = None
+        self.det_session: ort.InferenceSession | None = None
+        self.rec_session: ort.InferenceSession | None = None
+        self.char_dict: list[str] = []
         self._initialized = False
         self._initialization_lock = asyncio.Lock()
         self._inference_lock = asyncio.Lock()
 
-        self.models_dir = str(MODELS_CACHE_DIR / 'paddleocr_onnx')
+        self.models_dir = MODELS_CACHE_DIR / "paddleocr_onnx"
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Initialize the ONNX models without blocking request handling."""
         async with self._initialization_lock:
             if self._initialized:
                 return
 
             try:
-                os.makedirs(self.models_dir, exist_ok=True)
+                self.models_dir.mkdir(parents=True, exist_ok=True)
                 det_path = await self._download_model(
                     PADDLEOCR_DET_FILE,
                     repo_id=PADDLEOCR_DET_REPO,
@@ -103,7 +109,7 @@ class PaddleOCROnnxEngine:
                 char_dict = await asyncio.to_thread(self._load_char_dict, dict_path)
 
                 providers = get_onnx_providers(self.device)
-                logger.info(f"Loading PaddleOCR ONNX sessions with providers: {providers}")
+                logger.info("Loading PaddleOCR ONNX sessions with providers: %s", providers)
                 det_session = await asyncio.to_thread(
                     self._create_session, det_path, providers
                 )
@@ -116,32 +122,36 @@ class PaddleOCROnnxEngine:
                 self.rec_session = rec_session
                 self._initialized = True
                 logger.info("PaddleOCR ONNX initialized successfully")
-            except Exception as e:
-                logger.error(f"Failed to initialize PaddleOCR ONNX: {e}")
+            except Exception as error:
+                logger.error("Failed to initialize PaddleOCR ONNX: %s", error)
                 raise
 
-    async def _download_model(self, filename: str, repo_id: str) -> str:
+    async def _download_model(self, filename: str, repo_id: str) -> Path:
         """Download a model without blocking the event loop."""
         return await asyncio.to_thread(self._download_model_sync, filename, repo_id)
 
-    def _download_model_sync(self, filename: str, repo_id: str) -> str:
-        local_path = os.path.join(self.models_dir, filename)
+    def _download_model_sync(self, filename: str, repo_id: str) -> Path:
+        local_path = self.models_dir / filename
 
-        if os.path.exists(local_path):
-            logger.info(f"Found cached PaddleOCR model: {filename}")
+        if local_path.exists():
+            logger.info("Found cached PaddleOCR model: %s", filename)
             verify_cached_model(repo_id, filename, local_path)
             return local_path
 
-        logger.info(f"Downloading PaddleOCR model: {filename}...")
+        logger.info("Downloading PaddleOCR model: %s...", filename)
 
-        return download_pinned_model(
-            repo_id,
-            filename,
-            local_dir=self.models_dir,
+        return Path(
+            download_pinned_model(
+                repo_id,
+                filename,
+                local_dir=self.models_dir,
+            )
         )
 
     @staticmethod
-    def _create_session(model_path: str, providers):
+    def _create_session(
+        model_path: str | os.PathLike[str], providers: Sequence[Provider]
+    ) -> ort.InferenceSession:
         providers = with_provider_options(providers)
         preload_onnx_gpu_dependencies(providers)
         opts = ort.SessionOptions()
@@ -151,14 +161,13 @@ class PaddleOCROnnxEngine:
             model_path, sess_options=opts, providers=providers
         )
 
-    def _load_char_dict(self, yml_path: str) -> List[str]:
+    def _load_char_dict(self, yml_path: str | Path) -> list[str]:
         """Load the character dictionary PP-OCRv5 keeps in its yml or a sibling file."""
-        import yaml
-
-        with open(yml_path, 'r', encoding='utf-8') as f:
+        yml_path = Path(yml_path)
+        with yml_path.open("r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
 
-        char_list = ['blank']  # CTC blank token
+        char_list = ["blank"]  # CTC blank token
         post_process = config.get('PostProcess') or {}
 
         if 'character_dict' in config:
@@ -166,9 +175,9 @@ class PaddleOCROnnxEngine:
         elif 'character_dict' in post_process:
             char_list.extend(post_process['character_dict'])
         elif 'character_dict_path' in post_process:
-            dict_path = os.path.join(os.path.dirname(yml_path), post_process['character_dict_path'])
-            if os.path.exists(dict_path):
-                with open(dict_path, 'r', encoding='utf-8') as f:
+            dict_path = yml_path.parent / post_process["character_dict_path"]
+            if dict_path.exists():
+                with dict_path.open("r", encoding="utf-8") as f:
                     char_list.extend(line.strip() for line in f)
         elif 'character' in post_process:
             char_list.extend(post_process['character'])
@@ -180,12 +189,12 @@ class PaddleOCROnnxEngine:
 
         # PaddleOCR's CTCLabelDecode appends the ASCII space after the dictionary
         # (use_space_char), so the PP-OCRv5 head has len(dict) + 2 classes.
-        char_list.append(' ')
+        char_list.append(" ")
         return char_list
 
     def _preprocess_det(
         self, image: np.ndarray
-    ) -> Tuple[np.ndarray, float, Tuple[int, int]]:
+    ) -> tuple[np.ndarray, float, tuple[int, int]]:
         max_side = 960
         h, w = image.shape[:2]
         ratio = 1.0
@@ -209,7 +218,13 @@ class PaddleOCROnnxEngine:
 
         return padded, ratio, (h, w)
 
-    def _postprocess_det(self, output: np.ndarray, ratio: float, orig_shape: Tuple[int, int], resized_shape: Tuple[int, int]) -> List[np.ndarray]:
+    def _postprocess_det(
+        self,
+        output: np.ndarray,
+        ratio: float,
+        orig_shape: tuple[int, int],
+        resized_shape: tuple[int, int],
+    ) -> list[np.ndarray]:
         pred = output[0, 0]
 
         thresh = 0.3
@@ -217,7 +232,7 @@ class PaddleOCROnnxEngine:
 
         contours, _ = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 
-        boxes = []
+        boxes: list[np.ndarray] = []
         res_h, res_w = resized_shape
         for contour in contours:
             if cv2.contourArea(contour) < 100:
@@ -271,12 +286,12 @@ class PaddleOCROnnxEngine:
         image = (image / 255.0 - 0.5) / 0.5
         return image.transpose(2, 0, 1)
 
-    def _postprocess_rec_batch(self, output: np.ndarray) -> List[Tuple[str, float]]:
+    def _postprocess_rec_batch(self, output: np.ndarray) -> list[tuple[str, float]]:
         """CTC-decode recognition output shaped [batch_size, seq_len, num_classes]."""
-        results = []
+        results: list[tuple[str, float]] = []
         for preds in output:
-            text = []
-            scores = []
+            text: list[str] = []
+            scores: list[float] = []
             prev_idx = -1
 
             for idx, score in zip(np.argmax(preds, axis=-1), np.max(preds, axis=-1)):
@@ -286,19 +301,22 @@ class PaddleOCROnnxEngine:
                     scores.append(score)
                 prev_idx = idx
 
-            results.append((''.join(text), float(np.mean(scores)) if scores else 0.0))
+            results.append(("".join(text), float(np.mean(scores)) if scores else 0.0))
 
         return results
 
-    def _recognize_batch(self, batch: np.ndarray) -> List[Tuple[str, float]]:
-        rec_input = {self.rec_session.get_inputs()[0].name: batch}
-        return self._postprocess_rec_batch(self.rec_session.run(None, rec_input)[0])
+    def _recognize_batch(self, batch: np.ndarray) -> list[tuple[str, float]]:
+        session = self.rec_session
+        if session is None:
+            raise RuntimeError("PaddleOCR recognition session is not initialized")
+        rec_input = {session.get_inputs()[0].name: batch}
+        return self._postprocess_rec_batch(cast(np.ndarray, session.run(None, rec_input)[0]))
 
-    def _recognize_crops(self, crops: List[np.ndarray]) -> List[Tuple[str, float]]:
+    def _recognize_crops(self, crops: Sequence[np.ndarray]) -> list[tuple[str, float]]:
         """Recognize RGB crops, batching similar widths to keep padding small."""
         inputs = [self._preprocess_rec(self._upright(crop)) for crop in crops]
         order = sorted(range(len(inputs)), key=lambda index: inputs[index].shape[2])
-        results: List[Tuple[str, float]] = [("", 0.0)] * len(inputs)
+        results: list[tuple[str, float]] = [("", 0.0)] * len(inputs)
 
         for start in range(0, len(order), REC_BATCH_SIZE):
             indices = order[start:start + REC_BATCH_SIZE]
@@ -311,7 +329,7 @@ class PaddleOCROnnxEngine:
 
         return results
 
-    def _get_crop(self, image: np.ndarray, box: np.ndarray) -> np.ndarray:
+    def _get_crop(self, image: np.ndarray, box: np.ndarray) -> np.ndarray | None:
         pts = _sort_box_points(box.astype(np.float32))
 
         width = int(max(np.linalg.norm(pts[0] - pts[1]), np.linalg.norm(pts[2] - pts[3])))
@@ -333,7 +351,7 @@ class PaddleOCROnnxEngine:
             flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE,
         )
 
-    async def detect_and_recognize(self, image: np.ndarray) -> List[dict]:
+    async def detect_and_recognize(self, image: np.ndarray) -> list[dict[str, Any]]:
         """Return 'id', 'text', 'confidence', 'bbox' and 'polygon' per text in an RGB image."""
         if not self._initialized:
             await self.initialize()
@@ -341,18 +359,24 @@ class PaddleOCROnnxEngine:
         async with self._inference_lock:
             return await asyncio.to_thread(self._detect_and_recognize_sync, image)
 
-    def _detect_and_recognize_sync(self, image: np.ndarray) -> List[dict]:
+    def _detect_and_recognize_sync(self, image: np.ndarray) -> list[dict[str, Any]]:
         """Run detection and recognition off the event loop."""
         try:
+            det_session = self.det_session
+            if det_session is None:
+                raise RuntimeError("PaddleOCR detection session is not initialized")
             orig_h, orig_w = image.shape[:2]
 
             det_input, ratio, resized_shape = self._preprocess_det(image)
-            det_output = self.det_session.run(None, {self.det_session.get_inputs()[0].name: det_input})[0]
+            det_output = cast(
+                np.ndarray,
+                det_session.run(None, {det_session.get_inputs()[0].name: det_input})[0],
+            )
             boxes = self._postprocess_det(det_output, ratio, (orig_h, orig_w), resized_shape)
 
-            text_blocks = []
-            crops = []
-            valid_boxes = []
+            text_blocks: list[dict[str, Any]] = []
+            crops: list[np.ndarray] = []
+            valid_boxes: list[np.ndarray] = []
 
             for box in boxes:
                 crop = self._get_crop(image, box)
@@ -376,14 +400,16 @@ class PaddleOCROnnxEngine:
                             "polygon": box.tolist()
                         })
 
-            logger.info(f"PaddleOCR ONNX detected {len(text_blocks)} text blocks")
+            logger.info("PaddleOCR ONNX detected %s text blocks", len(text_blocks))
             return text_blocks
 
-        except Exception as e:
-            logger.error(f"PaddleOCR ONNX inference failed: {e}")
+        except Exception as error:
+            logger.error("PaddleOCR ONNX inference failed: %s", error)
             raise
 
-    async def recognize_regions(self, image: np.ndarray, regions: List[dict]) -> List[str]:
+    async def recognize_regions(
+        self, image: np.ndarray, regions: Sequence[Mapping[str, Any]]
+    ) -> list[str]:
         """Recognize text in pre-defined regions using batching."""
         if not self._initialized:
             await self.initialize()
@@ -394,14 +420,16 @@ class PaddleOCROnnxEngine:
         async with self._inference_lock:
             return await asyncio.to_thread(self._recognize_regions_sync, image, regions)
 
-    def _recognize_regions_sync(self, image: np.ndarray, regions: List[dict]) -> List[str]:
+    def _recognize_regions_sync(
+        self, image: np.ndarray, regions: Sequence[Mapping[str, Any]]
+    ) -> list[str]:
         """Run region recognition off the event loop."""
         texts = [""] * len(regions)
-        crops = []
-        valid_indices = []
+        crops: list[np.ndarray] = []
+        valid_indices: list[int] = []
 
         for i, region in enumerate(regions):
-            bbox = region.get('bbox', region.get('xyxy', [0, 0, 100, 100]))
+            bbox = region.get("bbox", region.get("xyxy", [0, 0, 100, 100]))
             x1, y1, x2, y2 = [int(v) for v in bbox[:4]]
 
             crop = image[max(0, y1):min(image.shape[0], y2), max(0, x1):min(image.shape[1], x2)]
@@ -418,17 +446,17 @@ class PaddleOCROnnxEngine:
             batch_results = self._recognize_crops(crops)
             for (text, _), index in zip(batch_results, valid_indices):
                 texts[index] = text
-        except Exception as e:
-            logger.error(f"OCR batch inference failed: {e}")
+        except Exception as error:
+            logger.error("OCR batch inference failed: %s", error)
             for index, crop in zip(valid_indices, crops):
                 try:
                     texts[index] = self._recognize_crops([crop])[0][0]
                 except Exception as fallback_error:
-                    logger.warning(f"OCR single-region fallback failed: {fallback_error}")
+                    logger.warning("OCR single-region fallback failed: %s", fallback_error)
 
         return texts
 
-    def dispose(self):
+    def dispose(self) -> None:
         self.det_session = None
         self.rec_session = None
         self._initialized = False

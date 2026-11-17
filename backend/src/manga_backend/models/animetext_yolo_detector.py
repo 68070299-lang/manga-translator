@@ -5,18 +5,24 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections.abc import Sequence
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any, cast
 
 import numpy as np
+import onnxruntime as ort
 from huggingface_hub.errors import GatedRepoError, HfHubHTTPError
 from PIL import Image
 
-from manga_backend.utils.device import PROVIDER_BY_DEVICE, create_onnx_session, get_onnx_providers
+from manga_backend.paths import MODELS_CACHE_DIR
+from manga_backend.utils.device import (
+    PROVIDER_BY_DEVICE,
+    Provider,
+    create_onnx_session,
+    get_onnx_providers,
+)
 from manga_backend.utils.download import download_pinned_model, verify_cached_model
 from manga_backend.utils.textblock import TextBlock
-from manga_backend.paths import MODELS_CACHE_DIR
-
 
 logger = logging.getLogger(__name__)
 MODELS_DIR = MODELS_CACHE_DIR / "animetext_yolo"
@@ -33,7 +39,7 @@ PUBLISHED_THRESHOLDS = {
 class AnimeTextYoloDetector:
     """Detect rectangular anime text blocks without changing the mask pipeline."""
 
-    def __init__(self, device: str = "cpu"):
+    def __init__(self, device: str = "cpu") -> None:
         self.device = device
         self.variant = os.getenv("ANIMETEXT_YOLO_VARIANT", "m").strip().lower()
         if self.variant not in PUBLISHED_THRESHOLDS:
@@ -58,7 +64,7 @@ class AnimeTextYoloDetector:
             raise ValueError("ANIMETEXT_YOLO_IOU must be greater than 0 and less than 1")
         if self.max_candidates <= 0:
             raise ValueError("ANIMETEXT_YOLO_MAX_CANDIDATES must be positive")
-        self.session = None
+        self.session: ort.InferenceSession | None = None
         self.input_name = "images"
         self.output_name = "predictions"
         self._inference_lock = asyncio.Lock()
@@ -111,11 +117,12 @@ class AnimeTextYoloDetector:
             )
 
         providers = self._runtime_providers()
-        self.session = await asyncio.to_thread(
+        session = await asyncio.to_thread(
             create_onnx_session, str(model_path), providers
         )
-        inputs = self.session.get_inputs()
-        outputs = self.session.get_outputs()
+        self.session = session
+        inputs = session.get_inputs()
+        outputs = session.get_outputs()
         if len(inputs) != 1 or len(inputs[0].shape) != 4:
             raise RuntimeError("AnimeText YOLO must have one four-dimensional image input")
         if len(outputs) != 1:
@@ -142,17 +149,18 @@ class AnimeTextYoloDetector:
         logger.info(
             "AnimeText YOLO%s loaded with providers %s",
             self.variant,
-            self.session.get_providers(),
+            session.get_providers(),
         )
 
-    async def detect(self, image: np.ndarray) -> List[TextBlock]:
-        if self.session is None:
+    async def detect(self, image: np.ndarray) -> list[TextBlock]:
+        session = self.session
+        if session is None:
             raise RuntimeError("Model not initialized. Call initialize() first.")
         tensor, scale, pad = self._letterbox(image, self.input_size)
         async with self._inference_lock:
             inference = asyncio.create_task(
                 asyncio.to_thread(
-                    self.session.run,
+                    session.run,
                     [self.output_name],
                     {self.input_name: tensor},
                 )
@@ -163,7 +171,7 @@ class AnimeTextYoloDetector:
                 await inference
                 raise
         blocks = self._decode_predictions(
-            output[0],
+            cast(np.ndarray, output[0]),
             image.shape[:2],
             scale,
             pad,
@@ -183,7 +191,7 @@ class AnimeTextYoloDetector:
             return status in (401, 403)
         return False
 
-    def _runtime_providers(self):
+    def _runtime_providers(self) -> list[Provider]:
         requested_device = (
             "cuda"
             if os.getenv("USE_GPU", "false").strip().lower() == "true"
@@ -202,7 +210,7 @@ class AnimeTextYoloDetector:
         return providers
 
     @staticmethod
-    def _validate_output_shape(shape) -> None:
+    def _validate_output_shape(shape: Sequence[Any]) -> None:
         if len(shape) != 3 or shape[0] != 1 or shape[1] != 5:
             raise RuntimeError(
                 f"AnimeText YOLO output must have shape [1, 5, N], got {shape}"
@@ -220,7 +228,7 @@ class AnimeTextYoloDetector:
     @staticmethod
     def _letterbox(
         image: np.ndarray, input_size: int
-    ) -> Tuple[np.ndarray, float, Tuple[int, int]]:
+    ) -> tuple[np.ndarray, float, tuple[int, int]]:
         if image.ndim != 3 or image.shape[2] != 3:
             raise ValueError("AnimeText YOLO expects an RGB HxWx3 image")
         height, width = image.shape[:2]
@@ -249,13 +257,13 @@ class AnimeTextYoloDetector:
     def _decode_predictions(
         cls,
         predictions: np.ndarray,
-        image_shape: Tuple[int, int],
+        image_shape: tuple[int, int],
         scale: float,
-        pad: Tuple[int, int],
+        pad: tuple[int, int],
         confidence_threshold: float,
         iou_threshold: float,
         max_candidates: int = 1000,
-    ) -> List[TextBlock]:
+    ) -> list[TextBlock]:
         values = np.asarray(predictions, dtype=np.float32)
         if values.ndim != 3 or values.shape[0] != 1 or values.shape[1] != 5:
             raise RuntimeError(f"Unexpected AnimeText YOLO output shape: {values.shape}")
@@ -275,7 +283,7 @@ class AnimeTextYoloDetector:
 
         height, width = image_shape
         pad_x, pad_y = pad
-        blocks = []
+        blocks: list[TextBlock] = []
         for index in keep:
             x1, y1, x2, y2 = boxes[index]
             coords = np.array(
@@ -302,9 +310,9 @@ class AnimeTextYoloDetector:
         return blocks
 
     @staticmethod
-    def _nms(boxes: np.ndarray, scores: np.ndarray, threshold: float) -> List[int]:
+    def _nms(boxes: np.ndarray, scores: np.ndarray, threshold: float) -> list[int]:
         order = np.argsort(scores)[::-1]
-        keep = []
+        keep: list[int] = []
         while order.size:
             current = int(order[0])
             keep.append(current)
