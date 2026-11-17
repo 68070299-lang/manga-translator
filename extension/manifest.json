@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Manga Translator",
+  "version": "1.0.0",
+  "minimum_chrome_version": "110",
+  "description": "Translate manga images in-browser using LLM-powered OCR and translation",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "contextMenus",
+    "declarativeNetRequest"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "declarative_net_request": {
+    "rule_resources": [{
+      "id": "bookwalker_cors",
+      "enabled": true,
+      "path": "rules/bookwalker-cors.json"
+    }]
+  },
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["lib/settings.js", "lib/site-activation.js", "lib/utils.js", "lib/translated-image.js", "lib/overlay-dom.js", "lib/font-registry.js", "lib/region-capture.js", "content/content-helpers.js", "content/content.js"],
+    "css": ["content/content.css"],
+    "run_at": "document_idle"
+  }],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options/options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

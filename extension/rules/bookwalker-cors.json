@@ -1,0 +1,30 @@
+[
+  {
+    "id": 2001,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "header": "Referer",
+          "operation": "set",
+          "value": "https://viewer.bookwalker.jp/"
+        }
+      ],
+      "responseHeaders": [
+        {
+          "header": "Access-Control-Allow-Origin",
+          "operation": "set",
+          "value": "https://viewer.bookwalker.jp"
+        }
+      ]
+    },
+    "condition": {
+      "urlFilter": "|https://bw-bv-epubs.bookwalker.jp/",
+      "initiatorDomains": ["viewer.bookwalker.jp"],
+      "requestDomains": ["bw-bv-epubs.bookwalker.jp"],
+      "requestMethods": ["get"],
+      "resourceTypes": ["xmlhttprequest"]
+    }
+  }
+]

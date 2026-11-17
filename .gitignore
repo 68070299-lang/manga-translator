@@ -1,0 +1,78 @@
+# Dependencies
+node_modules/
+backend/venv/
+backend/.venv/
+backend/.venv-*/
+backend/.runtime/
+
+# Test outputs
+test-results/
+playwright-report/
+coverage/
+
+# Build outputs
+dist/
+build/
+
+# Generated backend artifacts
+backend/models_cache/
+backend/**/*.pyc
+backend/**/__pycache__/
+backend/test_output.png
+
+# Local tool/cache outputs
+.agents/
+.claude/
+.github/agents/
+.serena/
+.playwright-cli/
+.playwright-mcp/
+.superpowers/
+.gsd-core-inspect/
+.gsd-core-release/
+_filelist.txt
+popup-test.png
+agent.md
+docs/superpowers/
+test_run.py
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+backend/.env
+
+# Python
+.venv/
+**/__pycache__/
+*.pyc
+
+# Local config / scratch
+config.json
+opencode.json
+work/
+
+# Shopee analyzer generated artifacts
+shopee-analyzer/
+shopee-analyzer/data/
+shopee-analyzer/exports/
+website/
+tests/fixtures/
+tests/mocks/msw-handlers.js
+
+.worktrees/
+
+# Local generated output
+artifacts/
+extension/_metadata/

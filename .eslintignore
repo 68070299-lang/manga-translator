@@ -1,0 +1,8 @@
+backend/venv/
+backend/models_cache/
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+
