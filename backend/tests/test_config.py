@@ -10,7 +10,6 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from manga_backend import __main__ as entrypoint
-from manga_backend import config
 from manga_backend.api.app import create_app
 from manga_backend.config import Settings, load_settings
 
@@ -94,7 +93,7 @@ class EnvFileTests(unittest.TestCase):
     def test_backend_env_file_is_read_outside_testing_mode(self):
         with tempfile.TemporaryDirectory() as directory, clean_env():
             env_file = self.write_env(directory)
-            with patch.object(config, "ENV_FILE", env_file):
+            with patch.dict(Settings.model_config, {"env_file": env_file}):
                 settings = load_settings()
 
         self.assertEqual(settings.auth_token, "file-token")
@@ -102,7 +101,7 @@ class EnvFileTests(unittest.TestCase):
     def test_process_environment_beats_the_env_file(self):
         with tempfile.TemporaryDirectory() as directory, clean_env(BACKEND_AUTH_TOKEN="env-token"):
             env_file = self.write_env(directory)
-            with patch.object(config, "ENV_FILE", env_file):
+            with patch.dict(Settings.model_config, {"env_file": env_file}):
                 settings = load_settings()
 
         self.assertEqual(settings.auth_token, "env-token")
@@ -110,7 +109,7 @@ class EnvFileTests(unittest.TestCase):
     def test_testing_mode_never_reads_the_env_file(self):
         with tempfile.TemporaryDirectory() as directory, clean_env(MANGA_TRANSLATOR_TESTING="1"):
             env_file = self.write_env(directory)
-            with patch.object(config, "ENV_FILE", env_file):
+            with patch.dict(Settings.model_config, {"env_file": env_file}):
                 settings = load_settings()
 
         self.assertEqual(settings.auth_token, "")

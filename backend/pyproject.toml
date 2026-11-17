@@ -33,7 +33,13 @@ build-backend = "hatchling.build"
 packages = ["src/manga_backend"]
 
 [dependency-groups]
-dev = ["pytest>=8.3", "pytest-asyncio>=0.25", "ruff>=0.12.0", "pyright>=1.1.400"]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "ruff>=0.12.0",
+    "pyright>=1.1.400",
+    "httpx2>=2.16.2",
+]
 cpu = ["onnxruntime>=1.22.0"]
 gpu = ["onnxruntime-gpu[cuda,cudnn]>=1.22.0"]
 directml = ["onnxruntime-directml>=1.22.0"]

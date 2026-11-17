@@ -16,7 +16,13 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 from pydantic import AliasChoices, Field, field_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    DotEnvSettingsSource,
+    NoDecode,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 from manga_backend.bootstrap import is_testing_environment
 from manga_backend.paths import ENV_FILE
@@ -56,7 +62,9 @@ def _positive_or_default(name: str, value: Any, default: Any, cast: type[int] | 
 class Settings(BaseSettings):
     """Process configuration, read once when the app is created."""
 
-    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False, frozen=True)
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILE, extra="ignore", case_sensitive=False, frozen=True
+    )
 
     auth_token: str = Field(
         default="", validation_alias=AliasChoices("BACKEND_AUTH_TOKEN", "auth_token")
@@ -128,6 +136,21 @@ class Settings(BaseSettings):
     def _gpu_flag(cls, value: Any) -> Any:
         return value.lower() == "true" if isinstance(value, str) else value
 
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # Hermetic test mode never reads backend/.env. Checked per construction,
+        # not at import, so tests can toggle the flag.
+        if is_testing_environment():
+            dotenv_settings = DotEnvSettingsSource(settings_cls, env_file=None)
+        return (init_settings, env_settings, dotenv_settings, file_secret_settings)
+
     def translator_api_key(self, translator: str) -> str:
         """Server-side API key configured for a cloud translator, or an empty string."""
         match translator:
@@ -154,4 +177,4 @@ class Limits:
 
 def load_settings() -> Settings:
     """Build Settings from the environment and, outside test mode, backend/.env."""
-    return Settings(_env_file=None if is_testing_environment() else ENV_FILE)  # pyright: ignore[reportCallIssue]
+    return Settings()
