@@ -1,4 +1,17 @@
-const { test, expect } = require('./fixtures');
+import type { BrowserContext, Route } from '@playwright/test';
+import type { ChromeApi } from '../../scripts/lib/extension.ts';
+import { expect, test } from './fixtures.ts';
+
+declare const chrome: ChromeApi;
+
+interface CapturedTranslateRequest {
+  contentType: string;
+  postData: Buffer;
+}
+
+interface MockBackendOptions {
+  onTranslate?: (route: Route) => Promise<void>;
+}
 
 const READER_URL = 'https://reader.test/manga';
 const BACKEND_URL = 'http://localhost:8001';
@@ -47,25 +60,30 @@ const READY_HEALTH_BODY = JSON.stringify({
   models: {
     detector: { status: 'loaded' },
     ocr: { status: 'loaded' },
-    inpainter: { status: 'loaded' }
-  }
+    inpainter: { status: 'loaded' },
+  },
 });
 
 /**
  * Serve the reader page and a mocked local backend. `onTranslate` decides the
  * /translate response; the default returns the translated SVG.
  */
-async function mockReaderAndBackend(context, { onTranslate } = {}) {
-  const healthRequests = [];
-  const translateRequests = [];
+async function mockReaderAndBackend(
+  context: BrowserContext,
+  { onTranslate }: MockBackendOptions = {},
+) {
+  const healthRequests: string[] = [];
+  const translateRequests: CapturedTranslateRequest[] = [];
 
-  await context.route('https://reader.test/**', route => route.fulfill({
-    status: 200,
-    contentType: 'text/html',
-    body: READER_HTML
-  }));
+  await context.route('https://reader.test/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: READER_HTML,
+    }),
+  );
 
-  await context.route(BACKEND_URL + '/**', route => {
+  await context.route(`${BACKEND_URL}/**`, (route) => {
     const request = route.request();
     const url = new URL(request.url());
 
@@ -74,14 +92,14 @@ async function mockReaderAndBackend(context, { onTranslate } = {}) {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: READY_HEALTH_BODY
+        body: READY_HEALTH_BODY,
       });
     }
 
     if (request.method() === 'POST' && url.pathname === '/translate') {
       translateRequests.push({
         contentType: request.headers()['content-type'] || '',
-        postData: request.postDataBuffer()
+        postData: request.postDataBuffer() ?? Buffer.alloc(0),
       });
       if (onTranslate) {
         return onTranslate(route);
@@ -90,7 +108,7 @@ async function mockReaderAndBackend(context, { onTranslate } = {}) {
         status: 200,
         contentType: 'image/svg+xml',
         headers: { 'x-request-id': 'e2e-wiring-request' },
-        body: TRANSLATED_SVG
+        body: TRANSLATED_SVG,
       });
     }
 
@@ -101,12 +119,12 @@ async function mockReaderAndBackend(context, { onTranslate } = {}) {
 }
 
 /** Ask the real content script to translate the reader tab, like the popup does. */
-async function sendTranslatePage(context) {
-  const worker = context.serviceWorkers()[0];
+async function sendTranslatePage(context: BrowserContext) {
+  const worker = context.serviceWorkers()[0]!;
   expect(worker).toBeTruthy();
-  return worker.evaluate(async targetUrl => {
+  return worker.evaluate(async (targetUrl: string) => {
     const tabs = await chrome.tabs.query({});
-    const readerTab = tabs.find(tab => tab.url === targetUrl);
+    const readerTab = tabs.find((tab) => tab.url === targetUrl);
     if (!readerTab?.id) {
       throw new Error('Reader tab was not found');
     }
@@ -115,53 +133,60 @@ async function sendTranslatePage(context) {
 }
 
 /** Parse a captured multipart/form-data body into a name -> text value map. */
-function parseMultipartFields(contentType, postData) {
+function parseMultipartFields(contentType: string, postData: Buffer): Record<string, string> {
   const boundaryMatch = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType);
   expect(boundaryMatch, 'multipart boundary').toBeTruthy();
-  const boundary = boundaryMatch[1] || boundaryMatch[2];
-  const fields = {};
+  const boundary = boundaryMatch?.[1] || boundaryMatch?.[2];
+  const fields: Record<string, string> = {};
 
   // latin1 keeps binary bytes (the image part) from being re-encoded; text
   // fields in this request are ASCII.
-  for (const part of postData.toString('latin1').split('--' + boundary)) {
+  for (const part of postData.toString('latin1').split(`--${boundary}`)) {
     const headerEnd = part.indexOf('\r\n\r\n');
     if (headerEnd === -1) continue;
     const nameMatch = /name="([^"]+)"/i.exec(part.slice(0, headerEnd));
     if (!nameMatch) continue;
-    fields[nameMatch[1]] = part.slice(headerEnd + 4).replace(/\r\n$/, '');
+    fields[nameMatch[1]!] = part.slice(headerEnd + 4).replace(/\r\n$/, '');
   }
   return fields;
 }
 
-async function configureLocalMode(context, extensionId, {
-  detector = 'default',
-  inpainter = 'lama_large'
-} = {}) {
+async function configureLocalMode(
+  context: BrowserContext,
+  extensionId: string,
+  {
+    detector = 'default',
+    inpainter = 'lama_large',
+  }: { detector?: string; inpainter?: string } = {},
+) {
   const settingsPage = await context.newPage();
   try {
-    await settingsPage.goto('chrome-extension://' + extensionId + '/popup/popup.html');
-    await settingsPage.evaluate(async ({ backendUrl, detector, inpainter }) => {
-      await chrome.storage.sync.clear();
-      await chrome.storage.local.clear();
-      await chrome.storage.session.clear();
-      await chrome.storage.sync.set({
-        settings: {
-          provider: 'openrouter',
-          model: '',
-          targetLang: 'English',
-          autoTranslate: false,
-          showProgress: true,
-          pipelineMode: 'local',
-          localBackend: {
-            url: backendUrl,
-            detector,
-            ocr: 'manga-ocr',
-            inpainter,
-            translator: 'none'
-          }
-        }
-      });
-    }, { backendUrl: BACKEND_URL, detector, inpainter });
+    await settingsPage.goto(`chrome-extension://${extensionId}/popup.html`);
+    await settingsPage.evaluate(
+      async ({ backendUrl, detector, inpainter }) => {
+        await chrome.storage.sync.clear();
+        await chrome.storage.local.clear();
+        await chrome.storage.session.clear();
+        await chrome.storage.sync.set({
+          settings: {
+            provider: 'openrouter',
+            model: '',
+            targetLang: 'English',
+            autoTranslate: false,
+            showProgress: true,
+            pipelineMode: 'local',
+            localBackend: {
+              url: backendUrl,
+              detector,
+              ocr: 'manga-ocr',
+              inpainter,
+              translator: 'none',
+            },
+          },
+        });
+      },
+      { backendUrl: BACKEND_URL, detector, inpainter },
+    );
   } finally {
     await settingsPage.close();
   }
@@ -170,7 +195,7 @@ async function configureLocalMode(context, extensionId, {
 test('installed extension routes a reader image through the local backend and renders its result', async ({
   context,
   page,
-  extensionId
+  extensionId,
 }) => {
   const { healthRequests, translateRequests } = await mockReaderAndBackend(context);
 
@@ -192,21 +217,21 @@ test('installed extension routes a reader image through the local backend and re
 
   expect(healthRequests.length).toBeGreaterThanOrEqual(1);
   expect(translateRequests).toHaveLength(1);
-  expect(translateRequests[0].contentType).toContain('multipart/form-data; boundary=');
-  expect(translateRequests[0].postData.toString('utf8')).toContain('name="image"');
-  expect(translateRequests[0].postData.length).toBeGreaterThan(100);
+  expect(translateRequests[0]!.contentType).toContain('multipart/form-data; boundary=');
+  expect(translateRequests[0]!.postData.toString('utf8')).toContain('name="image"');
+  expect(translateRequests[0]!.postData.length).toBeGreaterThan(100);
 });
 
 test('experimental detector and inpainter choices reach the local backend request', async ({
   context,
   page,
-  extensionId
+  extensionId,
 }) => {
   const { translateRequests } = await mockReaderAndBackend(context);
 
   await configureLocalMode(context, extensionId, {
     detector: 'animetext-yolo',
-    inpainter: 'flux2_klein_lanpaint'
+    inpainter: 'flux2_klein_lanpaint',
   });
   await page.goto(READER_URL, { waitUntil: 'load' });
   await expect(page.locator('[data-manga-action="all"]')).toBeVisible();
@@ -217,8 +242,8 @@ test('experimental detector and inpainter choices reach the local backend reques
   expect(translateRequests).toHaveLength(1);
 
   const fields = parseMultipartFields(
-    translateRequests[0].contentType,
-    translateRequests[0].postData
+    translateRequests[0]!.contentType,
+    translateRequests[0]!.postData,
   );
   expect(fields.detector).toBe('animetext-yolo');
   expect(fields.inpainter).toBe('flux2_klein_lanpaint');
@@ -228,7 +253,7 @@ test('experimental detector and inpainter choices reach the local backend reques
 test('translating again after clearing the page is served from the service-worker cache', async ({
   context,
   page,
-  extensionId
+  extensionId,
 }) => {
   const { translateRequests } = await mockReaderAndBackend(context);
 
@@ -260,22 +285,23 @@ test('translating again after clearing the page is served from the service-worke
 
 test('a backend 500 shows an error and leaves the original image visible', async ({
   context,
-  extensionId
+  extensionId,
 }) => {
   const { translateRequests } = await mockReaderAndBackend(context, {
-    onTranslate: route => route.fulfill({
-      status: 500,
-      contentType: 'text/plain',
-      body: 'inpainter exploded'
-    })
+    onTranslate: (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: 'text/plain',
+        body: 'inpainter exploded',
+      }),
   });
 
   // The shared page fixture fails on any console.error, but the content script
   // logs failed translations that way on purpose, so collect errors manually.
   const page = await context.newPage();
-  const unexpectedErrors = [];
-  page.on('pageerror', error => unexpectedErrors.push(`pageerror: ${error.message}`));
-  page.on('console', message => {
+  const unexpectedErrors: string[] = [];
+  page.on('pageerror', (error) => unexpectedErrors.push(`pageerror: ${error.message}`));
+  page.on('console', (message) => {
     if (message.type() === 'error' && !message.text().startsWith('[Manga Translator]')) {
       unexpectedErrors.push(`console.error: ${message.text()}`);
     }
@@ -303,7 +329,7 @@ test('a backend 500 shows an error and leaves the original image visible', async
   }
 });
 
-function readPngSize(postData) {
+function readPngSize(postData: Buffer) {
   const start = postData.indexOf(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
   expect(start, 'PNG in multipart body').toBeGreaterThanOrEqual(0);
   return { width: postData.readUInt32BE(start + 16), height: postData.readUInt32BE(start + 20) };
@@ -312,7 +338,7 @@ function readPngSize(postData) {
 test('dragged screenshot region is cropped, translated and cleared', async ({
   context,
   page,
-  extensionId
+  extensionId,
 }) => {
   const { translateRequests } = await mockReaderAndBackend(context);
   await configureLocalMode(context, extensionId);
@@ -333,9 +359,9 @@ test('dragged screenshot region is cropped, translated and cleared', async ({
 
   const scale = await page.evaluate(() => window.devicePixelRatio);
   expect(translateRequests).toHaveLength(1);
-  expect(readPngSize(translateRequests[0].postData)).toEqual({
+  expect(readPngSize(translateRequests[0]!.postData)).toEqual({
     width: Math.round(200 * scale),
-    height: Math.round(160 * scale)
+    height: Math.round(160 * scale),
   });
 
   const box = await page.locator('.manga-region-translation').boundingBox();
@@ -351,7 +377,7 @@ test('dragged screenshot region is cropped, translated and cleared', async ({
 test('pressing Escape during region selection sends nothing to the backend', async ({
   context,
   page,
-  extensionId
+  extensionId,
 }) => {
   const { translateRequests } = await mockReaderAndBackend(context);
   await configureLocalMode(context, extensionId);
@@ -368,15 +394,21 @@ test('pressing Escape during region selection sends nothing to the backend', asy
 
 test('the worker serves the bundled font and the browser accepts its bytes', async ({
   context,
-  extensionId
+  extensionId,
 }) => {
   const extensionPage = await context.newPage();
   try {
-    await extensionPage.goto(`chrome-extension://${extensionId}/options/options.html`);
+    await extensionPage.goto(`chrome-extension://${extensionId}/options.html`);
     const result = await extensionPage.evaluate(async () => {
-      const response = await chrome.runtime.sendMessage({ type: 'GET_BUNDLED_FONT', fontId: 'cc-wild-words' });
-      const unknown = await chrome.runtime.sendMessage({ type: 'GET_BUNDLED_FONT', fontId: 'missing' });
-      const bytes = Uint8Array.from(atob(response.base64), character => character.charCodeAt(0));
+      const response = await chrome.runtime.sendMessage({
+        type: 'GET_BUNDLED_FONT',
+        fontId: 'cc-wild-words',
+      });
+      const unknown = await chrome.runtime.sendMessage({
+        type: 'GET_BUNDLED_FONT',
+        fontId: 'missing',
+      });
+      const bytes = Uint8Array.from(atob(response.base64), (character) => character.charCodeAt(0));
       const face = await new FontFace('Bundled Probe', bytes.buffer).load();
       return { success: response.success, status: face.status, unknown: unknown.success };
     });

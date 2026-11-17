@@ -1,20 +1,24 @@
-const fs = require('fs');
-const path = require('path');
-const { chromium } = require('@playwright/test');
+/**
+ * Manual popup smoke test against the built extension (`npm run smoke:popup`).
+ * Usage: node scripts/popup-smoke.ts [url] [--headless] [--keep-open]
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { chromium, type Page } from '@playwright/test';
+import {
+  assertExtensionBuilt,
+  extensionIdFromWorker,
+  extensionLaunchArgs,
+  getExtensionWorker,
+  REPO_ROOT,
+} from './lib/extension.ts';
 
-const extensionPath = path.join(__dirname, '..', 'extension');
-const outputDir = path.join(__dirname, '..', 'test-results', 'manual-popup');
-const targetUrl = process.argv.find(arg => /^https?:\/\//i.test(arg)) || 'https://example.com';
+const outputDir = path.join(REPO_ROOT, 'test-results', 'manual-popup');
+const targetUrl = process.argv.find((arg) => /^https?:\/\//i.test(arg)) ?? 'https://example.com';
 const headless = process.argv.includes('--headless');
 const keepOpen = process.argv.includes('--keep-open');
 
-async function getExtensionWorker(context) {
-  const existing = context.serviceWorkers()[0];
-  if (existing) return existing;
-  return context.waitForEvent('serviceworker', { timeout: 15000 });
-}
-
-async function readPopupState(page) {
+async function readPopupState(page: Page) {
   return {
     title: await page.title(),
     header: await page.locator('h1').textContent(),
@@ -28,13 +32,13 @@ async function readPopupState(page) {
       fontFamily: await page.locator('#font-family').isVisible(),
       autoTranslate: await page.locator('#auto-translate').isVisible(),
       showProgress: await page.locator('#show-progress').isVisible(),
-      settingsBtn: await page.locator('#settings-btn').isVisible()
-    }
+      settingsBtn: await page.locator('#settings-btn').isVisible(),
+    },
   };
 }
 
-function waitForShutdownSignal() {
-  return new Promise(resolve => {
+function waitForShutdownSignal(): Promise<void> {
+  return new Promise((resolve) => {
     const finish = () => {
       process.removeListener('SIGINT', finish);
       process.removeListener('SIGTERM', finish);
@@ -45,29 +49,25 @@ function waitForShutdownSignal() {
   });
 }
 
-function assertState(condition, message) {
+function assertState(condition: boolean, message: string): void {
   if (!condition) {
     throw new Error(`Popup smoke assertion failed: ${message}`);
   }
 }
 
-(async () => {
+async function main(): Promise<void> {
+  const extensionPath = assertExtensionBuilt();
   fs.mkdirSync(outputDir, { recursive: true });
 
-  let context;
-  try {
-    context = await chromium.launchPersistentContext('', {
-      channel: process.env.PLAYWRIGHT_CHANNEL || 'chromium',
-      headless,
-      args: [
-        `--disable-extensions-except=${extensionPath}`,
-        `--load-extension=${extensionPath}`,
-        '--no-first-run'
-      ]
-    });
+  const context = await chromium.launchPersistentContext('', {
+    channel: process.env.PLAYWRIGHT_CHANNEL ?? 'chromium',
+    headless,
+    args: [...extensionLaunchArgs(extensionPath), '--no-first-run'],
+  });
 
+  try {
     const worker = await getExtensionWorker(context);
-    const extensionId = worker.url().split('/')[2];
+    const extensionId = extensionIdFromWorker(worker);
     console.log('Extension ID:', extensionId);
 
     const tab = await context.newPage();
@@ -75,16 +75,22 @@ function assertState(condition, message) {
     console.log('Opened tab:', tab.url());
 
     const popup = await context.newPage();
-    await popup.goto(`chrome-extension://${extensionId}/popup/popup.html`);
+    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
     await popup.waitForLoadState('domcontentloaded');
-    await popup.waitForFunction(() => {
-      const localMode = document.getElementById('mode-local');
-      const indicator = document.getElementById('connection-indicator');
-      return document.readyState === 'complete' &&
-        localMode?.checked === true &&
-        indicator &&
-        getComputedStyle(indicator).display !== 'none';
-    }, null, { timeout: 10000 });
+    await popup.waitForFunction(
+      () => {
+        const localMode = document.getElementById('mode-local') as HTMLInputElement | null;
+        const indicator = document.getElementById('connection-indicator');
+        return (
+          document.readyState === 'complete' &&
+          localMode?.checked === true &&
+          indicator !== null &&
+          getComputedStyle(indicator).display !== 'none'
+        );
+      },
+      null,
+      { timeout: 10000 },
+    );
 
     const initialState = await readPopupState(popup);
     console.log('Popup state:', JSON.stringify(initialState, null, 2));
@@ -102,7 +108,10 @@ function assertState(condition, message) {
     const connectionIndicator = popup.locator('#connection-indicator');
     const initialConnectionVisible = await connectionIndicator.isVisible();
     console.log('Connection indicator visible:', initialConnectionVisible);
-    assertState(initialConnectionVisible, 'connection indicator should be visible in default local mode');
+    assertState(
+      initialConnectionVisible,
+      'connection indicator should be visible in default local mode',
+    );
 
     await popup.locator('#mode-cloud').check();
     const cloudConnectionVisible = await connectionIndicator.isVisible();
@@ -131,11 +140,11 @@ function assertState(condition, message) {
       await waitForShutdownSignal();
     }
   } finally {
-    if (context) {
-      await context.close();
-    }
+    await context.close();
   }
-})().catch(error => {
-  console.error('Popup smoke test failed:', error.message);
+}
+
+main().catch((error: unknown) => {
+  console.error('Popup smoke test failed:', error instanceof Error ? error.message : error);
   process.exit(1);
 });

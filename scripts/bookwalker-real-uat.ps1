@@ -10,8 +10,8 @@ Set-StrictMode -Version Latest
 
 $RepoRoot = Split-Path $PSScriptRoot -Parent
 $BackendDir = Join-Path $RepoRoot "backend"
-$ExtensionDir = Join-Path $RepoRoot "extension"
-$HelperPath = Join-Path $PSScriptRoot "prepare-bookwalker-profile.js"
+$ExtensionDir = Join-Path $RepoRoot "dist\chrome-mv3"
+$HelperPath = Join-Path $PSScriptRoot "prepare-bookwalker-profile.ts"
 $GpuPython = Join-Path $BackendDir ".venv-gpu\Scripts\python.exe"
 $ProfileDir = Join-Path ([IO.Path]::GetTempPath()) ("manga-bookwalker-uat-" + [guid]::NewGuid().ToString("N"))
 if (-not $OutputDir) {
@@ -98,7 +98,7 @@ function Start-UatBackend([int]$Port) {
   $stdout = Join-Path $OutputDir ("backend-$($script:BackendRun)-stdout.log")
   $stderr = Join-Path $OutputDir ("backend-$($script:BackendRun)-stderr.log")
   $script:BackendErrorLogs += $stderr
-  $arguments = @("-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", [string]$Port)
+  $arguments = @("-m", "uvicorn", "manga_backend.main:app", "--host", "127.0.0.1", "--port", [string]$Port)
   $script:BackendProcess = Start-Process -FilePath $GpuPython -ArgumentList $arguments -WorkingDirectory $BackendDir `
     -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
   $healthUrl = "http://127.0.0.1:$Port/health"
@@ -452,6 +452,11 @@ try {
   $port = Get-FreePort
   $backendUrl = "http://127.0.0.1:$port"
   $env:UV_PROJECT_ENVIRONMENT = Join-Path $BackendDir ".venv-gpu"
+
+  Write-Uat "Building the extension (dist/chrome-mv3)."
+  Push-Location $RepoRoot
+  try { & npm run build | Out-Null } finally { Pop-Location }
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $ExtensionDir "manifest.json"))) { throw "Extension build failed." }
 
   Write-Uat "Syncing locked GPU runtime."
   & uv sync --project $BackendDir --locked --no-default-groups --group gpu --python 3.12 | Out-Null

@@ -13,7 +13,9 @@
       "!backend",
       "!extension/public",
       "!**/package-lock.json",
-      "!.planning"
+      "!.planning",
+      "!**/*.md",
+      "!extension/assets"
     ]
   },
   "formatter": {
@@ -32,7 +34,7 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "suspicious": { "noExplicitAny": "error" },
       "style": { "useImportType": "error", "noNonNullAssertion": "warn" },
       "correctness": { "noUnusedImports": "error", "noUnusedVariables": "error" }

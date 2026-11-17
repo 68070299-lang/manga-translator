@@ -1,12 +1,23 @@
-const http = require('http');
-const path = require('path');
-const { test, expect } = require('./fixtures');
+import http from 'node:http';
+import type { AddressInfo, Socket } from 'node:net';
+import path from 'node:path';
+import { bundleAsGlobal } from './bundle.ts';
+import { expect, test } from './fixtures.ts';
 
-const overlayDomPath = path.join(__dirname, '..', '..', 'extension', 'lib', 'overlay-dom.js');
+type OverlayDomApi = typeof import('../../extension/lib/overlay-dom.ts');
+
+const overlayDomEntry = path.join(
+  import.meta.dirname,
+  '..',
+  '..',
+  'extension',
+  'lib',
+  'overlay-dom.ts',
+);
 
 async function createTestServer() {
-  const sockets = new Set();
-  const server = http.createServer((req, res) => {
+  const sockets = new Set<Socket>();
+  const server = http.createServer((_req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`<!doctype html>
 <html lang="en">
@@ -23,17 +34,17 @@ async function createTestServer() {
 </html>`);
   });
 
-  server.on('connection', socket => {
+  server.on('connection', (socket) => {
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
   });
 
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
   });
 
-  const address = server.address();
+  const address = server.address() as AddressInfo;
   const url = `http://localhost:${address.port}/`;
 
   return {
@@ -42,9 +53,9 @@ async function createTestServer() {
         socket.destroy();
       }
 
-      await new Promise(resolve => server.close(resolve));
+      await new Promise((resolve) => server.close(resolve));
     },
-    url
+    url,
   };
 }
 
@@ -59,18 +70,25 @@ test('shadow overlay styles apply and hostile page CSS cannot reach them', async
         div { width: 1px !important; height: 1px !important; animation: none !important; }
         button { display: none !important; width: 1px !important; }
         manga-overlay { opacity: 0.5; }
-      `
+      `,
     });
-    await page.addScriptTag({ path: overlayDomPath });
+    await page.addScriptTag({
+      content: await bundleAsGlobal(overlayDomEntry, 'MangaTranslatorOverlayDom'),
+    });
     await page.evaluate(() => {
-      const { createShadowHost, mountInShadow } = window.MangaTranslatorOverlayDom;
+      const { createShadowHost, mountInShadow } = (
+        window as unknown as { MangaTranslatorOverlayDom: OverlayDomApi }
+      ).MangaTranslatorOverlayDom;
       const spinner = document.createElement('div');
       spinner.id = 'manga-style-probe';
       spinner.className = 'manga-progress-spinner';
       const button = document.createElement('button');
       button.id = 'manga-button-probe';
       button.className = 'manga-reader-control-btn';
-      const host = createShadowHost({ id: 'manga-host-probe', styleText: 'position: fixed; top: 0; left: 0;' });
+      const host = createShadowHost({
+        id: 'manga-host-probe',
+        styleText: 'position: fixed; top: 0; left: 0;',
+      });
       mountInShadow(host, spinner, button);
       document.body.appendChild(host);
     });
