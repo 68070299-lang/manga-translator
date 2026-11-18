@@ -9,6 +9,10 @@ original, written against Pillow and numpy, not ported.
 There is no fixed ceiling: the search starts at the anchored target, which for
 a big balloon is larger than the old 16 px preference, and only ever shrinks
 when the room cannot hold the text at that size.
+
+``room_capacity`` is the same geometry read the other way: how many characters
+fit in a room at a size. The translation step uses it as each unit's length
+budget.
 """
 
 from __future__ import annotations
@@ -244,6 +248,57 @@ def fit_vertical_text(
         hyphenated=False,
         mode="vertical",
     )
+
+
+# Mean Latin character width for a room's capacity: the lowercase alphabet is
+# what translated dialogue is mostly made of, and it is wider than the spaces,
+# so counting it alone keeps the character budget slightly conservative.
+CAPACITY_ALPHABET = "abcdefghijklmnopqrstuvwxyz"
+
+
+def room_capacity(
+    room: Room,
+    font_path: str | None,
+    size: int,
+    *,
+    line_spacing: float = 1.2,
+    base_stroke_width: int = 0,
+) -> int:
+    """How many characters of average Latin width fit in ``room`` at ``size``.
+
+    This is the same band machinery the fitter uses (air inset, per-line band
+    widths, the minimum usable band), with the line breaker's job replaced by
+    division: every band holds ``width / mean advance`` characters. The line
+    count that holds the most characters wins. The result is the per-unit
+    length budget the translator is told about, so it is expressed in
+    characters at one font size rather than in pixels.
+    """
+    size = max(1, int(size))
+    stroke = min(base_stroke_width, max(0, int(round(size * 0.15))))
+    font = get_font_object(font_path, size)
+    measure = _Measurer(font, stroke)
+    advance = sum(measure(char) for char in CAPACITY_ALPHABET) / len(CAPACITY_ALPHABET)
+    if advance <= 0:
+        return 0
+    air = air_inset(size)
+    room_height = room.height - air * 2
+    if room_height < size:
+        return 0
+    eroded = room.eroded(air)
+    spans = eroded.row_spans()
+    pitch = max(1.0, size * line_spacing)
+    max_lines = min(MAX_LINES, int(room_height // pitch) + 1)
+    minimum_band = max(3.0, size * MIN_BAND_FRACTION)
+    best = 0
+    for count in range(1, max_lines + 1):
+        bands = eroded.bands(size, count, line_spacing, spans=spans)
+        if len(bands) < count:
+            continue
+        widths = [band.width for band in bands]
+        if min(widths) < minimum_band:
+            continue
+        best = max(best, sum(int(width // advance) for width in widths))
+    return best
 
 
 def fit_text_in_room(

@@ -6,7 +6,9 @@ import threading
 import time
 import types
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import cv2
@@ -37,7 +39,9 @@ from manga_backend.pipeline.masks import (
     create_mask,
     prepare_flux_inpainting,
 )
+from manga_backend.pipeline import orchestrator as orchestrator_module
 from manga_backend.pipeline.ocr import GOOGLE_OCR_CONCURRENCY, google_ocr
+from manga_backend.pipeline.orchestrator import erase_candidate, erase_from_translation
 from manga_backend.pipeline.fit import fit_text_in_room
 from manga_backend.pipeline.rendering import build_rooms, render_text
 from manga_backend.pipeline.rooms import box_room
@@ -2350,6 +2354,334 @@ class FontObjectCacheTests(unittest.TestCase):
 
         self.assertEqual(calls, [("fake.ttf", 17)])
         self.assertEqual(len({id(font) for font in results}), 1)
+
+
+class FakeTranslatorClient:
+    """Records what the translate step asked the provider for."""
+
+    calls: list[tuple[str, list[str], object]] = []
+    translate_result: object = None
+    shorten_result: object = None
+    shorten_error: Exception | None = None
+
+    def __init__(self, **_kwargs):
+        pass
+
+    async def initialize(self):
+        pass
+
+    async def close(self):
+        pass
+
+    async def translate(self, texts, target_lang="English", *, budgets=None, page_image=None):
+        type(self).calls.append(("translate", list(texts), list(budgets or []), page_image))
+        return list(self.translate_result or [])
+
+    async def shorten(self, texts, limits, target_lang="English"):
+        type(self).calls.append(("shorten", list(texts), list(limits)))
+        if self.shorten_error is not None:
+            raise self.shorten_error
+        return list(self.shorten_result or [])
+
+
+class TranslationReaskTests(unittest.IsolatedAsyncioTestCase):
+    """Length budgets reach the prompt; an unfit unit gets exactly one re-ask."""
+
+    def setUp(self):
+        FakeTranslatorClient.calls = []
+        FakeTranslatorClient.translate_result = ["A much too long line here", "Short"]
+        FakeTranslatorClient.shorten_result = ["Short one", "Also short"]
+        FakeTranslatorClient.shorten_error = None
+        patcher = patch(
+            "manga_backend.pipeline.translation.Translator", FakeTranslatorClient
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def run_step(self, *, budgets, fits, page_image=None):
+        from manga_backend.pipeline.translation import TranslationReport, translate_texts
+
+        report = TranslationReport()
+        result = asyncio.run(
+            translate_texts(
+                ["一", "二"],
+                "English",
+                translator="local",
+                api_key=None,
+                model=None,
+                local_llm_base_url=None,
+                local_llm_api_key=None,
+                budgets=budgets,
+                page_image=page_image,
+                fits=fits,
+                report=report,
+            )
+        )
+        return result, report
+
+    def test_budgets_reach_the_prompt_and_no_reask_happens_when_everything_fits(self):
+        result, report = self.run_step(budgets=[24, None], fits=lambda index, text: True)
+
+        self.assertEqual(result, ["A much too long line here", "Short"])
+        translate_call = FakeTranslatorClient.calls[0]
+        self.assertEqual(translate_call[0], "translate")
+        self.assertEqual(translate_call[2], [24, None])
+        self.assertEqual(len(FakeTranslatorClient.calls), 1)
+        self.assertEqual(report.requests, 1)
+        self.assertEqual(report.reask_units, 0)
+        self.assertEqual(report.budgeted, 1)
+
+    def test_one_reask_shortens_only_the_unfit_units(self):
+        result, report = self.run_step(
+            budgets=[12, 30],
+            fits=lambda index, text: index != 0,
+        )
+
+        self.assertEqual(result, ["Short one", "Short"])
+        self.assertEqual(
+            [call[0] for call in FakeTranslatorClient.calls], ["translate", "shorten"]
+        )
+        self.assertEqual(FakeTranslatorClient.calls[1][1], ["A much too long line here"])
+        self.assertEqual(FakeTranslatorClient.calls[1][2], [12])
+        self.assertEqual(report.reask_units, 1)
+        self.assertEqual(report.reask_shortened, 1)
+        self.assertEqual(report.requests, 2)
+
+    def test_a_second_failure_is_not_reasked_again(self):
+        FakeTranslatorClient.translate_result = ["still far too long", "Short"]
+        FakeTranslatorClient.shorten_result = ["also far too long"]
+
+        result, report = self.run_step(budgets=[6, 30], fits=lambda index, text: index != 0)
+
+        # The shortened version is used as it is; the renderer does what it can.
+        self.assertEqual(result, ["also far too long", "Short"])
+        self.assertEqual([call[0] for call in FakeTranslatorClient.calls], ["translate", "shorten"])
+        self.assertEqual(report.reask_units, 1)
+        self.assertEqual(report.reask_shortened, 1)
+
+    def test_a_failed_reask_keeps_the_first_translations(self):
+        FakeTranslatorClient.shorten_error = RuntimeError("provider down")
+
+        result, report = self.run_step(budgets=[12, 30], fits=lambda index, text: index != 0)
+
+        self.assertEqual(result, ["A much too long line here", "Short"])
+        self.assertTrue(report.reask_failed)
+        self.assertEqual(report.requests, 2)
+
+    def test_an_empty_shortened_item_does_not_replace_the_translation(self):
+        FakeTranslatorClient.shorten_result = [""]
+
+        result, _report = self.run_step(budgets=[12, 30], fits=lambda index, text: index != 0)
+
+        self.assertEqual(result, ["A much too long line here", "Short"])
+
+    def test_page_image_is_handed_to_the_provider(self):
+        _result, report = self.run_step(
+            budgets=[12, 30], fits=lambda index, text: True, page_image=b"png"
+        )
+
+        self.assertEqual(FakeTranslatorClient.calls[0][3], b"png")
+        self.assertTrue(report.page_image)
+
+    def test_no_units_gives_no_translations(self):
+        FakeTranslatorClient.translate_result = []
+        from manga_backend.pipeline.translation import translate_texts
+
+        result = asyncio.run(
+            translate_texts(
+                [],
+                "English",
+                translator="local",
+                api_key=None,
+                model=None,
+                local_llm_base_url=None,
+                local_llm_api_key=None,
+            )
+        )
+
+        self.assertEqual(result, [])
+        self.assertEqual([call[0] for call in FakeTranslatorClient.calls], ["translate"])
+        self.assertEqual(FakeTranslatorClient.calls[0][1], [])
+
+
+class TranslationConcurrencyTests(unittest.IsolatedAsyncioTestCase):
+    """Erasing runs beside translation; the observable order is unchanged."""
+
+    def build_pipeline(self):
+        image = np.full((120, 160, 3), 255, dtype=np.uint8)
+        blocks = [
+            TextBlock([10, 10, 60, 40]),
+            TextBlock([80, 10, 130, 40]),
+            TextBlock([10, 80, 60, 110]),
+        ]
+        pipeline = TranslationPipeline(device="cpu")
+        pipeline._detectors.default = types.SimpleNamespace(
+            detect=AsyncMock(return_value=list(blocks))
+        )
+        pipeline._run_ocr = AsyncMock(return_value=["一", "……", "三"])
+        return pipeline, image, blocks
+
+    def install(self, pipeline, *, mask_started=None, translate_waits_for_mask=False):
+        events: list[str] = []
+        calls: dict[str, list[Any]] = {
+            "mask": [],
+            "mask_translations": [],
+            "render": [],
+            "translate": [],
+        }
+        image_holder: dict[str, np.ndarray] = {}
+
+        def fake_prepare(image, blocks, rectangular=False):
+            events.append("mask-start")
+            if mask_started is not None:
+                mask_started.set()
+            calls["mask"].append(list(blocks))
+            calls["mask_translations"].append([block.translated_text for block in blocks])
+            image_holder["mask_input"] = image
+            return image.copy(), np.zeros(image.shape[:2], dtype=np.uint8), 0, 0, []
+
+        async def fake_translate(texts, target_lang, **kwargs):
+            events.append("translate-start")
+            calls["translate"].append(list(texts))
+            if translate_waits_for_mask and mask_started is not None:
+                started = await asyncio.to_thread(mask_started.wait, 5.0)
+                self.assertTrue(started, "the erase should start while translation runs")
+            events.append("translate-end")
+            # Like a real provider (and the harness stub): punctuation-only
+            # text comes back unchanged, so the erase set does not move.
+            return [
+                text if text.strip() and not any(ch.isalnum() for ch in text) else f"T{index}"
+                for index, text in enumerate(texts)
+            ]
+
+        def fake_render(image, blocks, **options):
+            events.append("render")
+            calls["render"].append(list(blocks))
+            image_holder["render_input"] = image
+            output = image.copy()
+            output[0, 0] = [1, 2, 3]
+            return output
+
+        stack = ExitStack()
+        overrides = {
+            "translate_texts": fake_translate,
+            "prepare_flux_inpainting": fake_prepare,
+            "render_text": fake_render,
+        }
+        for name, replacement in overrides.items():
+            stack.enter_context(patch.object(orchestrator_module, name, replacement))
+        self.addCleanup(stack.close)
+        return events, calls, image_holder
+
+    async def run_pipeline(self, pipeline, image, *, translate_waits_for_mask=False):
+        mask_started = threading.Event()
+        events, calls, image_holder = self.install(
+            pipeline,
+            mask_started=mask_started,
+            translate_waits_for_mask=translate_waits_for_mask,
+        )
+        result = await pipeline.translate(
+            image,
+            translator="local",
+            inpainter="lama_large",
+            render=True,
+            verify_translation=False,
+        )
+        return result, events, calls, image_holder
+
+    async def test_erasing_starts_while_the_provider_translates(self):
+        pipeline, image, blocks = self.build_pipeline()
+
+        _result, events, calls, _inputs = await self.run_pipeline(
+            pipeline, image, translate_waits_for_mask=True
+        )
+
+        self.assertIn("mask-start", events)
+        self.assertLess(events.index("mask-start"), events.index("translate-end"))
+        # The mask ran before the translation was assigned, and only the blocks
+        # that will be erased went in: punctuation-only text is left alone.
+        self.assertTrue(all(not text for text in calls["mask_translations"][0]))
+        self.assertEqual([block.text for block in calls["mask"][0]], ["一", "三"])
+        self.assertEqual(len(calls["mask"]), 1)
+
+    async def test_fast_and_slow_provider_runs_are_byte_identical(self):
+        pipeline, image, _blocks = self.build_pipeline()
+        slow, _slow_events, slow_calls, slow_inputs = await self.run_pipeline(
+            pipeline, image, translate_waits_for_mask=True
+        )
+        pipeline, image, _blocks = self.build_pipeline()
+        fast, _fast_events, fast_calls, fast_inputs = await self.run_pipeline(pipeline, image)
+
+        self.assertEqual(slow["translated_texts"], fast["translated_texts"])
+        self.assertEqual(slow["original_texts"], fast["original_texts"])
+        self.assertEqual(
+            [list(block["bbox"]) for block in slow["blocks"]],
+            [list(block["bbox"]) for block in fast["blocks"]],
+        )
+        self.assertTrue(np.array_equal(slow["image"], fast["image"]))
+        self.assertEqual(
+            [(block.text, list(block.xyxy)) for block in slow_calls["mask"][0]],
+            [(block.text, list(block.xyxy)) for block in fast_calls["mask"][0]],
+        )
+        self.assertTrue(
+            np.array_equal(slow_inputs["render_input"], fast_inputs["render_input"])
+        )
+
+    async def test_an_empty_translation_rebuilds_the_mask_for_the_reduced_set(self):
+        pipeline, image, blocks = self.build_pipeline()
+
+        async def dropping_translate(texts, target_lang, **kwargs):
+            # The provider answers, then one of the erased units comes back empty.
+            return ["T0", "T1", ""]
+
+        mask_started = threading.Event()
+        events, calls, _inputs = self.install(
+            pipeline, mask_started=mask_started, translate_waits_for_mask=False
+        )
+        with patch.object(orchestrator_module, "translate_texts", dropping_translate):
+            result = await pipeline.translate(
+                image,
+                translator="local",
+                inpainter="lama_large",
+                render=True,
+                verify_translation=False,
+            )
+
+        self.assertEqual(result["translated_texts"], ["T0", "T1", ""])
+        # The source-side erase started before the provider answered, with the
+        # blocks whose OCR text can be rendered; the translation then changed
+        # the set (the punctuation block was rewritten, the erased one came
+        # back empty), so the mask is rebuilt for the final set.
+        self.assertEqual([block.text for block in calls["mask"][0]], ["一", "三"])
+        self.assertEqual([block.text for block in calls["mask"][1]], ["一", "……"])
+        self.assertEqual(len(calls["mask"]), 2)
+
+
+class EraseFilterTests(unittest.TestCase):
+    """The empty/punctuation filter is the same rule as before the restructure."""
+
+    def test_source_side_candidates_skip_empty_and_punctuation_only_blocks(self):
+        cases = {
+            "一": True,
+            "……": False,
+            "。": False,
+            "！？": False,
+            "": False,
+            "   ": False,
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(erase_candidate(TextBlock([0, 0, 10, 10], text=text)), expected)
+
+    def test_translation_side_filter_is_unchanged(self):
+        def block(text, translated):
+            return TextBlock([0, 0, 10, 10], text=text, translated_text=translated)
+
+        self.assertTrue(erase_from_translation(block("一", "One")))
+        self.assertFalse(erase_from_translation(block("一", "")))
+        self.assertFalse(erase_from_translation(block("……", "……")))
+        self.assertTrue(erase_from_translation(block("……", "...")))
+        self.assertTrue(erase_from_translation(block("……", "Hm")))
 
 
 if __name__ == "__main__":

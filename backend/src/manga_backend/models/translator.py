@@ -5,6 +5,13 @@ Supports multiple translation backends:
 - OpenAI / OpenRouter
 - Local (llama.cpp, vLLM, or any OpenAI-compatible local server)
 - None (returns original text)
+
+Vision-capable providers also receive the page as a downscaled image with one
+small number drawn at each translation unit (Lippmann et al., COLING 2025:
+page plus image with reading-order numbers was their best Japanese-to-English
+setup). The image is built by the caller, is only ever sent inside the same
+request the text already goes to the provider the user chose, and is never
+written to disk.
 """
 
 from __future__ import annotations
@@ -15,7 +22,7 @@ import json
 import logging
 import os
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlparse
@@ -37,6 +44,40 @@ GEMINI_RETRY_DELAYS_SECONDS = (1.0, 2.0, 3.0, 5.0, 8.0)
 GEMINI_STALL_SECONDS = 12.0
 GEMINI_THINKING_STALL_SECONDS = 60.0
 
+# Which provider routes accept an image part. The rule is documented per route
+# because sending the page to a text-only model fails the request (and would
+# hand page art to a provider that cannot use it):
+# - gemini/google: the whole current line-up is multimodal, so yes.
+# - openai/openrouter: only the models named here are known to take an image
+#   part on the OpenAI-compatible chat API; a custom model name keeps the
+#   text-only prompt unless it matches.
+# - local: text-only. The project's local route is an OpenAI-compatible text
+#   server; LOCAL_LLM_VISION=true opts a genuinely multimodal local server in.
+VISION_MODEL_MARKERS = (
+    "gpt-4o",
+    "gpt-4.1",
+    "gpt-4-turbo",
+    "gpt-5",
+    "o3",
+    "o4",
+    "gemini",
+    "claude-3",
+    "claude-4",
+    "claude-sonnet",
+    "claude-opus",
+    "claude-haiku",
+    "qwen-vl",
+    "qwen2.5-vl",
+    "qwen3-vl",
+    "llava",
+    "pixtral",
+    "llama-3.2-vision",
+    "internvl",
+    "minicpm-v",
+    "glm-4v",
+    "deepseek-vl",
+)
+
 
 def gemini_thinking_level(model_name: str) -> str | None:
     """Thinking level to request, or None to leave the model's default.
@@ -50,6 +91,39 @@ def gemini_thinking_level(model_name: str) -> str | None:
         level = configured.strip().lower()
         return None if level in ("", "off", "none", "default") else level
     return "minimal" if "gemma-4" in model_name.lower() else None
+
+
+def effective_model_name(translator_type: str, model: str | None = None) -> str:
+    """The model a route will use, resolving the same environment defaults as init."""
+    route = (translator_type or "").strip().lower()
+    if route in ("gemini", "google"):
+        return model or os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+    if route == "openrouter":
+        return model or os.environ.get("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
+    if route == "openai":
+        return model or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    if route == "local":
+        return model or os.environ.get("LOCAL_LLM_MODEL", "")
+    return model or ""
+
+
+def supports_page_image(translator_type: str, model: str | None = None) -> bool:
+    """Whether this route may receive the numbered page image.
+
+    Gemini is multimodal by default; the OpenAI-compatible routes are gated on
+    the model name (VISION_MODEL_MARKERS) and the local route on the explicit
+    LOCAL_LLM_VISION=true opt-in, so a text-only provider keeps the text-only
+    prompt. "none" and unknown routes never get an image.
+    """
+    route = (translator_type or "").strip().lower()
+    if route in ("gemini", "google"):
+        return True
+    if route == "local":
+        return os.environ.get("LOCAL_LLM_VISION", "false").strip().lower() == "true"
+    if route in ("openai", "openrouter"):
+        name = effective_model_name(route, model).lower()
+        return any(marker in name for marker in VISION_MODEL_MARKERS)
+    return False
 
 
 def _is_loopback_host(hostname: str) -> bool:
@@ -194,13 +268,23 @@ class Translator:
         )
 
     async def translate(
-        self, texts: list[str], target_lang: str = "English"
+        self,
+        texts: list[str],
+        target_lang: str = "English",
+        *,
+        budgets: Sequence[int | None] | None = None,
+        page_image: bytes | None = None,
     ) -> list[str]:
-        """Translate a list of texts.
+        """Translate a list of texts, one per translation unit.
 
         Args:
-            texts: List of source texts to translate
-            target_lang: Target language name or code
+            texts: Source text of each unit, in reading order.
+            target_lang: Target language name or code.
+            budgets: Optional per-unit character budget (a unit's bubble
+                capacity at the page's lettering size). None for a unit with
+                no usable room.
+            page_image: Optional PNG of the page with a number drawn at each
+                unit. Only sent to a route that can take an image part.
 
         Returns:
             List of translated texts
@@ -211,70 +295,173 @@ class Translator:
         if self.translator_type == "none":
             return texts
 
-        # Build translation prompt
-        prompt = self._build_prompt(texts, target_lang)
-
+        image = page_image if self._accepts_page_image(page_image) else None
+        prompt = self._build_prompt(texts, target_lang, budgets, has_page_image=image is not None)
         try:
-            if self.translator_type in ["gemini", "google"]:
-                return await self._translate_gemini(prompt, len(texts))
-            elif self.translator_type == "local":
-                return await self._translate_openai(prompt, len(texts))
-            elif self.translator_type in ["openai", "openrouter"]:
-                return await self._translate_openai(prompt, len(texts))
-            else:
-                raise ValueError(f"Unsupported translator type: {self.translator_type}")
+            return await self._request(prompt, len(texts), image)
         except Exception as error:
-            # Provider errors can embed upstream response bodies or credentials, so
-            # only the exception class and HTTP status are logged.
-            status = getattr(error, "status_code", None)
-            if status is None:
-                status = getattr(getattr(error, "response", None), "status_code", None)
-            logger.error(
-                "Translation failed: %s%s",
-                type(error).__name__,
-                f" (HTTP {status})" if status else "",
-            )
-            is_timeout = any("Timeout" in cls.__name__ for cls in type(error).__mro__)
-            raise (TranslatorTimeoutError if is_timeout else TranslatorError)(
-                "Translation request failed"
-            ) from error
+            raise self._provider_error(error) from error
 
-    def _build_prompt(self, texts: list[str], target_lang: str) -> str:
+    async def shorten(
+        self,
+        texts: list[str],
+        limits: Sequence[int | None],
+        target_lang: str = "English",
+    ) -> list[str]:
+        """Ask once for shorter versions of translations that did not fit.
+
+        This is the single re-ask after the first translation: the caller
+        decides which units are too long (they cannot be set at the minimum
+        readable size), and a second failure is rendered as the fitter can do
+        it rather than asked about again.
+        """
+        if not texts:
+            return []
+        if self.translator_type == "none":
+            return texts
+
+        prompt = self._build_shorten_prompt(texts, limits, target_lang)
+        try:
+            return await self._request(prompt, len(texts), None)
+        except Exception as error:
+            raise self._provider_error(error) from error
+
+    def _accepts_page_image(self, page_image: bytes | None) -> bool:
+        """True when this route may receive the page image (privacy gate)."""
+        return page_image is not None and supports_page_image(
+            self.translator_type, self.model_name
+        )
+
+    @staticmethod
+    def _provider_error(error: Exception) -> Exception:
+        """Map a provider failure to the sanitised public error."""
+        # Provider errors can embed upstream response bodies or credentials, so
+        # only the exception class and HTTP status are logged.
+        status = getattr(error, "status_code", None)
+        if status is None:
+            status = getattr(getattr(error, "response", None), "status_code", None)
+        logger.error(
+            "Translation failed: %s%s",
+            type(error).__name__,
+            f" (HTTP {status})" if status else "",
+        )
+        is_timeout = any("Timeout" in cls.__name__ for cls in type(error).__mro__)
+        return (TranslatorTimeoutError if is_timeout else TranslatorError)(
+            "Translation request failed"
+        )
+
+    async def _request(self, prompt: str, count: int, page_image: bytes | None) -> list[str]:
+        """Send one prompt to the configured provider and parse its numbering."""
+        if self.translator_type in ["gemini", "google"]:
+            return await self._translate_gemini(prompt, count, page_image)
+        elif self.translator_type in ["local", "openai", "openrouter"]:
+            return await self._translate_openai(prompt, count, page_image)
+        else:
+            raise ValueError(f"Unsupported translator type: {self.translator_type}")
+
+    @staticmethod
+    def _numbered_input(
+        texts: Sequence[str], budgets: Sequence[int | None] | None
+    ) -> str:
+        """Numbered source list; a budgeted unit carries its character limit."""
+        lines: list[str] = []
+        for index, text in enumerate(texts):
+            limit = budgets[index] if budgets is not None and index < len(budgets) else None
+            prefix = f"{index + 1}. " + (f"(≤ {int(limit)} characters) " if limit else "")
+            lines.append(prefix + str(text))
+        return "\n".join(lines)
+
+    def _build_prompt(
+        self,
+        texts: list[str],
+        target_lang: str,
+        budgets: Sequence[int | None] | None = None,
+        *,
+        has_page_image: bool = False,
+    ) -> str:
         """Build the translation prompt."""
-        numbered_texts = "\n".join(f"{i+1}. {text}" for i, text in enumerate(texts))
+        numbered_texts = self._numbered_input(texts, budgets)
+        image_note = (
+            "The attached page image marks each numbered item where it appears on the page; "
+            "use it for speaker, tone and scene context.\n"
+            if has_page_image
+            else ""
+        )
+        budget_note = (
+            "Each item's \"≤ N characters\" is its bubble's capacity at the page's lettering "
+            "size, in letters and spaces (not words); stay within it.\n"
+            if any(budget for budget in (budgets or ()))
+            else ""
+        )
 
         return f"""Translate the following manga dialogue from Japanese to {target_lang}.
 Keep translations concise to fit speech bubbles.
 Preserve character voice and tone.
 The numbered items follow the page's reading order, and one item may be a whole speech bubble.
-Return ONLY the translations, numbered to match input.
+{image_note}{budget_note}Return ONLY the translations, numbered to match input.
 
 Input:
 {numbered_texts}
 
 Output (translated, same numbering):"""
 
-    async def _translate_gemini(self, prompt: str, count: int) -> list[str]:
+    def _build_shorten_prompt(
+        self, texts: Sequence[str], limits: Sequence[int | None], target_lang: str
+    ) -> str:
+        """Build the one re-ask: shorter versions that fit the stated limits."""
+        numbered_texts = self._numbered_input(texts, limits)
+        return f"""These manga dialogue translations are too long for their speech bubbles.
+Rewrite each one shorter so that it fits in at most the stated number of characters ({target_lang} letters, spaces and punctuation).
+Keep the meaning, the speaker's voice and the tone. Do not add, drop or reorder items.
+Return ONLY the rewritten translations, numbered to match the input.
+
+Input:
+{numbered_texts}
+
+Output (shortened, same numbering):"""
+
+    async def _translate_gemini(
+        self, prompt: str, count: int, page_image: bytes | None = None
+    ) -> list[str]:
         """Translate using Gemini API."""
         if self.client == "gemini_http":
-            return await self._translate_gemini_http(prompt, count)
+            return await self._translate_gemini_http(prompt, count, page_image)
 
-        response = await self.model.generate_content_async(prompt)
+        # The SDK takes a text prompt plus an image part; the blob dict keeps
+        # the page in memory only.
+        request: Any = prompt
+        if page_image is not None:
+            request = [prompt, {"mime_type": "image/png", "data": page_image}]
+        response = await self.model.generate_content_async(request)
         return self._parse_numbered_response(response.text, count)
 
-    async def _translate_gemini_http(self, prompt: str, count: int) -> list[str]:
+    async def _translate_gemini_http(
+        self, prompt: str, count: int, page_image: bytes | None = None
+    ) -> list[str]:
         """Translate using the Gemini HTTP API (Gemini and Gemma models).
 
         The reply is streamed so a request that never starts answering is given
         up after the stall timeout instead of after a whole-response timeout.
         """
+        import base64
+
         import httpx
 
         model_name = self.model_name or "gemini-2.0-flash"
         model_path = model_name if model_name.startswith("models/") else f"models/{model_name}"
         url = f"{GEMINI_API_ROOT}/{model_path}:streamGenerateContent?alt=sse"
         headers = {"x-goog-api-key": self.api_key or "", "Content-Type": "application/json"}
-        body: dict[str, Any] = {"contents": [{"parts": [{"text": prompt}]}]}
+        parts: list[dict[str, Any]] = [{"text": prompt}]
+        if page_image is not None:
+            parts.append(
+                {
+                    "inline_data": {
+                        "mime_type": "image/png",
+                        "data": base64.b64encode(page_image).decode("ascii"),
+                    }
+                }
+            )
+        body: dict[str, Any] = {"contents": [{"parts": parts}]}
         thinking_level = gemini_thinking_level(model_name)
         if thinking_level:
             body["generationConfig"] = {"thinkingConfig": {"thinkingLevel": thinking_level}}
@@ -354,16 +541,34 @@ Output (translated, same numbering):"""
                         pieces.append(part.get("text", ""))
         return "".join(pieces)
 
-    async def _translate_openai(self, prompt: str, count: int) -> list[str]:
+    async def _translate_openai(
+        self, prompt: str, count: int, page_image: bytes | None = None
+    ) -> list[str]:
         """Translate using OpenAI-compatible API."""
+        import base64
+
         client = cast("AsyncOpenAI", self.client)
         model = self.model_name if self.model_name else "default"
         logger.info("Sending request to %s (model: %s)...", self.translator_type, model)
+        content: Any = prompt
+        if page_image is not None:
+            # The OpenAI chat schema takes content parts; the image travels as
+            # a data URI inside the same request as the text.
+            content = [
+                {"type": "text", "text": prompt},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:image/png;base64,"
+                        + base64.b64encode(page_image).decode("ascii")
+                    },
+                },
+            ]
         response = await client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": "You are a professional manga translator."},
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": content},
             ],
             temperature=0.3,
         )

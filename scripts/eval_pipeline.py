@@ -94,7 +94,9 @@ logger = logging.getLogger("eval_pipeline")
 # residual_in_mask_ratio, residual_out_of_mask_ratio), the low-pass residual,
 # hole_in_tone_px, render_ink_outside_bubble_px, OCR character error rate,
 # mask reason codes, font_size_spread and the oracle run modes.
-SCHEMA_VERSION = 2
+# Version 3 adds the WP6b translation section (per-unit length budgets and the
+# one re-ask), again additive: every version 2 key is unchanged.
+SCHEMA_VERSION = 3
 Box = tuple[int, int, int, int]
 
 KNOWN_TAGS = frozenset(
@@ -1069,6 +1071,32 @@ def _inpaint_metrics(probe: PageProbe, erase: np.ndarray, requested: str, result
     return metrics
 
 
+def _translation_metrics(result: dict[str, Any]) -> dict[str, Any]:
+    """Budget and re-ask rows for the translation step (WP6b, additive).
+
+    The budgets exist on every run that translates (they are read from each
+    unit's room before the provider is called); the request and re-ask counts
+    only on a real provider run, because the stub never enters the translation
+    step.
+    """
+    entries = [entry for entry in (result.get("length_budgets") or []) if entry]
+    report = result.get("translation_reasks") or {}
+    chars = [int(entry.get("chars") or 0) for entry in entries]
+    return {
+        "units": len(result.get("length_budgets") or []),
+        "budgeted": len(entries),
+        "budget_chars_min": min(chars) if chars else None,
+        "budget_chars_max": max(chars) if chars else None,
+        "budget_chars_mean": round(sum(chars) / len(chars), 1) if chars else None,
+        "budget_chars_total": sum(chars),
+        "page_image": bool(report.get("page_image", False)),
+        "requests": int(report.get("requests") or 0),
+        "reask_units": int(report.get("reask_units") or 0),
+        "reask_shortened": int(report.get("reask_shortened") or 0),
+        "reask_failed": bool(report.get("reask_failed", False)),
+    }
+
+
 def _render_metrics(probe: PageProbe) -> dict[str, Any]:
     """Render rows for one page.
 
@@ -1399,6 +1427,7 @@ def measure_page(
         },
         "mask": mask_metrics,
         "inpaint": _inpaint_metrics(probe, erase, requested_inpainter, result),
+        "translate": _translation_metrics(result),
         "render": _render_metrics(probe),
         "verify": _verify_metrics(probe),
         "truth": None
@@ -1601,6 +1630,22 @@ def summarize(records: Sequence[dict[str, Any]], *, by_tag: bool = True) -> dict
         stage: round(sum(float(record["timings"].get(stage, 0.0)) for record in scored), 3)
         for stage in (*STAGES, "other", "total")
     }
+    translate_records = [record.get("translate") or {} for record in scored]
+    translate_budgeted = sum(int(record.get("budgeted") or 0) for record in translate_records)
+    budget_minimums = [
+        int(record["budget_chars_min"])
+        for record in translate_records
+        if record.get("budget_chars_min") is not None
+    ]
+    budget_maximums = [
+        int(record["budget_chars_max"])
+        for record in translate_records
+        if record.get("budget_chars_max") is not None
+    ]
+    budget_weighted_total = sum(
+        float(record.get("budget_chars_mean") or 0.0) * int(record.get("budgeted") or 0)
+        for record in translate_records
+    )
     summary: dict[str, Any] = {
         "pages": {
             "total": len(records),
@@ -1637,6 +1682,22 @@ def summarize(records: Sequence[dict[str, Any]], *, by_tag: bool = True) -> dict
             "suppressed_composites": total("mask", "suppressed_composites"),
             "mask_px": total("mask", "mask_px"),
             "reason_codes": dict(sorted(reason_codes.items())),
+        },
+        "translate": {
+            "units": sum(int(record.get("units") or 0) for record in translate_records),
+            "budgeted": translate_budgeted,
+            "budget_chars_min": min(budget_minimums) if budget_minimums else None,
+            "budget_chars_max": max(budget_maximums) if budget_maximums else None,
+            "budget_chars_mean": round(budget_weighted_total / translate_budgeted, 1)
+            if translate_budgeted
+            else None,
+            "page_image": sum(bool(record.get("page_image")) for record in translate_records),
+            "requests": sum(int(record.get("requests") or 0) for record in translate_records),
+            "reask_units": sum(int(record.get("reask_units") or 0) for record in translate_records),
+            "reask_shortened": sum(
+                int(record.get("reask_shortened") or 0) for record in translate_records
+            ),
+            "reask_failed": sum(bool(record.get("reask_failed")) for record in translate_records),
         },
         "render": {
             "regions": total("render", "regions"),
@@ -1718,6 +1779,13 @@ METRICS: tuple[tuple[str, str, str | None], ...] = (
     ("mask.reason_codes.area_test_failed", "Mask reason: area test failed", None),
     ("mask.reason_codes.coverage_below_35", "Mask reason: coverage below 35%", None),
     ("mask.reason_codes.clipped_ink_empty", "Mask reason: interior found, clipped ink empty", None),
+    ("translate.budgeted", "Translation units with a length budget", None),
+    ("translate.budget_chars_mean", "Length budget per unit (chars, mean)", None),
+    ("translate.budget_chars_min", "Length budget per unit (chars, min)", None),
+    ("translate.page_image", "Pages sent with a numbered page image", None),
+    ("translate.requests", "Translation provider requests", None),
+    ("translate.reask_units", "Units re-asked for a shorter translation", "lower"),
+    ("translate.reask_shortened", "Re-asked units that came back shorter", None),
     ("render.regions", "Render regions", None),
     ("render.shrink_events", "Shrink events (< anchored target)", "lower"),
     ("render.below_min_readable", "Below min readable size", "lower"),

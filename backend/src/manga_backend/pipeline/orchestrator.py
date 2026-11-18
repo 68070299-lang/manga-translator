@@ -12,6 +12,7 @@ import numpy as np
 
 from manga_backend.models.detector import TextDetector
 from manga_backend.models.ocr import OCREngine
+from manga_backend.models.translator import supports_page_image
 from manga_backend.pipeline.bubbles import (
     infer_bubble_render_bounds,
     infer_bubble_text_centers,
@@ -39,10 +40,17 @@ from manga_backend.pipeline.layout import (
     unit_source_text,
 )
 from manga_backend.pipeline.masks import prepare_flux_inpainting
+from manga_backend.pipeline.measure import source_glyph_size
 from manga_backend.pipeline.ocr import blocks_from_payload, run_ocr
+from manga_backend.pipeline.page_context import (
+    PageContext,
+    build_numbered_page,
+    plan_page_context,
+    unit_box,
+)
 from manga_backend.pipeline.rendering import render_text
 from manga_backend.pipeline.text import has_cjk_letters, is_unchanged_punctuation
-from manga_backend.pipeline.translation import translate_texts
+from manga_backend.pipeline.translation import TranslationReport, translate_texts
 from manga_backend.utils.textblock import TextBlock
 
 if TYPE_CHECKING:
@@ -51,6 +59,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _READING_DIRECTIONS = frozenset({"auto", "rtl", "ltr"})
+
+
+def erase_candidate(block: TextBlock) -> bool:
+    """Whether a block's ink will be erased, decided from its OCR text alone.
+
+    Masking starts before the provider answers, so it cannot know the
+    translation. A source text that is only punctuation comes back unchanged
+    from a provider and is never rendered, so it is left alone; everything
+    else is erased while the translation is in flight. A translation that
+    comes back empty (and so fails ``erase_from_translation``) rebuilds the
+    mask for the smaller set, which keeps the page's original lettering.
+    """
+    text = block.text
+    return bool(text.strip()) and not is_unchanged_punctuation(text, text)
+
+
+def erase_from_translation(block: TextBlock) -> bool:
+    """The render filter, unchanged: erase the ink of every block that renders text."""
+    return bool(block.translated_text.strip()) and not is_unchanged_punctuation(
+        block.text, block.translated_text
+    )
 
 
 def _pop_reading_direction(render_options: dict[str, Any]) -> str:
@@ -284,7 +313,53 @@ class TranslationPipeline:
         translating = bool(translator) and translator != "none"
         units = group_translation_units(blocks)
         unit_texts = [unit_source_text(unit) for unit in units]
+
+        # Step 4 starts here: masking needs only the detected boxes and the
+        # OCR text, so the erase runs while the provider translates and the
+        # two are joined before rendering.
+        erase_blocks = [block for block in blocks if erase_candidate(block)]
+        inpaint_task: asyncio.Task[np.ndarray] | None = None
+        if render and inpainter and inpainter != "none":
+            logger.info("Step 4: Inpainting using %s (concurrent with translation)...", inpainter)
+            inpaint_task = asyncio.create_task(
+                self._inpaint(image, erase_blocks, inpainter, detector_type, result)
+            )
+
         if translating:
+            # The length budget is the unit's room capacity at the page's
+            # lettering size, so it needs the source em the mask stage
+            # measures; measure it here first, on the same pixels and for the
+            # same blocks (the mask stage measures the identical value).
+            def prepare_page_context() -> PageContext:
+                for block in erase_blocks:
+                    if block.source_font_size is None:
+                        block.source_font_size = source_glyph_size(image, block)
+                return plan_page_context(
+                    image,
+                    units,
+                    blocks,
+                    preferred_font_size=int(render_options.get("preferred_font_size", 16)),
+                    line_spacing=float(render_options.get("line_spacing", 1.2)),
+                    stroke_width=float(render_options.get("border_size", 0.0)),
+                    auto_scale=bool(render_options.get("auto_scale", True)),
+                    text_direction=str(render_options.get("text_direction", "auto")),
+                )
+
+            # Rooms, font metrics and the flood fill are CPU work; keep them
+            # off the event loop while the erase runs beside them.
+            page_context = await asyncio.to_thread(prepare_page_context)
+            result["length_budgets"] = [
+                None if budget is None else budget.as_dict()
+                for budget in page_context.budgets
+            ]
+            # Only a route that can take an image part receives the page; the
+            # text-only routes keep the text-only prompt.
+            page_image = None
+            if supports_page_image(translator, model):
+                page_image, _marks = build_numbered_page(
+                    image, [unit_box(unit) for unit in units]
+                )
+            report = TranslationReport()
             translated_units = await translate_texts(
                 unit_texts,
                 target_lang,
@@ -293,7 +368,12 @@ class TranslationPipeline:
                 model=model,
                 local_llm_base_url=local_llm_base_url,
                 local_llm_api_key=local_llm_api_key,
+                budgets=page_context.character_budgets,
+                page_image=page_image,
+                fits=page_context.fits,
+                report=report,
             )
+            result["translation_reasks"] = report.as_dict()
         else:
             translated_units = list(unit_texts)
         for unit, unit_translation in zip(units, translated_units):
@@ -302,12 +382,23 @@ class TranslationPipeline:
 
         result["translated_texts"] = [block.translated_text for block in blocks]
 
-        # Step 4: Inpainting
+        # Step 4 (join): the erase that started with translation finishes
+        # here. If the translation filter drops a block that the source-side
+        # rule erased (an empty translation), the mask is rebuilt for the
+        # smaller set so the page keeps that block's original lettering.
         render_image = image.copy()
-        if render and inpainter and inpainter != "none":
-            render_image = await self._inpaint(
-                image, blocks, inpainter, detector_type, result
-            )
+        if inpaint_task is not None:
+            render_image = await inpaint_task
+            final_blocks = [block for block in blocks if erase_from_translation(block)]
+            if [id(block) for block in final_blocks] != [id(block) for block in erase_blocks]:
+                logger.info(
+                    "Step 4: Translation kept %s of %s blocks; rebuilding the mask",
+                    len(final_blocks),
+                    len(erase_blocks),
+                )
+                render_image = await self._inpaint(
+                    image, final_blocks, inpainter, detector_type, result
+                )
         else:
             logger.info("Step 4: Inpainting skipped")
 
@@ -350,16 +441,16 @@ class TranslationPipeline:
         detector_type: str,
         result: dict[str, Any],
     ) -> np.ndarray:
-        """Step 4: erase the original text; record how it was done in `result`."""
+        """Step 4: erase the original text; record how it was done in `result`.
+
+        ``blocks`` is the erase set: the caller decides it (from the OCR text
+        while translating, or from the translation afterwards), because the
+        erase starts concurrently with the provider.
+        """
         start_time = time.time()
-        logger.info("Step 4: Inpainting using %s...", inpainter)
+        logger.info("Step 4: Erasing %s blocks...", len(blocks))
         async with self._inpainters.execution_lock:
-            inpaint_blocks = [
-                block
-                for block in blocks
-                if block.translated_text.strip()
-                and not is_unchanged_punctuation(block.text, block.translated_text)
-            ]
+            inpaint_blocks = blocks
             rectangular_masks = detector_type == "animetext-yolo"
             # Both routes run the fill router first: tiers 0-2 (flat, smooth,
             # lattice) repaint what they can verify on a held-out band, and

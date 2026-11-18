@@ -15,6 +15,7 @@ from manga_backend.models.translator import (
     Translator,
     TranslatorError,
     TranslatorTimeoutError,
+    supports_page_image,
     validate_local_llm_base_url,
 )
 
@@ -354,6 +355,136 @@ class GeminiHttpTests(unittest.TestCase):
 
         with self.assertRaises(TranslatorError):
             self.translate("gemini-2.0-flash", replies)
+
+
+class PageContextPayloadTests(unittest.TestCase):
+    """The numbered page image, the per-unit budgets and the one re-ask.
+
+    The image is built by pipeline.page_context and handed to the translator as
+    PNG bytes; these tests check that it reaches the provider inside the same
+    request as the text, that a text-only route keeps the text-only prompt, and
+    that the prompt states each unit's character budget.
+    """
+
+    PAGE_PNG = b"\x89PNG\r\n\x1a\n-runner-up-page"
+
+    def test_vision_gate_is_per_provider_not_per_request(self):
+        self.assertTrue(supports_page_image("gemini"))
+        self.assertTrue(supports_page_image("google"))
+        self.assertTrue(supports_page_image("openai", "gpt-4o"))
+        self.assertTrue(supports_page_image("openrouter", "google/gemini-2.0-flash-001"))
+        # Text-only routes and unknown model names keep the text-only prompt.
+        self.assertFalse(supports_page_image("local"))
+        self.assertFalse(supports_page_image("openai", "text-embedding-3-small"))
+        self.assertFalse(supports_page_image("none"))
+        self.assertFalse(supports_page_image("eval-stub"))
+
+    def test_local_route_can_be_opted_into_vision_explicitly(self):
+        with patch.dict(os.environ, {"LOCAL_LLM_VISION": "true"}):
+            self.assertTrue(supports_page_image("local"))
+        with patch.dict(os.environ, {"LOCAL_LLM_VISION": "false"}):
+            self.assertFalse(supports_page_image("local"))
+
+    def test_openai_vision_payload_carries_the_image_part_and_the_numbered_texts(self):
+        translator = Translator(translator_type="openai", api_key="test-key", model="gpt-4o")
+        translator.client = types.SimpleNamespace(
+            chat=types.SimpleNamespace(
+                completions=types.SimpleNamespace(create=AsyncMock(return_value=_openai_reply("1. One\n2. Two")))
+            )
+        )
+
+        result = asyncio.run(
+            translator.translate(
+                ["一", "二"], "English", budgets=[24, None], page_image=self.PAGE_PNG
+            )
+        )
+
+        self.assertEqual(result, ["One", "Two"])
+        request = translator.client.chat.completions.create.await_args.kwargs
+        content = request["messages"][1]["content"]
+        self.assertIsInstance(content, list)
+        self.assertEqual(content[0]["type"], "text")
+        self.assertIn("1. (≤ 24 characters) 一", content[0]["text"])
+        self.assertIn("2. 二", content[0]["text"])
+        self.assertEqual(content[1]["type"], "image_url")
+        self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/png;base64,"))
+
+    def test_text_only_route_keeps_the_text_only_prompt(self):
+        translator = Translator(translator_type="local", api_key="test-key")
+        translator.client = types.SimpleNamespace(
+            chat=types.SimpleNamespace(
+                completions=types.SimpleNamespace(create=AsyncMock(return_value=_openai_reply("1. One")))
+            )
+        )
+
+        asyncio.run(translator.translate(["一"], "English", page_image=self.PAGE_PNG))
+
+        request = translator.client.chat.completions.create.await_args.kwargs
+        # The image never reaches a text-only provider, even when passed in.
+        self.assertIsInstance(request["messages"][1]["content"], str)
+        self.assertNotIn("image", request["messages"][1]["content"].lower())
+
+    def test_gemini_http_payload_puts_the_image_in_the_same_request(self):
+        import json
+
+        import httpx
+
+        requests = []
+
+        def handler(request):
+            requests.append(json.loads(request.content))
+            events = [
+                "data: "
+                + json.dumps({"candidates": [{"content": {"parts": [{"text": "1. One"}]}}]})
+            ]
+            return httpx.Response(200, text="\n\n".join(events) + "\n\n")
+
+        real_client = httpx.AsyncClient
+
+        def client_factory(**kwargs):
+            return real_client(transport=httpx.MockTransport(handler), **kwargs)
+
+        translator = Translator(
+            translator_type="gemini", api_key="test-key", model="gemini-2.0-flash"
+        )
+
+        async def run():
+            await translator.initialize()
+            return await translator.translate(["一"], "English", page_image=self.PAGE_PNG)
+
+        with patch.dict(sys.modules, {"google.generativeai": None}), patch(
+            "httpx.AsyncClient", client_factory
+        ):
+            result = asyncio.run(run())
+
+        self.assertEqual(result, ["One"])
+        parts = requests[0]["contents"][0]["parts"]
+        self.assertEqual(len(parts), 2)
+        self.assertIn("1. 一", parts[0]["text"])
+        self.assertEqual(parts[1]["inline_data"]["mime_type"], "image/png")
+        self.assertTrue(parts[1]["inline_data"]["data"])
+
+    def test_prompt_states_no_budget_when_no_room_has_one(self):
+        translator = Translator()
+
+        prompt = translator._build_prompt(["一"], "English", [None])
+
+        self.assertIn("1. 一", prompt)
+        self.assertNotIn("characters)", prompt)
+
+    def test_shorten_prompt_quotes_each_limit(self):
+        translator = Translator()
+
+        prompt = translator._build_shorten_prompt(["A long line", "Another"], [12, 8], "English")
+
+        self.assertIn("1. (≤ 12 characters) A long line", prompt)
+        self.assertIn("2. (≤ 8 characters) Another", prompt)
+        self.assertIn("Return ONLY the rewritten translations", prompt)
+
+
+def _openai_reply(text):
+    message = types.SimpleNamespace(content=text)
+    return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)])
 
 
 class LocalLlmUrlValidationTests(unittest.TestCase):
