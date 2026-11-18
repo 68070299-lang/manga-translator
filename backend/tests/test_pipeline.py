@@ -2296,21 +2296,6 @@ class RenderedTextVerificationTests(unittest.IsolatedAsyncioTestCase):
         # Font choice, wrapping and the translate decision keep the wider check.
         self.assertTrue(has_cjk("Ｒｅａｄｙ．"))
 
-    async def test_step6_passes_rendered_english_read_back_full_width(self):
-        class ReadBackOcr:
-            async def process(self, image, blocks):
-                return ["Ｒｅａｄｙ．", "それは、", "", "。"]
-
-        blocks = [TextBlock([0, 0, 10, 10], text="待って") for _ in range(4)]
-        await TranslationPipeline._verify_rendered_text(
-            ReadBackOcr(), np.zeros((10, 10, 3), np.uint8), blocks
-        )
-
-        self.assertEqual(
-            [block.verification_passed for block in blocks], [True, False, True, True]
-        )
-        self.assertEqual(blocks[0].verified_text, "Ｒｅａｄｙ．")
-
 
 class FontObjectCacheTests(unittest.TestCase):
     def test_concurrent_requests_load_each_font_once(self):

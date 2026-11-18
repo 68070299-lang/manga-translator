@@ -36,7 +36,7 @@ from manga_backend.pipeline.inpainting import (
 from manga_backend.pipeline.masks import prepare_flux_inpainting
 from manga_backend.pipeline.ocr import blocks_from_payload, run_ocr
 from manga_backend.pipeline.rendering import render_text
-from manga_backend.pipeline.text import has_cjk_letters, is_unchanged_punctuation
+from manga_backend.pipeline.text import is_unchanged_punctuation
 from manga_backend.pipeline.translation import translate_texts
 from manga_backend.utils.textblock import TextBlock
 
@@ -209,7 +209,13 @@ class TranslationPipeline:
         verify_translation: bool = False,
         **render_options: Any,
     ) -> dict[str, Any]:
-        """Full translation pipeline; render_options are passed to render_text."""
+        """Full translation pipeline; render_options are passed to render_text.
+
+        ``verify_translation`` is kept for API compatibility and is ignored:
+        the production path no longer re-reads the rendered page. The pixel
+        check that replaced Step 6 runs before rendering (pipeline/residual.py
+        through the fill router); the eval harness performs its own re-OCR.
+        """
         result: dict[str, Any] = {
             "blocks": [],
             "original_texts": [],
@@ -299,9 +305,11 @@ class TranslationPipeline:
         else:
             result["image"] = render_image
 
-        # Step 6: Verify rendered text (re-OCR to ensure it's not still Japanese)
-        if verify_translation and render and translating and self._ocr is not None:
-            await self._verify_rendered_text(self._ocr, result["image"], blocks)
+        # Step 6 (re-OCR of the rendered page) is gone from the production
+        # path: it ran after drawing, so it could not repair anything, and it
+        # read short rendered English as kana. The replacement is the
+        # pre-render residual check in the fill router (pipeline/residual.py);
+        # the eval harness keeps its own re-OCR pass for measurement.
 
         await asyncio.to_thread(self._infer_bubble_geometry, render_image, blocks)
         result["blocks"] = [text_block_to_dict(block) for block in blocks]
@@ -380,42 +388,6 @@ class TranslationPipeline:
             "Step 4 complete: Inpainting finished in %.2fs", time.time() - start_time
         )
         return render_image
-
-    @staticmethod
-    async def _verify_rendered_text(
-        ocr_engine: OCREngine, rendered: np.ndarray, blocks: list[TextBlock]
-    ) -> None:
-        """Step 6: re-OCR the rendered page and flag blocks that still show CJK letters.
-
-        Full-width Latin and CJK punctuation do not count: OCR engines return
-        rendered English in full-width forms (see ``has_cjk_letters``).
-        """
-        try:
-            start_time = time.time()
-            logger.info("Step 6: Verifying rendered text (re-OCR)...")
-            verified_texts = await ocr_engine.process(rendered, blocks)
-            issue_count = 0
-            for index, (block, verified) in enumerate(zip(blocks, verified_texts)):
-                block.verified_text = verified
-                block.verification_passed = not (verified and has_cjk_letters(verified))
-                if not block.verification_passed:
-                    issue_count += 1
-                    logger.warning(
-                        "VERIFY FAIL block %s: rendered text still contains CJK: "
-                        "orig=%r translated=%r verified=%r",
-                        index,
-                        block.text,
-                        block.translated_text,
-                        verified,
-                    )
-            logger.info(
-                "Step 6 complete: %s/%s blocks still contain CJK text (%.2fs)",
-                issue_count,
-                len(blocks),
-                time.time() - start_time,
-            )
-        except Exception as error:
-            logger.warning("Step 6: Verification skipped due to error: %s", error)
 
     @staticmethod
     def _infer_bubble_geometry(image: np.ndarray, blocks: list[TextBlock]) -> None:

@@ -19,6 +19,7 @@ import numpy as np
 
 from manga_backend.pipeline import TranslationPipeline
 from manga_backend.pipeline import masks as masks_module
+from manga_backend.pipeline import residual as residual_module
 from manga_backend.pipeline import orchestrator as orchestrator_module
 from manga_backend.pipeline import rendering as rendering_module
 from manga_backend.pipeline.fill_tiers import TIER_MODEL, FillDecision
@@ -265,7 +266,7 @@ class HarnessModeTests(unittest.TestCase):
         # Cleaner masks leave the synthetic corpus fully tier-fillable, so the
         # fallback leg is exercised by declining the tiers by hand: this test
         # is about the flux -> lama fallback plumbing, not about a tier verdict.
-        def decline(crop, mask, excluded, interior_mode, valid=None):
+        def decline(crop, mask, excluded, interior_mode, valid=None, start_tier=0):
             return (
                 FillDecision(
                     TIER_MODEL, None, int(np.count_nonzero(mask > 0)), 0, 0, "test"
@@ -287,7 +288,7 @@ class HarnessModeTests(unittest.TestCase):
             )
         with (
             patch("manga_backend.pipeline.inpainting.create_inpainter", create),
-            patch.object(masks_module, "route_block_fill", decline),
+            patch.object(residual_module, "route_block_fill", decline),
         ):
             textured_result = asyncio.run(
                 eval_pipeline.run_corpus(
@@ -816,6 +817,77 @@ class AdversarialPageTests(unittest.TestCase):
         truth = result["pages"][0]["truth"]
         self.assertEqual(truth["ink_mask_recall"], 1.0)
         self.assertEqual(truth["residual_out_of_mask_ratio"], 0.0)
+
+
+class HarnessReReadTests(unittest.IsolatedAsyncioTestCase):
+    """Step 6 re-OCR is off the production path and kept in the harness."""
+
+    async def test_full_width_latin_read_back_is_not_residue(self):
+        class ReadBackOcr:
+            async def process(self, image, blocks):
+                return ["Ｒｅａｄｙ．", "それは、", "", "。"]
+
+        blocks = [TextBlock([0, 0, 10, 10], text="待って") for _ in range(4)]
+        await eval_pipeline._verify_rendered_text(
+            ReadBackOcr(), np.zeros((10, 10, 3), np.uint8), blocks
+        )
+
+        self.assertEqual(
+            [block.verification_passed for block in blocks], [True, False, True, True]
+        )
+        self.assertEqual(blocks[0].verified_text, "Ｒｅａｄｙ．")
+
+    def test_production_pipeline_has_no_step6_and_the_harness_runs_it_once(self):
+        self.assertFalse(hasattr(TranslationPipeline, "_verify_rendered_text"))
+
+        class CountingOcr(EchoOcr):
+            def __init__(self):
+                self.verification_calls = 0
+
+            async def process(self, image, blocks):
+                if any(block.translated_text for block in blocks):
+                    self.verification_calls += 1
+                return await super().process(image, blocks)
+
+        pipeline = fake_pipeline()
+        ocr = CountingOcr()
+        pipeline._ocr = ocr
+        config = eval_pipeline.RunConfig(
+            label="probe",
+            detector=eval_pipeline.TRUTH_DETECTOR,
+            inpainter="fake-telea",
+            warmup=False,
+        )
+        result = asyncio.run(
+            eval_pipeline.run_corpus(
+                pipeline, synthetic_pages("syn-white-bubbles"), CORPUS.parent, config
+            )
+        )
+        page = result["pages"][0]
+        self.assertEqual(ocr.verification_calls, 1, "only the harness re-reads the page")
+        self.assertTrue(page["verify"]["ran"])
+        self.assertEqual(page["timings"]["verify"], 0.0, "production verify stage is gone")
+        self.assertIn("verify_harness", page["timings"])
+
+        pipeline = fake_pipeline()
+        skipped = CountingOcr()
+        pipeline._ocr = skipped
+        result = asyncio.run(
+            eval_pipeline.run_corpus(
+                pipeline,
+                synthetic_pages("syn-white-bubbles"),
+                CORPUS.parent,
+                eval_pipeline.RunConfig(
+                    label="no-verify",
+                    detector=eval_pipeline.TRUTH_DETECTOR,
+                    inpainter="fake-telea",
+                    warmup=False,
+                    verify=False,
+                ),
+            )
+        )
+        self.assertEqual(skipped.verification_calls, 0)
+        self.assertFalse(result["pages"][0]["verify"]["ran"])
 
 
 class CharacterErrorRateTests(unittest.TestCase):
