@@ -1311,7 +1311,7 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertGreaterEqual(fit.size, 4)
         self.assertLess(fit.size, 16)
 
-    def test_fit_keeps_short_words_whole(self):
+    def test_fit_hyphenates_a_word_that_cannot_fit_whole(self):
         from manga_backend.pipeline import fonts as fonts_module
 
         TranslationPipeline(device="cpu")
@@ -1325,10 +1325,12 @@ class PipelineRenderTests(unittest.TestCase):
             base_stroke_width=2,
         )
 
-        self.assertGreater(fit.size, 0)
-        self.assertEqual(sorted(word for line in fit.lines for word in line.split()), ["Hurry", "up!"])
-        for line in fit.lines:
-            self.assertIn(line, ("Hurry", "up!"))
+        # The size is kept and the word is hyphenated, rather than shrinking
+        # the whole region to keep the word whole.
+        self.assertEqual(fit.size, 16)
+        joined = "".join(fit.lines).replace("-", "")
+        self.assertEqual(joined, "Hurryup!")
+        self.assertTrue(any(line.endswith("-") for line in fit.lines))
 
     def test_fit_scales_the_stroke_and_preserves_words(self):
         from manga_backend.pipeline import fonts as fonts_module

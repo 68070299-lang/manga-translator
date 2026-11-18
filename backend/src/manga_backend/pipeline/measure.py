@@ -158,6 +158,7 @@ def harmonize_targets(
     *,
     tolerance: float = HARMONIZE_TOLERANCE,
     clamp: float = HARMONIZE_CLAMP,
+    centre: float | None = None,
 ) -> list[int]:
     """Snap dialogue targets to the page median and pull outliers in.
 
@@ -167,7 +168,7 @@ def harmonize_targets(
     """
     if not targets:
         return []
-    median = float(np.median(targets))
+    median = float(np.median(targets)) if centre is None else float(centre)
     if median <= 0:
         return list(targets)
     low = max(1, int(round(median * (1.0 - clamp))))

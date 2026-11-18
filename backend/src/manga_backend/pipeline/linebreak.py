@@ -41,6 +41,22 @@ class BrokenLines:
     cost: float
 
 
+VOWELS = frozenset("aeiouyAEIOUY")
+# A break between two consonants ("Hur-ry") is the conventional one; a break
+# between a consonant and a vowel ("Hurr-y") reads as a typo.
+BREAK_SCORES = {(False, False): 3, (False, True): 2, (True, False): 1, (True, True): 0}
+MIN_PREFIX = 2
+MIN_SUFFIX = 2
+
+
+def _break_score(word: str, index: int) -> int:
+    if index < MIN_PREFIX or len(word) - index < MIN_SUFFIX:
+        return -1
+    before = word[index - 1] in VOWELS
+    after = word[index] in VOWELS
+    return BREAK_SCORES[(before, after)]
+
+
 def split_oversized_unit(
     unit: str, max_width: float, measure: Callable[[str], float]
 ) -> list[str]:
@@ -52,17 +68,26 @@ def split_oversized_unit(
     if measure(unit) <= max_width:
         return [unit]
     budget = max(1.0, max_width - measure("-"))
+    remaining = unit
     chunks: list[str] = []
-    current = ""
-    for char in unit:
-        candidate = current + char
-        if current and measure(candidate) > budget:
-            chunks.append(current)
-            current = char
-        else:
-            current = candidate
-    if current:
-        chunks.append(current)
+    while remaining:
+        length = len(remaining)
+        cut = length
+        for index in range(1, length + 1):
+            if measure(remaining[:index]) > budget:
+                cut = max(1, index - 1)
+                break
+        if cut >= length:
+            chunks.append(remaining)
+            break
+        # Walk back a little to a conventional syllable boundary.
+        best_cut, best_score = cut, _break_score(remaining, cut)
+        for candidate in range(cut, max(MIN_PREFIX, cut - 3), -1):
+            score = _break_score(remaining, candidate)
+            if score > best_score:
+                best_cut, best_score = candidate, score
+        chunks.append(remaining[:best_cut])
+        remaining = remaining[best_cut:]
     return chunks or [unit]
 
 
@@ -90,13 +115,21 @@ def break_lines(
     line_count = len(widths)
 
     chunks: list[str] = []
-    continues: list[bool] = []
+    # Which word each chunk belongs to and where it sits inside that word, so
+    # a line that ends mid-word can carry a hyphen and the next line can glue
+    # its continuation back on without a space.
+    chunk_word: list[int] = []
+    chunk_part: list[int] = []
+    word_parts: list[int] = []
     widest = max(widths)
-    for unit in units:
+    for word, unit in enumerate(units):
         parts = split_oversized_unit(unit, widest, measure)
+        word_parts.append(len(parts))
         for index, part in enumerate(parts):
             chunks.append(part)
-            continues.append(index > 0)
+            chunk_word.append(word)
+            chunk_part.append(index)
+    continues = [chunk_part[index] > 0 for index in range(len(chunks))]
     if len(chunks) < line_count:
         # Empty lines are not a layout; fewer lines will be tried instead.
         return None
@@ -107,8 +140,25 @@ def break_lines(
         return end < len(chunks) and continues[end]
 
     def span_text(start: int, end: int) -> str:
-        text = join(chunks[start:end])
-        return text + "-" if ends_mid_word(end) else text
+        pieces: list[str] = []
+        buffer = ""
+        current = -1
+        for index in range(start, end):
+            word = chunk_word[index]
+            if word != current:
+                if buffer:
+                    pieces.append(buffer)
+                buffer = chunks[index]
+                current = word
+            else:
+                buffer += chunks[index]
+        if buffer:
+            pieces.append(buffer)
+        text = join(pieces)
+        last = end - 1
+        if chunk_part[last] < word_parts[chunk_word[last]] - 1:
+            text += "-"
+        return text
 
     def span_width(start: int, end: int) -> float:
         key = (start, end)

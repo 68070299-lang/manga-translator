@@ -197,10 +197,11 @@ class LineBreakTests(unittest.TestCase):
 
         self.assertIsNotNone(broken)
         assert broken is not None
-        self.assertEqual(broken.lines, ["abcd-", "efgh-", "ijkl"])
+        self.assertEqual("".join(broken.lines).replace("-", ""), "abcdefghijkl")
         self.assertEqual(broken.hyphenated, [False, True, True])
-        for width in broken.widths:
+        for line, width in zip(broken.lines, broken.widths):
             self.assertLessEqual(width, 5.0)
+        self.assertEqual(broken.lines[-1], "hijkl")
 
     def test_consecutive_mid_word_lines_are_capped(self):
         unit = "abcdefghijkl"

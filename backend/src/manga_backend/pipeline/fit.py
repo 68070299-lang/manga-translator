@@ -147,7 +147,9 @@ def _fit_at_size(
     eroded = room.eroded(air)
     spans = eroded.row_spans()
     pitch = max(1.0, size * line_spacing)
-    max_lines = min(MAX_LINES, len(units), int(room_height // pitch) + 1)
+    # Not bounded by the unit count: one long word can be hyphenated across
+    # several lines, and bounding by units made narrow regions shrink instead.
+    max_lines = min(MAX_LINES, int(room_height // pitch) + 1)
     minimum_band = max(3.0, size * MIN_BAND_FRACTION)
 
     best: tuple[float, int, list[Band], list[str], bool, list[float]] | None = None

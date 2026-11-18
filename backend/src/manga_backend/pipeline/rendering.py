@@ -34,6 +34,8 @@ from manga_backend.pipeline.layout import (
 )
 from manga_backend.pipeline.masks import bubble_interior_details
 from manga_backend.pipeline.measure import (
+    HARMONIZE_CLAMP,
+    HARMONIZE_TOLERANCE,
     anchor_target,
     harmonize_targets,
     measure_block_colours,
@@ -330,7 +332,16 @@ def anchor_targets(
     dialogue = [
         index for index, region in enumerate(regions) if region.render_from_bubble
     ]
-    snapped = harmonize_targets([targets[index] for index in dialogue])
+    # The page's lettering scale is the median over every region (dialogue
+    # anchors and the user's preferred size for free text), so a page with one
+    # big balloon does not letter that balloon in a different type scale.
+    page_scale = float(np.median(targets)) if targets else float(preferred_font_size)
+    snapped = harmonize_targets(
+        [targets[index] for index in dialogue],
+        tolerance=HARMONIZE_TOLERANCE,
+        clamp=HARMONIZE_CLAMP,
+        centre=page_scale,
+    )
     for position, index in enumerate(dialogue):
         targets[index] = snapped[position]
     return [max(MIN_READABLE_FONT_SIZE, target) for target in targets]
