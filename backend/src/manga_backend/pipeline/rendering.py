@@ -26,7 +26,11 @@ from manga_backend.pipeline.bubbles import (
     infer_bubble_render_bounds,
     infer_bubble_text_centers,
 )
-from manga_backend.pipeline.fit import FitResult, fit_text_in_room
+from manga_backend.pipeline.fit import (
+    MIN_READABLE_FONT_SIZE,
+    FitResult,
+    fit_text_in_room,
+)
 from manga_backend.pipeline.fonts import FontObject, get_cached_font, get_font_object
 from manga_backend.pipeline.layout import (
     build_render_regions,
@@ -52,7 +56,6 @@ from manga_backend.utils.textblock import Box, TextBlock
 
 logger = logging.getLogger(__name__)
 
-MIN_READABLE_FONT_SIZE = 10
 # Dialogue regions whose bubbles are this close share one room candidate: a
 # conjoined outline is one shape with two lobes.
 CONJOINED_GAP_PX = 12
@@ -262,10 +265,49 @@ def _clamp_room(room: Room, bounds: list[int]) -> Room:
     return Room(mask, (x1, y1, x2, y2), center, room.kind, room.air)
 
 
+def _source_estimates(
+    image: np.ndarray, blocks: list[TextBlock]
+) -> dict[Box, float]:
+    """Source glyph size per bubble, measured on the original OCR text box.
+
+    The render region is the bubble box inset, and an ellipse outline passes
+    just inside that inset, which would contaminate the projection profile.
+    The detector/OCR box is tight around the lettering, so the estimate is
+    taken there and looked up per bubble.
+    """
+    estimates: dict[Box, float] = {}
+    for block in blocks:
+        if block.block_type != "text" or block.bubble_xyxy is None:
+            continue
+        key = int_box(block.bubble_xyxy)
+        if key in estimates:
+            continue
+        size = source_glyph_size(image, block)
+        if size is not None:
+            estimates[key] = size
+    return estimates
+
+
+def _nearest_estimate(key: Box, estimates: dict[Box, float]) -> float | None:
+    best: tuple[float, float] | None = None
+    for candidate, value in estimates.items():
+        overlap_x = max(0, min(key[2], candidate[2]) - max(key[0], candidate[0]))
+        overlap_y = max(0, min(key[3], candidate[3]) - max(key[1], candidate[1]))
+        if overlap_x <= 0 or overlap_y <= 0:
+            continue
+        overlap = overlap_x * overlap_y
+        area = (key[2] - key[0]) * (key[3] - key[1])
+        score = overlap / max(1, area)
+        if score >= 0.5 and (best is None or score > best[0]):
+            best = (score, value)
+    return None if best is None else best[1]
+
+
 def anchor_targets(
     image: np.ndarray,
     regions: list[TextBlock],
     preferred_font_size: int,
+    blocks: list[TextBlock] | None = None,
 ) -> list[int]:
     """Anchored size per region, harmonised across the page's dialogue.
 
@@ -276,13 +318,16 @@ def anchor_targets(
     scale does not apply. Both are floored at the minimum readable size so an
     anchor can never make a region unreadable on its own.
     """
-    targets = [
-        anchor_target(
-            source_glyph_size(image, region) if region.render_from_bubble else None,
-            preferred_font_size,
-        )
-        for region in regions
-    ]
+    estimates = _source_estimates(image, blocks if blocks is not None else regions)
+    targets: list[int] = []
+    for region in regions:
+        glyph: float | None = None
+        if region.render_from_bubble:
+            key = int_box(region.bubble_xyxy or region.xyxy)
+            glyph = estimates.get(key)
+            if glyph is None:
+                glyph = _nearest_estimate(key, estimates)
+        targets.append(anchor_target(glyph, preferred_font_size))
     dialogue = [
         index for index, region in enumerate(regions) if region.render_from_bubble
     ]
@@ -326,7 +371,7 @@ def render_text(
     base_stroke_width = max(0, int(border_size))
 
     rooms = build_rooms(image, render_regions, blocks)
-    targets = anchor_targets(image, render_regions, preferred_font_size)
+    targets = anchor_targets(image, render_regions, preferred_font_size, blocks)
     page_height, page_width = image.shape[:2]
 
     for region, room, target in zip(render_regions, rooms, targets):

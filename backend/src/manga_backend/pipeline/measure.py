@@ -29,12 +29,19 @@ RGB = tuple[int, int, int]
 LATIN_TARGET_FACTOR = 1.0
 # Dialogue snaps to the page median when it is within this fraction of it.
 HARMONIZE_TOLERANCE = 0.15
+# A page never mixes lettering sizes further than this from its own median:
+# outliers are pulled in, which is what keeps one balloon from shouting in a
+# different type scale than its neighbours.
+HARMONIZE_CLAMP = 0.25
 # A source glyph estimate outside this range is a measurement failure.
 MIN_SOURCE_GLYPH = 5.0
 MAX_SOURCE_GLYPH = 160.0
 # Full-width Japanese glyphs fill about this share of their em box across the
 # stroke direction, so the cross-axis ink width over it estimates the em.
 CROSS_AXIS_SHARE = 0.85
+# Two estimates further apart than this factor disagree because one of them
+# measured merged runs (pitch too big) or outside ink (cross too big).
+MERGED_RUN_FACTOR = 1.6
 # Below this paper luminance a block is light-on-dark lettering.
 DARK_PAPER_LUMINANCE = 96.0
 # Ring width used to measure the outline colour around a room.
@@ -114,13 +121,23 @@ def source_glyph_size(image: np.ndarray, block: TextBlock) -> float | None:
     vertical = block.height > block.width * 1.25
     advance_profile = ink.sum(axis=1) if vertical else ink.sum(axis=0)
     cross_profile = ink.sum(axis=0) if vertical else ink.sum(axis=1)
-    estimates: list[float] = []
     advance = _median_pitch(advance_profile)
-    if advance > 0:
+    cross = _median_run(cross_profile) / CROSS_AXIS_SHARE if _median_run(cross_profile) > 0 else 0.0
+    estimates: list[float] = []
+    if advance > 0 and cross > 0:
+        # Touching glyphs merge runs and inflate the pitch; an outline or an
+        # adjacent glyph inflates the cross-axis ink. Keep the estimate that
+        # the other one corroborates.
+        if advance > cross * MERGED_RUN_FACTOR:
+            estimates.append(cross)
+        elif cross > advance * MERGED_RUN_FACTOR:
+            estimates.append(advance)
+        else:
+            estimates.extend((advance, cross))
+    elif advance > 0:
         estimates.append(advance)
-    cross = _median_run(cross_profile)
-    if cross > 0:
-        estimates.append(cross / CROSS_AXIS_SHARE)
+    elif cross > 0:
+        estimates.append(cross)
     if not estimates:
         return None
     estimate = float(np.median(estimates))
@@ -136,19 +153,31 @@ def anchor_target(source_glyph: float | None, preferred_font_size: int) -> int:
     return max(1, int(round(source_glyph * LATIN_TARGET_FACTOR)))
 
 
-def harmonize_targets(targets: list[int], *, tolerance: float = HARMONIZE_TOLERANCE) -> list[int]:
-    """Snap dialogue targets to the page median when they are close to it."""
+def harmonize_targets(
+    targets: list[int],
+    *,
+    tolerance: float = HARMONIZE_TOLERANCE,
+    clamp: float = HARMONIZE_CLAMP,
+) -> list[int]:
+    """Snap dialogue targets to the page median and pull outliers in.
+
+    Targets within ``tolerance`` of the page median take the median exactly;
+    the rest are clamped to ``clamp`` of it, so a page keeps at most a small
+    family of lettering sizes instead of one size per balloon.
+    """
     if not targets:
         return []
     median = float(np.median(targets))
     if median <= 0:
         return list(targets)
+    low = max(1, int(round(median * (1.0 - clamp))))
+    high = max(low, int(round(median * (1.0 + clamp))))
     snapped: list[int] = []
     for target in targets:
         if abs(target - median) <= tolerance * median:
             snapped.append(int(round(median)))
         else:
-            snapped.append(target)
+            snapped.append(min(high, max(low, target)))
     return snapped
 
 

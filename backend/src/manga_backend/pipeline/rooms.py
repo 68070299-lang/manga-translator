@@ -292,9 +292,73 @@ def free_space_room(
     source_area = block_width * block_height
     if np.count_nonzero(region) < source_area * FREE_ROOM_GAIN:
         return None
-    bounds: Box = (wx1, wy1, wx2, wy2)
+    # A blank component can be a thin strip between the art and a panel edge,
+    # which no line fits into. Letter in the largest blank rectangle around
+    # the block's own centre instead; it is still blank paper, and it keeps
+    # the text where the original lettering was.
+    centre_local = (int(round((x1 + x2) / 2.0 - wx1)), int(round((y1 + y2) / 2.0 - wy1)))
+    rectangle = blank_rectangle(region, centre_local, block_width)
+    if rectangle is None:
+        return None
+    left, top, right, bottom = rectangle
+    if (right - left + 1) * (bottom - top + 1) < source_area * FREE_ROOM_GAIN:
+        return None
+    mask = np.full((bottom - top + 1, right - left + 1), 255, dtype=np.uint8)
+    bounds = (wx1 + left, wy1 + top, wx1 + right + 1, wy1 + bottom + 1)
     center = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
-    return room_from_mask(region, bounds, center, "free")
+    return Room(mask, bounds, center, "free")
+
+
+def blank_rectangle(
+    mask: np.ndarray, centre: tuple[int, int], minimum_width: int
+) -> tuple[int, int, int, int] | None:
+    """Largest blank rectangle around ``centre``, as (left, top, right, bottom).
+
+    Grows up and down from the centre row while the row's span still covers the
+    centre, keeping the narrowest span seen; that is the widest rectangle the
+    blank area allows at each height, and the widest one wins.
+    """
+    height, width = mask.shape[:2]
+    cx, cy = centre
+    cx = min(max(0, cx), width - 1)
+    cy = min(max(0, cy), height - 1)
+    if mask[cy, cx] == 0:
+        return None
+
+    def half_width(row: int) -> int:
+        line = mask[row]
+        if line[cx] == 0:
+            return -1
+        left = cx
+        while left > 0 and line[left - 1] > 0:
+            left -= 1
+        right = cx
+        while right < width - 1 and line[right + 1] > 0:
+            right += 1
+        return min(cx - left, right - cx)
+
+    start = half_width(cy)
+    if start < 0:
+        return None
+    best = (start, cy, cy)
+    top = bottom = cy
+    current = start
+    while True:
+        up = half_width(top - 1) if top > 0 else -1
+        down = half_width(bottom + 1) if bottom < height - 1 else -1
+        if up < 0 and down < 0:
+            break
+        if down >= up:
+            bottom += 1
+            current = min(current, down)
+        else:
+            top -= 1
+            current = min(current, up)
+        if current * 2 + 1 >= minimum_width:
+            if current * (bottom - top + 1) > best[0] * (best[2] - best[1] + 1):
+                best = (current, top, bottom)
+    half, top, bottom = best
+    return (cx - half, top, cx + half, bottom)
 
 
 def bubble_room(

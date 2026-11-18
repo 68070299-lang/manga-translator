@@ -287,10 +287,15 @@ class FitTests(unittest.TestCase):
 
 class AnchorTests(unittest.TestCase):
     def test_harmonize_snaps_close_targets_to_the_page_median(self):
-        self.assertEqual(harmonize_targets([14, 15, 16, 30]), [16, 16, 16, 30])
+        self.assertEqual(harmonize_targets([14, 15, 16]), [15, 15, 15])
 
-    def test_harmonize_keeps_outliers(self):
-        self.assertEqual(harmonize_targets([10, 10, 40]), [10, 10, 40])
+    def test_harmonize_pulls_outliers_into_the_page_family(self):
+        # Median 15.5; 30 is outside +-25%, so it is clamped, not dropped.
+        self.assertEqual(harmonize_targets([14, 15, 16, 30]), [16, 16, 16, 19])
+        self.assertEqual(harmonize_targets([10, 10, 40]), [10, 10, 12])
+
+    def test_harmonize_leaves_a_page_of_one_size_alone(self):
+        self.assertEqual(harmonize_targets([16, 16, 16]), [16, 16, 16])
 
     def test_harmonize_is_empty_safe(self):
         self.assertEqual(harmonize_targets([]), [])
