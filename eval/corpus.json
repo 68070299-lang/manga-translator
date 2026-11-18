@@ -33,6 +33,24 @@
       "notes": "640x2400 color strip with rounded bubbles and horizontal text."
     },
     {
+      "id": "syn-tone-rotated",
+      "synthetic": "tone-rotated",
+      "tags": ["textured-background", "narration", "sfx", "vertical-text", "horizontal-text", "adversarial"],
+      "notes": "Adversarial: screentone on rotated lattices with non-integer periods (7.3 at 15 degrees, 8.6 at -24 degrees), narration, an outlined SFX and a boxed caption."
+    },
+    {
+      "id": "syn-faint-lettering",
+      "synthetic": "faint-lettering",
+      "tags": ["white-bubble", "textured-background", "vertical-text", "horizontal-text", "adversarial"],
+      "notes": "Adversarial: light-gray (185) lettering in white bubbles and over screentone, with one normal black control bubble."
+    },
+    {
+      "id": "syn-text-touching-outline",
+      "synthetic": "text-touching-outline",
+      "tags": ["white-bubble", "vertical-text", "horizontal-text", "adversarial"],
+      "notes": "Adversarial: lettering sized to cross the bubble outline (a 384 px block in a 340 px bubble, 360 px in a 280 px), plus one control bubble."
+    },
+    {
       "id": "real-single-page-01",
       "path": "pages/real-single-page-01.png",
       "tags": ["white-bubble", "vertical-text", "sfx", "textured-background", "narration"],

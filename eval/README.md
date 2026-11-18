@@ -41,7 +41,8 @@ the default device. Use `--device cuda` (or set `EVAL_DEVICE`) on a GPU build.
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--detector` | `rtdetr` | `rtdetr`, `animetext-yolo`, or `truth`. `truth` uses the ground-truth boxes of the synthetic pages, so mask, fill and render metrics do not depend on detector misses. |
-| `--mask-mode` | `auto` | `auto` follows the pipeline: rectangular masks only for `animetext-yolo`. `rectangular` and `contour` force one mask path on any detector's boxes. |
+| `--mask-mode` | `auto` | `auto` follows the pipeline: rectangular masks only for `animetext-yolo`. `rectangular` and `contour` force one mask path on any detector's boxes. `oracle` masks the diluted truth ink instead, so the run measures the fill alone (synthetic pages only; real pages are skipped). |
+| `--fill` | `auto` | `oracle` pastes the clean plate inside the pipeline's own declared erase mask (block masks plus white-fill masks), so the run measures the mask alone (synthetic pages only). No inpainter model runs. |
 | `--inpainter` | `flux2_klein_lanpaint` | The backend default. Without ComfyUI it falls back to `lama_large`, and the run records the fallback. |
 | `--translator` | `stub` | A deterministic offline stand-in (see below). Pass a provider name (`gemini`, `openai`, `local`, ...) to use a real one. |
 | `--pages`, `--tags` | all | Score only some pages. |
@@ -49,6 +50,12 @@ the default device. Use `--device cuda` (or set `EVAL_DEVICE`) on a GPU build.
 | `--no-verify` | off | Skip Step 6. This also removes the residue metrics. |
 | `--no-warmup` | off | Time the first page cold. By default the first page runs once untimed so model warm-up does not skew it. |
 | `--strict` | off | Exit 1 when a listed private page is missing. |
+
+The two oracle modes are ablations, not pipeline changes: they answer "with a
+perfect mask, how good is the fill?" (`--mask-mode oracle`) and "with a perfect
+fill, how much lettering does the mask miss?" (`--fill oracle`). On the
+`--fill oracle` route the recorded `inpaint.used` is `oracle-fill` and no
+inpainter model is loaded, so runs are fast.
 
 Render options match the `POST /translate` defaults (`bg_opacity` 0, preferred
 font size 16, and so on). A unit test keeps them in sync with
@@ -67,17 +74,24 @@ manifest):
 
 Known tags: `white-bubble`, `textured-background`, `sfx`, `vertical-text`,
 `horizontal-text`, `conjoined-bubbles`, `webtoon-strip`, `bookwalker`,
-`light-on-dark`, `narration`. The loader rejects any other tag, so a typo
-cannot quietly create a new group.
+`light-on-dark`, `narration`, `adversarial`. The loader rejects any other
+tag, so a typo cannot quietly create a new group.
 
 ### Synthetic pages
 
-Five pages are drawn in code, so the harness and its tests run anywhere:
+Eight pages are drawn in code, so the harness and its tests run anywhere:
 white bubbles, conjoined bubbles, narration on screentone and on a dark
-gradient, outlined SFX over hatching, and a 640x2400 color webtoon strip. Each
+gradient, outlined SFX over hatching, a 640x2400 color webtoon strip, and
+three adversarial pages (rotated non-integer-period screentone, faint
+light-gray lettering, lettering that crosses the bubble outline). Each
 one keeps its clean plate (the page without lettering), the exact ink pixels
 and the text boxes. That makes three extra scores possible: detection recall,
 residual ink after inpainting, and pixels erased away from any text.
+
+The adversarial pages exist to break methods tuned on the first five: the
+classic pages draw tone as perfect axis-aligned integer lattices, which
+flatters any periodic-background assumption, and all their lettering is
+pitch black or pure white, which the fixed dark/bright thresholds pass by.
 
 Lettering uses the system CJK font that the renderer also uses (MS Gothic on
 Windows). Without one, it draws deterministic stroke clusters instead. The
@@ -122,9 +136,18 @@ Per page, summed in `summary`, and summed again per tag in `summary.by_tag`:
 | `render.unfit_skipped` | | Regions with no font size that fits, so they were not drawn. |
 | `truth.recall` | synthetic only | Share of truth text boxes at least half covered by detected boxes. |
 | `truth.residual_ink_ratio` | synthetic only | Share of lettering pixels that still differ from the clean plate by more than 40 levels after inpainting. |
+| `truth.ink_mask_recall` | synthetic only | Share of truth ink pixels covered by the final erase mask (block masks plus white-fill masks). |
+| `truth.residual_in_mask_ratio` | synthetic only | Share of truth ink pixels that differ from the clean plate *inside* the erase mask: a fill failure. |
+| `truth.residual_out_of_mask_ratio` | synthetic only | Share of truth ink pixels that differ *outside* the erase mask: lettering the mask never covered. `residual_in + residual_out = residual_ink_ratio`. |
+| `truth.residual_ink_lp_ratio` | synthetic only | Residual ink compared after a Gaussian low-pass at the tone period (sigma 5, threshold 24 levels). Tone painted out of phase drops out; surviving strokes are real fill failures. |
+| `truth.hole_in_tone_px` | synthetic only | Pixels inside the text boxes where the clean plate is textured (dots, hatching) but the output is locally flat, which `over_erased_px` cannot see because it stays near the text. Truth ink pixels do not count (leftover lettering is residual ink); the hole is the texture that vanished between the strokes. White fill over screentone is the classic cause. |
+| `truth.render_ink_outside_bubble_px` | synthetic only | Rendered ink between the truth bubble interior (box shrunk 4 px) and 12 px beyond the box: typeset text crossing the bubble outline. Lettering without a bubble never counts. |
+| `truth.ocr_cer` | synthetic only | Character error rate of the OCR pass against `TruthBox.text`, matched by box IoU (NFKC, whitespace ignored). |
 | `truth.text_mae` | synthetic only | Mean absolute error against the clean plate inside the text boxes. |
 | `truth.over_erased_px` | synthetic only | Pixels more than 4 px away from any text box that inpainting changed by more than 40 levels: visibly damaged art, such as erased bubble outlines or line art. |
 | `truth.touched_away_px` | synthetic only | The same area, counting any change at all. Large masks over flat areas raise this even when the change is invisible. |
+| `mask.reason_codes` | per-block mask builders | For every block that ended without a bubble interior (`glyph`, `no-closed-bubble`, `unsafe-sfx`), why: `text_free` (never tried, masks.py:316), `no_contour`, `contour_touches_roi_edge` (masks.py:278), `area_test_failed` (masks.py:273), `coverage_below_35` (masks.py:303), or `clipped_ink_empty` (interior found but it clipped away every glyph). Computed in the harness by mirroring the same helpers; pipeline return values are unchanged. |
+| `render.font_size_spread` | per-page render fits | Max minus min of the final dialogue font sizes on the page; the typesetting harmonization metric. |
 | `timings.*` | stage wrappers | Seconds in detect, OCR, translate, mask building, inpainter model, render and verify. `other` covers the rest, such as bubble geometry. |
 
 ### Caveats

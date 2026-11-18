@@ -12,10 +12,22 @@ Per page it records:
 * pixels the inpainting step changed outside the masks it declared (expected 0);
 * mask strategy counts (white fill, bubble interior, contour-safe glyph,
   rectangular, skipped);
+* mask reason codes: for every block that ended without a bubble interior,
+  why the interior was not used (text_free, no contour, contour touching the
+  ROI edge, area test, coverage);
 * inpainter fallbacks (for example FLUX to LaMa);
-* render shrink, overflow and unfit events;
+* render shrink, overflow and unfit events, plus the per-page font-size spread
+  and rendered ink that crosses a bubble outline;
 * per-stage timings;
-* for synthetic pages, ground-truth scores against the clean plate.
+* for synthetic pages, ground-truth scores against the clean plate: residual
+  ink split into fill failure (inside the erase mask) and mask miss (outside
+  it), ink-mask recall, a low-pass residual that ignores tone phase noise,
+  tone flattened inside text boxes, and the OCR character error rate.
+
+Two oracle modes isolate one half of the erase step at a time (synthetic
+pages only): ``--mask-mode oracle`` masks the diluted truth ink, measuring
+the fill alone, and ``--fill oracle`` pastes the clean plate inside the
+pipeline's own mask, measuring the mask alone.
 
 Usage (from the repository root)::
 
@@ -71,13 +83,19 @@ from manga_backend.pipeline import masks as masks_module  # noqa: E402
 from manga_backend.pipeline import orchestrator as orchestrator_module  # noqa: E402
 from manga_backend.pipeline import rendering as rendering_module  # noqa: E402
 from manga_backend.pipeline.fonts import get_cached_font  # noqa: E402
+from manga_backend.pipeline.regions import int_box  # noqa: E402
 from manga_backend.pipeline.inpainting import DEFAULT_INPAINTER  # noqa: E402
 from manga_backend.pipeline.text import is_unchanged_punctuation  # noqa: E402
 from manga_backend.utils.textblock import TextBlock  # noqa: E402
 
 logger = logging.getLogger("eval_pipeline")
 
-SCHEMA_VERSION = 1
+# Version 2 adds the WP1 diagnostics to every run (schema-additive: version 1
+# keys are unchanged): the residual-ink split (ink_mask_recall,
+# residual_in_mask_ratio, residual_out_of_mask_ratio), the low-pass residual,
+# hole_in_tone_px, render_ink_outside_bubble_px, OCR character error rate,
+# mask reason codes, font_size_spread and the oracle run modes.
+SCHEMA_VERSION = 2
 Box = tuple[int, int, int, int]
 
 KNOWN_TAGS = frozenset(
@@ -92,6 +110,7 @@ KNOWN_TAGS = frozenset(
         "bookwalker",
         "light-on-dark",
         "narration",
+        "adversarial",
     }
 )
 
@@ -249,6 +268,28 @@ class _Canvas:
         dy = (ys % spacing) - spacing / 2.0
         dx = (xs % spacing) - spacing / 2.0
         dots = dx * dx + dy * dy <= radius * radius
+        region = array[y1:y2, x1:x2]
+        region[dots] = level
+        self._commit(array)
+
+    def tone_rotated(
+        self, box: Box, *, spacing: float, radius: float, level: int, angle: float
+    ) -> None:
+        """Screentone on a rotated lattice with a non-integer period.
+
+        The plain ``tone`` helper draws perfect axis-aligned integer lattices,
+        which flatters any method that assumes a periodic background. Real
+        printed tone is rarely that clean.
+        """
+        array = self._array()
+        x1, y1, x2, y2 = box
+        ys, xs = np.mgrid[y1:y2, x1:x2]
+        theta = np.deg2rad(angle)
+        u = xs * np.cos(theta) + ys * np.sin(theta)
+        v = -xs * np.sin(theta) + ys * np.cos(theta)
+        du = np.mod(u, spacing) - spacing / 2.0
+        dv = np.mod(v, spacing) - spacing / 2.0
+        dots = du * du + dv * dv <= radius * radius
         region = array[y1:y2, x1:x2]
         region[dots] = level
         self._commit(array)
@@ -464,12 +505,91 @@ def _synthetic_webtoon_strip() -> _Canvas:
     return canvas
 
 
+def _synthetic_tone_rotated() -> _Canvas:
+    """Adversarial: screentone on rotated lattices with non-integer periods.
+
+    Every periodic-background trick tuned on the axis-aligned integer lattices
+    of ``textured-narration`` should fail here first.
+    """
+    canvas = _Canvas(720, 1000)
+    canvas.rect((16, 16, 704, 484))
+    # Darker than the 110 gray of the classic page, like real printed tone.
+    canvas.tone_rotated((20, 20, 700, 480), spacing=7.3, radius=1.7, level=90, angle=15.0)
+    canvas.text(["その日", "雨は", "降り続いた"], (560, 250), 30, kind="narration")
+    canvas.text(["ズドドン"], (240, 130), 72, vertical=False, kind="sfx", stroke=5)
+    canvas.rect((16, 500, 704, 984))
+    canvas.tone_rotated((20, 504, 700, 980), spacing=8.6, radius=1.5, level=95, angle=-24.0)
+    canvas.text(["夜の", "海鳴り"], (540, 700), 30, vertical=False, kind="narration")
+    caption: Box = (60, 540, 250, 610)
+    canvas.rect(caption, width=2, fill=(255, 255, 255))
+    canvas.text(["三日目"], _center(caption), 30, vertical=False, kind="caption", bubble=caption)
+    return canvas
+
+
+def _synthetic_faint_lettering() -> _Canvas:
+    """Adversarial: light-gray (185) lettering where the dark-glyph tests pass it by."""
+    canvas = _Canvas(720, 1000)
+    canvas.rect((16, 16, 704, 484))
+    bubbles: list[tuple[Box, list[str], int, tuple[int, int, int]]] = [
+        ((400, 40, 660, 330), ["そうかも", "しれない"], 30, (185, 185, 185)),
+        ((60, 70, 280, 300), ["ちょっと", "聞いて"], 28, (185, 185, 185)),
+        ((360, 540, 670, 900), ["明日また", "ここで", "会おう"], 30, (0, 0, 0)),
+    ]
+    for box, lines, size, color in bubbles:
+        canvas.ellipse(box)
+        canvas.text(lines, _center(box), size, bubble=box, color=color)
+    canvas.rect((16, 500, 704, 984))
+    canvas.tone((20, 504, 700, 980), spacing=7, radius=1.6, level=110)
+    canvas.text(["ゆっくり", "歩こう"], (520, 740), 30, vertical=False, kind="narration", color=(185, 185, 185))
+    return canvas
+
+
+def _synthetic_text_touching_outline() -> _Canvas:
+    """Adversarial: lettering that crosses the bubble outline.
+
+    Blanking the text rectangle opens the outline where text touches it
+    (``masks.py:243``), and OCR ink joined to the outline breaks the
+    smallest-closed-contour search. Two bubbles whose text touches by
+    construction, one control bubble with room to spare.
+    """
+    canvas = _Canvas(720, 1000)
+    canvas.rect((16, 16, 704, 984))
+    canvas.draw.arc((120, 560, 320, 760), 180, 360, fill=(40, 40, 40), width=3)
+    tall: Box = (100, 80, 360, 420)
+    canvas.ellipse(tall)
+    # 9 rows of 40 px cells: the block is 384 px tall inside a 340 px bubble,
+    # so the first and last rows sit on the outline poles.
+    canvas.text(
+        ["はじめましてよね", "よろしくお願いし"],
+        _center(tall),
+        40,
+        bubble=tall,
+    )
+    wide: Box = (400, 80, 680, 360)
+    canvas.ellipse(wide)
+    # 11 horizontal cells of 36 px: 360 px wide inside a 280 px bubble.
+    canvas.text(
+        ["さよならはもう言わない"],
+        _center(wide),
+        36,
+        vertical=False,
+        bubble=wide,
+    )
+    control: Box = (420, 500, 660, 700)
+    canvas.ellipse(control)
+    canvas.text(["うん"], _center(control), 30, bubble=control)
+    return canvas
+
+
 SYNTHETIC_PAGES: dict[str, Callable[[], _Canvas]] = {
     "white-bubbles": _synthetic_white_bubbles,
     "conjoined-bubbles": _synthetic_conjoined_bubbles,
     "textured-narration": _synthetic_textured_narration,
     "sfx": _synthetic_sfx,
     "webtoon-strip": _synthetic_webtoon_strip,
+    "tone-rotated": _synthetic_tone_rotated,
+    "faint-lettering": _synthetic_faint_lettering,
+    "text-touching-outline": _synthetic_text_touching_outline,
 }
 
 
@@ -569,6 +689,9 @@ class PageProbe:
     in_mask_phase: bool = False
     mask_path: str | None = None
     mask_records: list[tuple[np.ndarray, Box, str]] = field(default_factory=list)
+    # The block each mask record belongs to, index-aligned with mask_records.
+    # Oracle-mask records (no real block) hold None.
+    mask_blocks: list[TextBlock | None] = field(default_factory=list)
     white_fill_records: list[tuple[np.ndarray, Box]] = field(default_factory=list)
     flux_counts: tuple[int, int] | None = None
     white_filled_source: np.ndarray | None = None
@@ -624,11 +747,20 @@ class _TruthDetector:
 class Instrumentation:
     """Installs the stage wrappers on one pipeline and collects a PageProbe per page."""
 
-    def __init__(self, pipeline: TranslationPipeline, *, mask_mode: str, translator: str, detector: str) -> None:
+    def __init__(
+        self,
+        pipeline: TranslationPipeline,
+        *,
+        mask_mode: str,
+        translator: str,
+        detector: str,
+        fill: str = "auto",
+    ) -> None:
         self.pipeline = pipeline
         self.mask_mode = mask_mode
         self.translator = translator
         self.detector = detector
+        self.fill = fill
         self.probe = PageProbe()
         self.synthetic: SyntheticPage | None = None
 
@@ -636,6 +768,37 @@ class Instrumentation:
         self.probe = PageProbe()
         self.synthetic = synthetic
         return self.probe
+
+    def oracle_ink_mask(self, shape: tuple[int, ...]) -> np.ndarray | None:
+        """Diluted truth ink as the whole erase mask, or None without truth."""
+        if self.synthetic is None:
+            return None
+        mask = self.synthetic.ink.astype(np.uint8) * 255
+        mask = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=1)
+        return mask[: shape[0], : shape[1]]
+
+    def _record_oracle_blocks(self, mask: np.ndarray) -> None:
+        """Log one mask record per truth box so the mask metrics still add up."""
+        assert self.synthetic is not None
+        for truth in self.synthetic.truth:
+            x1, y1, x2, y2 = truth.xyxy
+            bounds = (max(0, x1 - 2), max(0, y1 - 2), x2 + 2, y2 + 2)
+            self.probe.mask_records.append(
+                (mask[bounds[1] : bounds[3], bounds[0] : bounds[2]], bounds, "oracle-ink")
+            )
+            self.probe.mask_blocks.append(None)
+
+    def oracle_fill_output(self, image: np.ndarray) -> np.ndarray:
+        """Paste the clean plate inside the pipeline's own declared erase mask."""
+        assert self.synthetic is not None
+        erase = np.zeros(image.shape[:2], dtype=bool)
+        for local, bounds, _strategy in self.probe.mask_records:
+            _place(erase, local, bounds)
+        for fill_mask, bounds in self.probe.white_fill_records:
+            _place(erase, fill_mask, bounds)
+        output = image.copy()
+        output[erase] = self.synthetic.clean[erase]
+        return output
 
     @contextmanager
     def mask_phase(self) -> Iterator[None]:
@@ -692,27 +855,47 @@ class Instrumentation:
             # path can be scored on other detectors' boxes.
             if self.mask_mode == "rectangular":
                 detector_type = "animetext-yolo"
-            elif self.mask_mode == "contour":
+            elif self.mask_mode in ("contour", "oracle"):
                 detector_type = "rtdetr"
             self.probe.inpaint_input = image
             output = await original_inpaint(image, blocks, inpainter, detector_type, result)
+            if self.fill == "oracle" and self.synthetic is not None:
+                # Measure the mask alone: whatever the pipeline declared as
+                # erased is replaced by the clean plate, fill included.
+                output = self.oracle_fill_output(image)
+                result["inpainter_used"] = "oracle-fill"
+                result["inpainting_fallback"] = False
+                result["inpainting_strategy"] = "oracle-fill"
             self.probe.inpaint_output = output
             return output
 
         def create_mask(image: np.ndarray, blocks: list[TextBlock], rectangular: bool = False) -> np.ndarray:
             with self.probe.timed("mask"), self.mask_phase():
-                mask = original_create_mask(image, blocks, rectangular=rectangular)
-            self.probe.mask_path = "rectangular" if rectangular else "contour"
+                oracle = self.oracle_ink_mask(image.shape) if self.mask_mode == "oracle" else None
+                if oracle is not None:
+                    self._record_oracle_blocks(oracle)
+                    mask = oracle
+                else:
+                    mask = original_create_mask(image, blocks, rectangular=rectangular)
+            self.probe.mask_path = "oracle" if oracle is not None else ("rectangular" if rectangular else "contour")
             return mask
 
         def prepare_flux(
             image: np.ndarray, blocks: list[TextBlock], rectangular: bool = False
         ) -> tuple[np.ndarray, np.ndarray, int, int]:
             with self.probe.timed("mask"), self.mask_phase():
-                cleaned, flux_mask, white, textured = original_prepare_flux(
-                    image, blocks, rectangular=rectangular
-                )
-            self.probe.mask_path = "flux-rectangular" if rectangular else "flux"
+                oracle = self.oracle_ink_mask(image.shape) if self.mask_mode == "oracle" else None
+                if oracle is not None:
+                    # No white-fill fast path: the model must fill every
+                    # block through the perfect mask, so the oracle run
+                    # measures the fill alone.
+                    self._record_oracle_blocks(oracle)
+                    cleaned, flux_mask, white, textured = image.copy(), oracle, 0, len(blocks)
+                else:
+                    cleaned, flux_mask, white, textured = original_prepare_flux(
+                        image, blocks, rectangular=rectangular
+                    )
+            self.probe.mask_path = "oracle" if oracle is not None else ("flux-rectangular" if rectangular else "flux")
             self.probe.flux_counts = (int(white), int(textured))
             self.probe.white_filled_source = cleaned
             return cleaned, flux_mask, white, textured
@@ -721,12 +904,14 @@ class Instrumentation:
             local, bounds, strategy = original_contour(image, block)
             if self.probe.in_mask_phase:
                 self.probe.mask_records.append((local, bounds, strategy))
+                self.probe.mask_blocks.append(block)
             return local, bounds, strategy
 
         def rectangle_mask(image: np.ndarray, block: TextBlock) -> tuple[np.ndarray, Box, str]:
             local, bounds, strategy = original_rectangle(image, block)
             if self.probe.in_mask_phase:
                 self.probe.mask_records.append((local, bounds, strategy))
+                self.probe.mask_blocks.append(block)
             return local, bounds, strategy
 
         def white_fill(image: np.ndarray, block: TextBlock, glyphs: np.ndarray, bounds: Box, strategy: str) -> np.ndarray:
@@ -736,6 +921,10 @@ class Instrumentation:
             return fill_mask
 
         async def inpaint_page(inpainter_type: str, image: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, str]:
+            if self.fill == "oracle" and self.synthetic is not None:
+                # No model runs; the clean plate is pasted after Step 4
+                # returns (see the inpaint wrapper above).
+                return image, "oracle-fill"
             with self.probe.timed("inpaint_model"):
                 output, used = await original_inpaint_page(inpainter_type, image, mask)
             self.probe.model_calls.append((image, mask, output, str(used)))
@@ -924,11 +1113,275 @@ def _render_metrics(probe: PageProbe) -> dict[str, Any]:
         "regions": len(probe.render_regions),
         "preferred_font_size": preferred,
         "font_sizes": sizes,
+        # Per-page spread of the final dialogue font sizes (max - min).
+        "font_size_spread": (max(sizes) - min(sizes)) if sizes else None,
         "shrink_events": shrink,
         "below_min_readable": below_min,
         "overflow_attempts": attempts,
         "overflow_events": overflows,
         "unfit_skipped": unfit,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Mask reason codes: why a block ended without a bubble interior.
+# ---------------------------------------------------------------------------
+
+# Final mask strategies that did not use a bubble interior.
+NO_INTERIOR_STRATEGIES = frozenset({"glyph", "no-closed-bubble", "unsafe-sfx"})
+
+
+def _bubble_interior_reason(image: np.ndarray, block: TextBlock, *, glyphs_present: bool) -> str:
+    """Why no bubble interior was used for one block.
+
+    A diagnostic mirror of the candidate filters in
+    ``masks.bubble_interior_mask_for_block`` (masks.py:187-305): the same ROI
+    construction, the same helpers and the same rule order, so the counts
+    attribute each failure to the rule that caused it. The pipeline helpers
+    themselves are untouched; keep this function in sync with them (a unit
+    test cross-checks the two on real blocks).
+    """
+    if block.block_type != "text":
+        # contour_safe_mask_for_block never tries an interior for these.
+        return "text_free"
+    height, width = image.shape[:2]
+    tx1, ty1, tx2, ty2 = [int(value) for value in block.xyxy]
+    tx1, ty1 = max(0, tx1), max(0, ty1)
+    tx2, ty2 = min(width, tx2), min(height, ty2)
+    if tx2 <= tx1 or ty2 <= ty1:
+        return "no_contour"
+
+    detector_bounds: Box | None = None
+    bubble = block.bubble_xyxy
+    if bubble is not None:
+        try:
+            candidate = int_box(bubble)
+        except (TypeError, ValueError):
+            candidate = None
+        if candidate is not None and candidate[2] > candidate[0] and candidate[3] > candidate[1]:
+            detector_bounds = candidate
+
+    if detector_bounds is not None:
+        bx1, by1, bx2, by2 = detector_bounds
+        padding = max(6, int(min(bx2 - bx1, by2 - by1) * 0.08))
+        x1, y1 = max(0, bx1 - padding), max(0, by1 - padding)
+        x2, y2 = min(width, bx2 + padding), min(height, by2 + padding)
+    else:
+        padding_x = max(32, int((tx2 - tx1) * 1.25), int((ty2 - ty1) * 0.5))
+        padding_y = max(32, int((ty2 - ty1) * 0.75), int((tx2 - tx1) * 1.25))
+        x1, y1 = max(0, tx1 - padding_x), max(0, ty1 - padding_y)
+        x2, y2 = min(width, tx2 + padding_x), min(height, ty2 + padding_y)
+
+    roi = image[y1:y2, x1:x2]
+    if roi.size == 0 or min(roi.shape[:2]) < 5:
+        return "no_contour"
+
+    gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
+    local_text = (tx1 - x1, ty1 - y1, tx2 - x1, ty2 - y1)
+    structure_gray = gray.copy()
+    sx1, sy1 = max(0, local_text[0]), max(0, local_text[1])
+    sx2, sy2 = min(gray.shape[1], local_text[2]), min(gray.shape[0], local_text[3])
+    if sx2 > sx1 and sy2 > sy1:
+        structure_gray[sy1:sy2, sx1:sx2] = int(np.percentile(gray, 90))
+    blurred = cv2.GaussianBlur(structure_gray, (3, 3), 0)
+    otsu_threshold, _binary = cv2.threshold(
+        blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+    )
+    dark_threshold = int(np.clip(otsu_threshold, 70, 210))
+    dark = np.where(blurred <= dark_threshold, 255, 0).astype(np.uint8)
+    edges = cv2.Canny(blurred, 50, 150)
+    outline = cv2.bitwise_or(dark, edges)
+    outline = cv2.morphologyEx(
+        outline, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8), iterations=1
+    )
+    contours, _hierarchy = cv2.findContours(
+        outline, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
+    )
+    if not contours:
+        return "no_contour"
+
+    text_width = max(1, local_text[2] - local_text[0])
+    text_height = max(1, local_text[3] - local_text[1])
+    text_area = text_width * text_height
+    center = (
+        (local_text[0] + local_text[2]) / 2.0,
+        (local_text[1] + local_text[3]) / 2.0,
+    )
+    roi_height, roi_width = gray.shape
+    candidates: list[tuple[float, Any]] = []
+    single_failures: Counter[str] = Counter()
+    for contour in contours:
+        area = float(abs(cv2.contourArea(contour)))
+        failed: list[str] = []
+        if area < max(48.0, text_area * 1.15) or area >= roi.size / 3 * 0.9:
+            failed.append("area")
+        if cv2.pointPolygonTest(contour, center, False) < 0:
+            failed.append("center")
+        cx, cy, cw, ch = cv2.boundingRect(contour)
+        if cx <= 1 or cy <= 1 or cx + cw >= roi_width - 1 or cy + ch >= roi_height - 1:
+            failed.append("edge")
+        overlap_width = max(0, min(cx + cw, local_text[2]) - max(cx, local_text[0]))
+        overlap_height = max(0, min(cy + ch, local_text[3]) - max(cy, local_text[1]))
+        if overlap_width * overlap_height < text_area * 0.75:
+            failed.append("overlap")
+        if not failed:
+            candidates.append((area, contour))
+        elif len(failed) == 1:
+            single_failures[failed[0]] += 1
+
+    if not candidates:
+        # No contour survived; report the rule that rejected the near misses.
+        if single_failures.get("edge"):
+            return "contour_touches_roi_edge"
+        if single_failures.get("area"):
+            return "area_test_failed"
+        return "no_contour"
+
+    _area, contour = min(candidates, key=lambda candidate: candidate[0])
+    interior = np.zeros(gray.shape, dtype=np.uint8)
+    cv2.drawContours(interior, [contour], -1, 255, thickness=cv2.FILLED)
+    interior = cv2.erode(interior, np.ones((3, 3), np.uint8), iterations=2)
+    text_roi = interior[
+        max(0, local_text[1]) : min(roi_height, local_text[3]),
+        max(0, local_text[0]) : min(roi_width, local_text[2]),
+    ]
+    if text_roi.size == 0 or np.count_nonzero(text_roi) < text_area * 0.35:
+        return "coverage_below_35"
+    # An interior was found and kept, so a block still on the glyph path lost
+    # its glyphs to the interior clipping, not to the contour search.
+    return "clipped_ink_empty" if glyphs_present else "interior_found"
+
+
+def _mask_reason_codes(image: np.ndarray, probe: PageProbe) -> dict[str, int]:
+    """Count why every no-interior block never used a bubble interior."""
+    reasons: Counter[str] = Counter()
+    for record, block in zip(probe.mask_records, probe.mask_blocks):
+        _local, _bounds, strategy = record
+        if strategy not in NO_INTERIOR_STRATEGIES or block is None:
+            continue
+        reasons[
+            _bubble_interior_reason(image, block, glyphs_present=strategy == "glyph")
+        ] += 1
+    return dict(sorted(reasons.items()))
+
+
+# ---------------------------------------------------------------------------
+# Texture-aware and geometry diagnostics for synthetic pages.
+# ---------------------------------------------------------------------------
+
+# Low-pass sigma, about the tone period (7-10 px on the synthetic pages): dot
+# and hatch phase noise vanish after the blur while glyph strokes survive.
+TONE_SIGMA = 5.0
+# Blurred contrast that still reads as a stroke rather than tone misalignment.
+LP_LEVELS = 24
+
+
+def _gray(image: np.ndarray) -> np.ndarray:
+    return cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+
+
+def _low_pass_residual(inpainted: np.ndarray, clean: np.ndarray, ink: np.ndarray) -> float | None:
+    """Residual ink after a low-pass filter: separates strokes from phase noise."""
+    if not ink.any():
+        return None
+    blurred_out = cv2.GaussianBlur(_gray(inpainted).astype(np.float32), (0, 0), TONE_SIGMA)
+    blurred_clean = cv2.GaussianBlur(_gray(clean).astype(np.float32), (0, 0), TONE_SIGMA)
+    bad = np.abs(blurred_out - blurred_clean) > LP_LEVELS
+    return round(float(bad[ink].mean()), 4)
+
+
+def _hole_in_tone_px(
+    inpainted: np.ndarray, clean: np.ndarray, text_region: np.ndarray, ink: np.ndarray
+) -> int:
+    """Px inside the text boxes where the clean plate is textured but the output is flat.
+
+    A white fill over screentone flattens every dot in the text box; the
+    over-erase metric cannot see it because it stays near the text. Truth ink
+    pixels (and their one-pixel antialiasing fringe) do not count: leftover
+    lettering is residual ink's business, not a fill hole; the hole is the
+    texture that vanished between the strokes.
+    """
+    kernel = np.ones((7, 7), np.uint8)
+    plate = _gray(clean)
+    output = _gray(inpainted)
+    plate_textured = (cv2.dilate(plate, kernel) - cv2.erode(plate, kernel)) > 40
+    output_flat = (cv2.dilate(output, kernel) - cv2.erode(output, kernel)) < 20
+    not_ink = (
+        cv2.dilate(ink.astype(np.uint8), np.ones((3, 3), np.uint8), iterations=1) == 0
+    )
+    return int(
+        np.count_nonzero(plate_textured & output_flat & text_region & not_ink)
+    )
+
+
+def _render_ink_outside_bubble_px(
+    inpainted: np.ndarray, rendered: np.ndarray, truths: tuple[TruthBox, ...]
+) -> int:
+    """Px of rendered ink that falls outside a truth bubble's interior.
+
+    The interior is the truth bubble box shrunk by 4 px (the outline sits at
+    the box edge); ink between that boundary and the box grown by 12 px has
+    crossed the outline. Lettering with no bubble (SFX, narration) never
+    counts, because only boxes around the drawn bubbles are inspected.
+    """
+    bubbles = [truth.bubble for truth in truths if truth.bubble is not None]
+    if not bubbles:
+        return 0
+    ink = _changed(inpainted, rendered)
+    height, width = ink.shape
+    near = np.zeros((height, width), dtype=bool)
+    interior = np.zeros((height, width), dtype=bool)
+    for x1, y1, x2, y2 in bubbles:
+        near[max(0, y1 - 12) : min(height, y2 + 12), max(0, x1 - 12) : min(width, x2 + 12)] = True
+        interior[max(0, y1 + 4) : min(height, y2 - 4), max(0, x1 + 4) : min(width, x2 - 4)] = True
+    return int(np.count_nonzero(ink & near & ~interior))
+
+
+def _strip_for_cer(text: str) -> str:
+    return "".join(unicodedata.normalize("NFKC", str(text)).split())
+
+
+def _edit_distance(first: str, second: str) -> int:
+    """Levenshtein distance between two short strings."""
+    if len(first) < len(second):
+        first, second = second, first
+    previous = list(range(len(second) + 1))
+    for row, a in enumerate(first, 1):
+        current = [row]
+        for col, b in enumerate(second, 1):
+            current.append(
+                min(previous[col] + 1, current[col - 1] + 1, previous[col - 1] + (a != b))
+            )
+        previous = current
+    return previous[-1]
+
+
+def _ocr_cer(
+    truths: tuple[TruthBox, ...], detected: Sequence[Sequence[int]], texts: Sequence[str]
+) -> dict[str, Any]:
+    """Character error rate of the OCR pass against TruthBox.text."""
+    matched: list[float] = []
+    for truth in truths:
+        tx1, ty1, tx2, ty2 = truth.xyxy
+        best_iou = 0.0
+        best_text: str | None = None
+        for box, text in zip(detected, texts):
+            dx1, dy1, dx2, dy2 = (int(value) for value in list(box)[:4])
+            ix1, iy1 = max(tx1, dx1), max(ty1, dy1)
+            ix2, iy2 = min(tx2, dx2), min(ty2, dy2)
+            intersection = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+            if not intersection:
+                continue
+            union = (tx2 - tx1) * (ty2 - ty1) + (dx2 - dx1) * (dy2 - dy1) - intersection
+            iou = intersection / union
+            if iou > best_iou:
+                best_iou, best_text = iou, str(text or "")
+        reference = _strip_for_cer(truth.text)
+        if best_iou >= 0.3 and best_text is not None and best_text.strip() and reference:
+            matched.append(_edit_distance(_strip_for_cer(best_text), reference) / len(reference))
+    return {
+        "ocr_cer": round(float(statistics.fmean(matched)), 4) if matched else None,
+        "ocr_cer_blocks": len(matched),
     }
 
 
@@ -951,7 +1404,15 @@ def _verify_metrics(probe: PageProbe) -> dict[str, Any]:
     }
 
 
-def _truth_metrics(synthetic: SyntheticPage, detected: list[list[int]], inpainted: np.ndarray) -> dict[str, Any]:
+def _truth_metrics(
+    synthetic: SyntheticPage,
+    detected: list[list[int]],
+    inpainted: np.ndarray,
+    *,
+    erase: np.ndarray,
+    rendered: np.ndarray | None,
+    ocr_texts: Sequence[str],
+) -> dict[str, Any]:
     height, width = synthetic.ink.shape
     detected_mask = np.zeros((height, width), dtype=bool)
     for box in detected:
@@ -969,6 +1430,12 @@ def _truth_metrics(synthetic: SyntheticPage, detected: list[list[int]], inpainte
     away = ~near_text
     damage = np.abs(inpainted.astype(np.int16) - synthetic.image.astype(np.int16)).max(axis=2)
     ink = synthetic.ink
+    ink_total = int(np.count_nonzero(ink))
+    bad = error.max(axis=2) > VISIBLE_LEVELS
+    # Share of truth ink the erase mask (block masks plus white-fill masks)
+    # covers; the residual splits into fill failure (inside the mask) and
+    # mask miss (outside it).
+    in_mask = ink & erase[:height, :width]
     return {
         "boxes": len(synthetic.truth),
         "recall": round(covered / len(synthetic.truth), 4) if synthetic.truth else None,
@@ -976,6 +1443,27 @@ def _truth_metrics(synthetic: SyntheticPage, detected: list[list[int]], inpainte
         "residual_ink_ratio": round(float((error.max(axis=2)[ink] > VISIBLE_LEVELS).mean()), 4)
         if ink.any()
         else None,
+        "ink_mask_recall": round(float(np.count_nonzero(in_mask)) / ink_total, 4)
+        if ink_total
+        else None,
+        "residual_in_mask_ratio": round(float(np.count_nonzero(bad & in_mask)) / ink_total, 4)
+        if ink_total
+        else None,
+        "residual_out_of_mask_ratio": round(
+            float(np.count_nonzero(bad & ink & ~erase[:height, :width])) / ink_total, 4
+        )
+        if ink_total
+        else None,
+        # Fill failure that survives a low-pass blur at the tone period: real
+        # strokes rather than tone painted out of phase.
+        "residual_ink_lp_ratio": _low_pass_residual(inpainted, synthetic.clean, ink),
+        "hole_in_tone_px": _hole_in_tone_px(inpainted, synthetic.clean, text_region, ink),
+        "render_ink_outside_bubble_px": (
+            _render_ink_outside_bubble_px(inpainted, rendered, synthetic.truth)
+            if rendered is not None
+            else None
+        ),
+        **_ocr_cer(synthetic.truth, detected, ocr_texts),
         # Art visibly repainted away from any text (outlines, line art, tone).
         "over_erased_px": int(np.count_nonzero((damage > VISIBLE_LEVELS) & away)),
         # Any change away from text, however slight (re-synthesized flat areas).
@@ -1005,6 +1493,11 @@ def measure_page(
     mask_metrics["suppressed_composites"] = (
         max(0, to_erase - len(probe.mask_records)) if probe.mask_path is not None else 0
     )
+    # Why each no-interior block never used a bubble interior.
+    if probe.mask_path is not None:
+        mask_metrics["reason_codes"] = _mask_reason_codes(image, probe)
+    rendered_image = result.get("image")
+    rendered = np.asarray(rendered_image) if rendered_image is not None else None
     return {
         "blocks": {
             "detected": len(detected),
@@ -1017,7 +1510,14 @@ def measure_page(
         "verify": _verify_metrics(probe),
         "truth": None
         if loaded.synthetic is None
-        else _truth_metrics(loaded.synthetic, detected, np.asarray(inpainted)),
+        else _truth_metrics(
+            loaded.synthetic,
+            detected,
+            np.asarray(inpainted),
+            erase=erase,
+            rendered=rendered,
+            ocr_texts=texts,
+        ),
         "timings": timings,
     }
 
@@ -1039,6 +1539,9 @@ class RunConfig:
     device: str = "cpu"
     verify: bool = True
     warmup: bool = True
+    # "oracle" fill pastes the clean plate inside the pipeline's own mask,
+    # measuring the mask alone; "auto" runs the real inpainter.
+    fill: str = "auto"
     render_options: dict[str, Any] = field(default_factory=lambda: dict(API_RENDER_DEFAULTS))
 
 
@@ -1080,13 +1583,25 @@ async def run_corpus(
 ) -> dict[str, Any]:
     """Score every page; the pipeline must already be initialized."""
     instrumentation = Instrumentation(
-        pipeline, mask_mode=config.mask_mode, translator=config.translator, detector=config.detector
+        pipeline,
+        mask_mode=config.mask_mode,
+        translator=config.translator,
+        detector=config.detector,
+        fill=config.fill,
     )
     loaded_pages = [(page, load_page(page, manifest_dir)) for page in pages]
+    oracle_modes = config.mask_mode == "oracle" or config.fill == "oracle"
     records: list[dict[str, Any]] = []
     with instrumentation.installed():
         if config.warmup:
-            first = next((loaded for _page, loaded in loaded_pages if loaded is not None), None)
+            warmup_pages = loaded_pages
+            if oracle_modes:
+                warmup_pages = [
+                    (page, loaded)
+                    for page, loaded in loaded_pages
+                    if loaded is not None and loaded.synthetic is not None
+                ]
+            first = next((loaded for _page, loaded in warmup_pages if loaded is not None), None)
             if first is not None:
                 instrumentation.begin_page(first.synthetic)
                 try:
@@ -1099,6 +1614,11 @@ async def run_corpus(
             if loaded is None:
                 record.update({"status": "missing", "source": f"file:{page.path}"})
                 logger.warning("Page %s is missing (%s); skipped", page.id, page.path)
+                records.append(record)
+                continue
+            if oracle_modes and loaded.synthetic is None:
+                # Oracle modes need the synthetic clean plate and truth ink.
+                record.update({"status": "skipped", "source": loaded.source, "reason": "no clean plate"})
                 records.append(record)
                 continue
             if config.detector == TRUTH_DETECTOR and loaded.synthetic is None:
@@ -1171,11 +1691,19 @@ def summarize(records: Sequence[dict[str, Any]], *, by_tag: bool = True) -> dict
     kana_kanji = total("verify", "kana_kanji")
     kinds = Counter({kind: 0 for kind in MASK_KINDS})
     strategies: Counter[str] = Counter()
+    reason_codes: Counter[str] = Counter()
     for record in scored:
         kinds.update(record["mask"]["kinds"])
         strategies.update(record["mask"]["strategies"])
+        reason_codes.update(record["mask"].get("reason_codes") or {})
     sizes = [size for record in scored for size in record["render"]["font_sizes"]]
     truths = [record["truth"] for record in scored if record.get("truth")]
+
+    def truth_mean(key: str) -> float | None:
+        return _mean([truth.get(key) for truth in truths])
+
+    def truth_total(key: str) -> int:
+        return sum(int(truth.get(key) or 0) for truth in truths)
     timings = {
         stage: round(sum(float(record["timings"].get(stage, 0.0)) for record in scored), 3)
         for stage in (*STAGES, "other", "total")
@@ -1214,6 +1742,7 @@ def summarize(records: Sequence[dict[str, Any]], *, by_tag: bool = True) -> dict
             "model_blocks": total("mask", "model_blocks"),
             "suppressed_composites": total("mask", "suppressed_composites"),
             "mask_px": total("mask", "mask_px"),
+            "reason_codes": dict(sorted(reason_codes.items())),
         },
         "render": {
             "regions": total("render", "regions"),
@@ -1224,12 +1753,23 @@ def summarize(records: Sequence[dict[str, Any]], *, by_tag: bool = True) -> dict
             "unfit_skipped": total("render", "unfit_skipped"),
             "font_size_median": statistics.median(sizes) if sizes else None,
             "font_size_min": min(sizes) if sizes else None,
+            "font_size_spread": _mean(
+                [record["render"].get("font_size_spread") for record in scored]
+            ),
         },
         "truth": {
             "pages": len(truths),
             "recall": _mean([truth["recall"] for truth in truths]),
             "text_mae": _mean([truth["text_mae"] for truth in truths]),
             "residual_ink_ratio": _mean([truth["residual_ink_ratio"] for truth in truths]),
+            "ink_mask_recall": truth_mean("ink_mask_recall"),
+            "residual_in_mask_ratio": truth_mean("residual_in_mask_ratio"),
+            "residual_out_of_mask_ratio": truth_mean("residual_out_of_mask_ratio"),
+            "residual_ink_lp_ratio": truth_mean("residual_ink_lp_ratio"),
+            "hole_in_tone_px": truth_total("hole_in_tone_px"),
+            "render_ink_outside_bubble_px": truth_total("render_ink_outside_bubble_px"),
+            "ocr_cer": truth_mean("ocr_cer"),
+            "ocr_cer_blocks": truth_total("ocr_cer_blocks"),
             "over_erased_px": sum(int(truth["over_erased_px"]) for truth in truths),
             "touched_away_px": sum(int(truth["touched_away_px"]) for truth in truths),
         },
@@ -1263,18 +1803,33 @@ METRICS: tuple[tuple[str, str, str | None], ...] = (
     ("mask.kinds.bubble_interior", "Masks: bubble interior", None),
     ("mask.kinds.rectangular", "Masks: rectangular", None),
     ("mask.kinds.skipped", "Masks: skipped (no safe mask)", "lower"),
+    ("mask.kinds.other", "Masks: other (incl. oracle ink)", None),
     ("mask.white_fill_blocks", "White-fill blocks", None),
     ("mask.suppressed_composites", "Composite duplicates not masked", None),
     ("mask.mask_px", "Masked px", None),
+    ("mask.reason_codes.text_free", "Mask reason: text_free block", None),
+    ("mask.reason_codes.no_contour", "Mask reason: no contour found", None),
+    ("mask.reason_codes.contour_touches_roi_edge", "Mask reason: contour touches ROI edge", None),
+    ("mask.reason_codes.area_test_failed", "Mask reason: area test failed", None),
+    ("mask.reason_codes.coverage_below_35", "Mask reason: coverage below 35%", None),
+    ("mask.reason_codes.clipped_ink_empty", "Mask reason: interior found, clipped ink empty", None),
     ("render.regions", "Render regions", None),
     ("render.shrink_events", "Shrink events (< preferred size)", "lower"),
     ("render.below_min_readable", "Below min readable size", "lower"),
     ("render.overflow_events", "Overflow events", None),
     ("render.unfit_skipped", "Unfit regions skipped", "lower"),
     ("render.font_size_median", "Median font size", "higher"),
+    ("render.font_size_spread", "Font size spread per page (mean)", "lower"),
     ("truth.recall", "Synthetic: detection recall", "higher"),
     ("truth.text_mae", "Synthetic: text-region MAE", "lower"),
     ("truth.residual_ink_ratio", "Synthetic: residual ink ratio", "lower"),
+    ("truth.ink_mask_recall", "Synthetic: ink-mask recall", "higher"),
+    ("truth.residual_in_mask_ratio", "Synthetic: residual ink in mask (fill failure)", "lower"),
+    ("truth.residual_out_of_mask_ratio", "Synthetic: residual ink outside mask (mask miss)", "lower"),
+    ("truth.residual_ink_lp_ratio", "Synthetic: residual ink after low-pass", "lower"),
+    ("truth.hole_in_tone_px", "Synthetic: tone flattened in text boxes (px)", "lower"),
+    ("truth.render_ink_outside_bubble_px", "Synthetic: rendered ink outside bubble interior (px)", "lower"),
+    ("truth.ocr_cer", "Synthetic: OCR character error rate", "lower"),
     ("truth.over_erased_px", "Synthetic: over-erased px (visible)", "lower"),
     ("truth.touched_away_px", "Synthetic: px touched away from text", "lower"),
     ("seconds_per_page", "Seconds per page", "lower"),
@@ -1337,7 +1892,18 @@ def render_summary_markdown(run: dict[str, Any]) -> str:
     if tags:
         lines += ["", "## By tag", ""]
         lines += _table(
-            ["Tag", "Pages", "Blocks", "Residue (kana/kanji)", "Px outside mask", "Shrink", "Overflow", "Residual ink"],
+            [
+                "Tag",
+                "Pages",
+                "Blocks",
+                "Residue (kana/kanji)",
+                "Px outside mask",
+                "Shrink",
+                "Overflow",
+                "Residual ink",
+                "Ink recall",
+                "Resid in->out mask",
+            ],
             [
                 [
                     tag,
@@ -1348,6 +1914,10 @@ def render_summary_markdown(run: dict[str, Any]) -> str:
                     str(data["render"]["shrink_events"]),
                     str(data["render"]["overflow_events"]),
                     _format(data["truth"]["residual_ink_ratio"], "ratio"),
+                    _format(data["truth"].get("ink_mask_recall"), "recall"),
+                    _format(data["truth"].get("residual_in_mask_ratio"), "ratio")
+                    + " -> "
+                    + _format(data["truth"].get("residual_out_of_mask_ratio"), "ratio"),
                 ]
                 for tag, data in tags.items()
             ],
@@ -1618,9 +2188,17 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--mask-mode",
-        choices=("auto", "contour", "rectangular"),
+        choices=("auto", "contour", "rectangular", "oracle"),
         default="auto",
-        help="auto follows the pipeline (rectangular only for animetext-yolo)",
+        help="auto follows the pipeline (rectangular only for animetext-yolo); "
+        "'oracle' masks the diluted truth ink (synthetic pages only), measuring the fill alone",
+    )
+    parser.add_argument(
+        "--fill",
+        choices=("auto", "oracle"),
+        default="auto",
+        help="'oracle' pastes the clean plate inside the pipeline's own mask "
+        "(synthetic pages only), measuring the mask alone",
     )
     parser.add_argument("--inpainter", default=DEFAULT_INPAINTER)
     parser.add_argument("--ocr", default="manga-ocr")
@@ -1692,6 +2270,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         device=args.device,
         verify=not args.no_verify,
         warmup=not args.no_warmup,
+        fill=args.fill,
     )
     images_dir = args.out / "images" if args.save_images else None
     run = asyncio.run(_run_real_pipeline(pages, args.corpus, config, images_dir))
