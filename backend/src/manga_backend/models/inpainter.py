@@ -10,21 +10,25 @@ import functools
 import logging
 import os
 import subprocess
+from collections.abc import Callable
 from typing import cast
 
+import cv2
 import numpy as np
 import onnxruntime as ort
 
+from manga_backend.comfy_lanpaint.crop import CropRegion, build_crop_regions, stitch_region
 from manga_backend.paths import MODELS_CACHE_DIR
 from manga_backend.utils.device import create_onnx_session, get_onnx_providers
 from manga_backend.utils.download import download_lama_onnx
 
 logger = logging.getLogger(__name__)
 
-# LaMa's activations need roughly 2.2-2.8 GiB of GPU memory per megapixel. A page
-# that does not fit spills into shared system memory and gets several times
-# slower, so larger pages are split into equal tiles that each fit. Equal sizes
-# matter: every change of input shape costs the session most of a second.
+# LaMa's activations need roughly 2.2-2.8 GiB of GPU memory per megapixel. A
+# crop that does not fit spills into shared system memory and gets several
+# times slower, so oversized crops are split into equal tiles that each fit.
+# Equal sizes matter: every change of input shape costs the session most of a
+# second, which is also why equal-shaped crops share one batched run.
 GPU_GIB_PER_MEGAPIXEL = 3.0
 # Left for the detector and OCR sessions, the LaMa weights and the desktop.
 GPU_RESERVED_GIB = 2.5
@@ -36,6 +40,12 @@ MIN_GPU_MAX_PIXELS = 400_000
 TILE_OVERLAP = 192
 # An axis is not split further once its tiles are this small.
 MIN_TILE_SIDE = 2 * TILE_OVERLAP + 64
+# Context added around each masked component group before LaMa runs: about
+# twice the glyph size, but never less than this.
+MIN_CROP_CONTEXT = 64
+# Rectangular block masks are component-sized, so an uncapped "glyph" would
+# balloon their crops to page scale; the cap keeps the margin reasonable.
+MAX_GLYPH_EXTENT = 128
 
 Span = tuple[int, int]
 
@@ -137,6 +147,27 @@ def _owned_spans(spans: list[Span]) -> list[Span]:
     return list(zip(cuts, cuts[1:]))
 
 
+def crop_context(binary: np.ndarray) -> int:
+    """Context margin around a mask group: about 2x the glyph size, min 64 px.
+
+    The glyph size is the median extent of the mask's connected components,
+    capped so a rectangular block mask (one page-scale component) still gets a
+    bounded margin instead of a crop the size of the page.
+    """
+    count, _labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        (binary > 0).astype(np.uint8), connectivity=8
+    )
+    extents = [
+        max(int(stats[label, cv2.CC_STAT_WIDTH]), int(stats[label, cv2.CC_STAT_HEIGHT]))
+        for label in range(1, count)
+        if int(stats[label, cv2.CC_STAT_AREA]) >= 2
+    ]
+    if not extents:
+        return MIN_CROP_CONTEXT
+    glyph_size = min(int(np.median(extents)), MAX_GLYPH_EXTENT)
+    return max(MIN_CROP_CONTEXT, 2 * glyph_size)
+
+
 class Inpainter:
     """LaMa inpainting using ONNX runtime."""
 
@@ -230,60 +261,135 @@ class Inpainter:
             return await asyncio.to_thread(self._inpaint_blocking, image, binary)
 
     def _inpaint_blocking(self, image: np.ndarray, binary: np.ndarray) -> np.ndarray:
-        orig_h, orig_w = image.shape[:2]
-        pad_h = (self.pad_mod - orig_h % self.pad_mod) % self.pad_mod
-        pad_w = (self.pad_mod - orig_w % self.pad_mod) % self.pad_mod
-        padded, padded_mask = image, binary
-        if pad_h > 0 or pad_w > 0:
-            pad_mode = "reflect" if orig_h > 1 and orig_w > 1 else "edge"
-            padded = np.pad(image, ((0, pad_h), (0, pad_w), (0, 0)), mode=pad_mode)
-            padded_mask = np.pad(binary, ((0, pad_h), (0, pad_w)), mode="constant", constant_values=0)
+        """Inpaint per contextual crop; paste back only masked pixels.
 
-        row_spans, col_spans = plan_tiles(
-            padded.shape[0], padded.shape[1], self.max_pixels, self.pad_mod
+        LaMa sees the smallest aligned crops that give every masked component
+        at least ``crop_context`` pixels of real surroundings (the model was
+        trained on crops), so a page with a few small blocks no longer pays
+        for the whole page. Crops of equal shape share one batched session
+        run, and a crop too large for the device limit falls back to tiles.
+        """
+        regions = build_crop_regions(
+            image,
+            binary,
+            context=crop_context(binary),
+            multiple=self.pad_mod,
+            mask_growth=0,
+            max_crop_pixels=None,
         )
-        # Tiles the model must see, each with the region whose pixels it owns.
+        if not regions:
+            return image.copy()
+
+        oversized: list[CropRegion] = []
+        batches: dict[tuple[int, int], list[CropRegion]] = {}
+        for region in regions:
+            height, width = region.image.shape[:2]
+            if self.max_pixels is not None and height * width > self.max_pixels:
+                oversized.append(region)
+            else:
+                batches.setdefault((height, width), []).append(region)
+
+        # One batched run per crop shape (and per device pixel budget).
+        runs: list[tuple[np.ndarray, np.ndarray, list[CropRegion]]] = []
+        for (height, width), group in batches.items():
+            per_run = (
+                len(group)
+                if self.max_pixels is None
+                else max(1, self.max_pixels // (height * width))
+            )
+            for start in range(0, len(group), per_run):
+                chunk = group[start : start + per_run]
+                runs.append(
+                    (
+                        np.stack([region.image for region in chunk]),
+                        np.stack([region.generation_mask for region in chunk]),
+                        chunk,
+                    )
+                )
+        tiled_jobs = [
+            (region, self._tile_jobs(region.image, region.generation_mask))
+            for region in oversized
+        ]
+        remaining = len(runs) + sum(len(jobs) for _region, jobs in tiled_jobs)
+
+        def take_run(images: np.ndarray, masks: np.ndarray) -> np.ndarray:
+            nonlocal remaining
+            remaining -= 1
+            return self._run_model(images, masks, release_memory=remaining == 0)
+
+        result = image.copy()
+        for images, masks, chunk in runs:
+            filled = take_run(images, masks)
+            for index, region in enumerate(chunk):
+                result = stitch_region(result, filled[index], region, feather=0)
+        for region, jobs in tiled_jobs:
+            generated = self._inpaint_tiled_region(region, jobs, take_run)
+            result = stitch_region(result, generated, region, feather=0)
+        return result
+
+    def _tile_jobs(
+        self, crop_image: np.ndarray, crop_mask: np.ndarray
+    ) -> list[tuple[tuple[int, int, int, int], tuple[int, int, int, int]]]:
+        """Tiles (and their owned spans) of one oversized aligned crop."""
+        row_spans, col_spans = plan_tiles(
+            crop_image.shape[0], crop_image.shape[1], self.max_pixels, self.pad_mod
+        )
         jobs: list[tuple[tuple[int, int, int, int], tuple[int, int, int, int]]] = []
         for (y0, y1), (own_y0, own_y1) in zip(row_spans, _owned_spans(row_spans)):
             for (x0, x1), (own_x0, own_x1) in zip(col_spans, _owned_spans(col_spans)):
-                owned = (own_y0, min(own_y1, orig_h), own_x0, min(own_x1, orig_w))
-                if binary[owned[0]:owned[1], owned[2]:owned[3]].any():
-                    jobs.append(((y0, y1, x0, x1), owned))
+                if crop_mask[own_y0:own_y1, own_x0:own_x1].any():
+                    jobs.append(((y0, y1, x0, x1), (own_y0, own_y1, own_x0, own_x1)))
+        return jobs
 
-        result = image.copy()
-        for index, ((y0, y1, x0, x1), (own_y0, own_y1, own_x0, own_x1)) in enumerate(jobs):
-            # Tiles of one page share a shape and reuse the arena; only the last
-            # run of the page gives the memory back.
-            filled = self._run_model(
-                padded[y0:y1, x0:x1],
-                padded_mask[y0:y1, x0:x1],
-                release_memory=index == len(jobs) - 1,
-            )
-            masked = binary[own_y0:own_y1, own_x0:own_x1] > 0
-            result[own_y0:own_y1, own_x0:own_x1][masked] = filled[
+    def _inpaint_tiled_region(
+        self,
+        region: CropRegion,
+        jobs: list[tuple[tuple[int, int, int, int], tuple[int, int, int, int]]],
+        take_run: Callable[[np.ndarray, np.ndarray], np.ndarray],
+    ) -> np.ndarray:
+        """Run the model tile by tile over one oversized crop."""
+        crop_image = region.image
+        crop_mask = region.generation_mask
+        out = crop_image.copy()
+        for (y0, y1, x0, x1), (own_y0, own_y1, own_x0, own_x1) in jobs:
+            filled = take_run(
+                crop_image[y0:y1, x0:x1][np.newaxis, ...],
+                crop_mask[y0:y1, x0:x1][np.newaxis, ...],
+            )[0]
+            masked = crop_mask[own_y0:own_y1, own_x0:own_x1] > 0
+            out[own_y0:own_y1, own_x0:own_x1][masked] = filled[
                 own_y0 - y0 : own_y1 - y0, own_x0 - x0 : own_x1 - x0
             ][masked]
-        return result
+        return out
 
     def _run_model(
-        self, image: np.ndarray, mask: np.ndarray, release_memory: bool = False
+        self,
+        images: np.ndarray,
+        masks: np.ndarray,
+        release_memory: bool = False,
     ) -> np.ndarray:
-        """Run LaMa on one array whose sides are multiples of the model stride."""
+        """Run LaMa on a batch of equal-shaped arrays with stride-multiple sides.
+
+        ``images`` is (B, H, W, 3) uint8 and ``masks`` is (B, H, W); the
+        return value is (B, H, W, 3) uint8.
+        """
         session = self.session
         if session is None:
             raise RuntimeError("Inpainting model not initialized")
         session_inputs = session.get_inputs()
         inputs = {
-            session_inputs[0].name: (image.astype(np.float32) / 255.0).transpose(2, 0, 1)[np.newaxis, ...],
-            session_inputs[1].name: self._normalize_mask(mask)[np.newaxis, ...],
+            session_inputs[0].name: (images.astype(np.float32) / 255.0).transpose(
+                0, 3, 1, 2
+            ),
+            session_inputs[1].name: (masks > 0).astype(np.float32)[:, np.newaxis, ...],
         }
         if release_memory and self._release_options is not None:
             output = np.asarray(session.run(None, inputs, self._release_options)[0])
         else:
             output = np.asarray(session.run(None, inputs)[0])
 
-        # (C, H, W) -> (H, W, C)
-        return np.clip(output[0].transpose(1, 2, 0) * 255, 0, 255).astype(np.uint8)
+        # (B, C, H, W) -> (B, H, W, C)
+        return np.clip(output.transpose(0, 2, 3, 1) * 255, 0, 255).astype(np.uint8)
 
     def _normalize_mask(self, mask: np.ndarray) -> np.ndarray:
         """Binarize a mask into the model's (1, H, W) float input."""

@@ -424,16 +424,22 @@ class InpainterWrapperTests(unittest.TestCase):
 class RecordingInpaintSession(FakeInpaintSession):
     def __init__(self):
         self.shapes = []
+        self.batch_sizes = []
         self.masked_pixels = []
 
     def run(self, outputs, inputs):
         self.shapes.append(inputs["image"].shape[2:])
+        self.batch_sizes.append(inputs["image"].shape[0])
         self.masked_pixels.append(int(inputs["mask"].sum()))
         return super().run(outputs, inputs)
 
 
 class InpainterTileTests(unittest.TestCase):
-    """Pages too large for the GPU are inpainted as equal tiles."""
+    """LaMa runs on aligned contextual crops, not the full page.
+
+    A crop too large for the device pixel budget still falls back to equal
+    tiles, so GPU pages with page-scale masks keep working.
+    """
 
     def inpaint(self, image, mask, max_pixels=None):
         inpainter = Inpainter()
@@ -442,7 +448,7 @@ class InpainterTileTests(unittest.TestCase):
         result = asyncio.run(inpainter.inpaint(image, mask))
         return result, inpainter.session
 
-    def test_page_within_the_limit_runs_once_and_keeps_unmasked_pixels(self):
+    def test_small_mask_runs_one_crop_instead_of_the_whole_page(self):
         rng = np.random.default_rng(0)
         image = rng.integers(0, 255, (1000, 1280, 3), dtype=np.uint8)
         mask = np.zeros((1000, 1280), dtype=np.uint8)
@@ -450,42 +456,46 @@ class InpainterTileTests(unittest.TestCase):
 
         result, session = self.inpaint(image, mask, max_pixels=1_300_000)
 
-        self.assertEqual(session.shapes, [(1000, 1280)])
-        np.testing.assert_array_equal(result[mask == 0], image[mask == 0])
-        self.assertTrue(np.all(result[mask > 0] == 127))
-
-    def test_large_page_is_split_into_equal_tiles_under_the_limit(self):
-        rng = np.random.default_rng(1)
-        image = rng.integers(0, 255, (1600, 1100, 3), dtype=np.uint8)
-        mask = np.zeros((1600, 1100), dtype=np.uint8)
-        mask[100:140, 200:400] = 255
-        mask[780:820, 300:700] = 255  # straddles the middle of the page
-        mask[1500:1540, 600:900] = 255
-
-        result, session = self.inpaint(image, mask, max_pixels=1_166_000)
-
-        self.assertEqual(len(session.shapes), 2)
-        self.assertEqual(len(set(session.shapes)), 1)
+        self.assertEqual(len(session.shapes), 1)
         height, width = session.shapes[0]
-        self.assertLessEqual(height * width, 1_166_000)
         self.assertEqual((height % 8, width % 8), (0, 0))
-        # Each tile reaches past the middle, so text there has context on both sides.
-        self.assertGreaterEqual(height, 800 + 96)
+        self.assertLess(height * width, 1000 * 1280)
         np.testing.assert_array_equal(result[mask == 0], image[mask == 0])
         self.assertTrue(np.all(result[mask > 0] == 127))
 
-    def test_tiles_without_text_are_skipped(self):
-        image = np.zeros((1600, 1100, 3), dtype=np.uint8)
-        mask = np.zeros((1600, 1100), dtype=np.uint8)
-        mask[100:140, 200:400] = 255
+    def test_crop_carries_at_least_64_px_of_context(self):
+        rng = np.random.default_rng(2)
+        image = rng.integers(0, 255, (600, 600, 3), dtype=np.uint8)
+        mask = np.zeros((600, 600), dtype=np.uint8)
+        mask[290:310, 290:310] = 255
 
-        result, session = self.inpaint(image, mask, max_pixels=1_166_000)
+        result, session = self.inpaint(image, mask)
+
+        # A 20 px glyph asks for a 64 px margin, so the aligned crop is at
+        # least (20 + 2 * 64) px per side before padding.
+        self.assertEqual(len(session.shapes), 1)
+        height, width = session.shapes[0]
+        self.assertGreaterEqual(height, 152)
+        self.assertGreaterEqual(width, 152)
+        np.testing.assert_array_equal(result[mask == 0], image[mask == 0])
+        self.assertTrue(np.all(result[mask > 0] == 127))
+
+    def test_equal_shaped_crops_share_one_batched_run(self):
+        rng = np.random.default_rng(3)
+        image = rng.integers(0, 255, (1000, 1280, 3), dtype=np.uint8)
+        mask = np.zeros((1000, 1280), dtype=np.uint8)
+        mask[100:140, 200:240] = 255
+        mask[700:740, 900:940] = 255
+
+        result, session = self.inpaint(image, mask)
 
         self.assertEqual(len(session.shapes), 1)
+        self.assertEqual(session.batch_sizes, [2])
+        self.assertEqual(session.masked_pixels, [2 * 40 * 40])
+        np.testing.assert_array_equal(result[mask == 0], image[mask == 0])
         self.assertTrue(np.all(result[mask > 0] == 127))
-        self.assertTrue(np.all(result[mask == 0] == 0))
 
-    def test_very_large_page_is_split_along_both_axes(self):
+    def test_page_scale_mask_is_split_into_equal_tiles_under_the_limit(self):
         image = np.zeros((3000, 2400, 3), dtype=np.uint8)
         mask = np.full((3000, 2400), 255, dtype=np.uint8)
 
