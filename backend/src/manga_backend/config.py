@@ -15,7 +15,7 @@ import math
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     DotEnvSettingsSource,
@@ -60,45 +60,61 @@ def _positive_or_default(name: str, value: Any, default: Any, cast: type[int] | 
 
 
 class Settings(BaseSettings):
-    """Process configuration, read once when the app is created."""
+    """Process configuration, read once when the app is created.
+
+    Each field is read from exactly one environment variable, its
+    `validation_alias`, as the old module globals were. Generic names such as
+    TESTING, HOST or PORT must never configure the backend (TESTING=1 would
+    disable auth), so fields carry no second alias and `validate_by_name` stays
+    off: pydantic-settings would read the field name from the environment too.
+    Field names are still accepted as init arguments; `__init__` maps them.
+    """
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE, extra="ignore", case_sensitive=False, frozen=True
     )
 
+    def __init__(self, **values: Any) -> None:
+        aliases = {
+            name: field.validation_alias
+            for name, field in type(self).model_fields.items()
+            if isinstance(field.validation_alias, str)
+        }
+        super().__init__(**{aliases.get(key, key): value for key, value in values.items()})
+
     auth_token: str = Field(
-        default="", validation_alias=AliasChoices("BACKEND_AUTH_TOKEN", "auth_token")
+        default="", validation_alias="BACKEND_AUTH_TOKEN"
     )
     allowed_origins: Annotated[frozenset[str], NoDecode] = Field(
         default=frozenset(),
-        validation_alias=AliasChoices("BACKEND_ALLOWED_ORIGINS", "allowed_origins"),
+        validation_alias="BACKEND_ALLOWED_ORIGINS",
     )
     max_concurrent: int = Field(
         default=DEFAULT_MAX_CONCURRENT,
-        validation_alias=AliasChoices("BACKEND_MAX_CONCURRENT", "max_concurrent"),
+        validation_alias="BACKEND_MAX_CONCURRENT",
     )
     queue_timeout_seconds: float = Field(
         default=DEFAULT_QUEUE_TIMEOUT_SECONDS,
-        validation_alias=AliasChoices("BACKEND_QUEUE_TIMEOUT_SECONDS", "queue_timeout_seconds"),
+        validation_alias="BACKEND_QUEUE_TIMEOUT_SECONDS",
     )
     testing: bool = Field(
-        default=False, validation_alias=AliasChoices("MANGA_TRANSLATOR_TESTING", "testing")
+        default=False, validation_alias="MANGA_TRANSLATOR_TESTING"
     )
-    use_gpu: bool = Field(default=False, validation_alias=AliasChoices("USE_GPU", "use_gpu"))
-    host: str = Field(default=DEFAULT_HOST, validation_alias=AliasChoices("BACKEND_HOST", "host"))
-    port: int = Field(default=DEFAULT_PORT, validation_alias=AliasChoices("BACKEND_PORT", "port"))
+    use_gpu: bool = Field(default=False, validation_alias="USE_GPU")
+    host: str = Field(default=DEFAULT_HOST, validation_alias="BACKEND_HOST")
+    port: int = Field(default=DEFAULT_PORT, validation_alias="BACKEND_PORT")
     local_llm_base_url: str = Field(
         default=DEFAULT_LOCAL_LLM_BASE_URL,
-        validation_alias=AliasChoices("LOCAL_LLM_BASE_URL", "local_llm_base_url"),
+        validation_alias="LOCAL_LLM_BASE_URL",
     )
     gemini_api_key: str = Field(
-        default="", validation_alias=AliasChoices("GEMINI_API_KEY", "gemini_api_key")
+        default="", validation_alias="GEMINI_API_KEY"
     )
     openai_api_key: str = Field(
-        default="", validation_alias=AliasChoices("OPENAI_API_KEY", "openai_api_key")
+        default="", validation_alias="OPENAI_API_KEY"
     )
     openrouter_api_key: str = Field(
-        default="", validation_alias=AliasChoices("OPENROUTER_API_KEY", "openrouter_api_key")
+        default="", validation_alias="OPENROUTER_API_KEY"
     )
 
     @field_validator("auth_token", mode="before")

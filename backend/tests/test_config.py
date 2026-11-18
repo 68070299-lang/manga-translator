@@ -79,6 +79,53 @@ class SettingsTests(unittest.TestCase):
         with clean_env(BACKEND_AUTH_TOKEN="from-env"):
             self.assertEqual(Settings(auth_token="explicit").auth_token, "explicit")
 
+    def test_generic_and_field_names_in_the_environment_are_ignored(self):
+        # Only the exact variable names configure the backend. TESTING=1 from an
+        # unrelated tool must not disable auth, and HOST/PORT must not move the bind.
+        generic = {
+            "TESTING": "1", "testing": "1", "AUTH_TOKEN": "x", "auth_token": "x",
+            "ALLOWED_ORIGINS": "http://evil.example", "allowed_origins": "http://evil.example",
+            "MAX_CONCURRENT": "9", "QUEUE_TIMEOUT_SECONDS": "5", "HOST": "0.0.0.0",
+            "PORT": "3000", "GPU": "true", "GEMINI_KEY": "k", "gemini_api_key_extra": "k",
+        }
+        with clean_env(**generic):
+            settings = Settings(_env_file=None)
+
+        self.assertFalse(settings.testing)
+        self.assertEqual(settings.auth_token, "")
+        self.assertEqual(settings.allowed_origins, frozenset())
+        self.assertEqual((settings.max_concurrent, settings.queue_timeout_seconds), (2, 600.0))
+        self.assertEqual((settings.host, settings.port), ("127.0.0.1", 8001))
+
+    def test_generic_names_in_the_env_file_are_ignored(self):
+        with tempfile.TemporaryDirectory() as directory, clean_env():
+            env_file = Path(directory) / ".env"
+            env_file.write_text("TESTING=1\nAUTH_TOKEN=x\nHOST=0.0.0.0\n", encoding="utf-8")
+            settings = Settings(_env_file=env_file)
+
+        self.assertFalse(settings.testing)
+        self.assertEqual(settings.auth_token, "")
+        self.assertEqual(settings.host, "127.0.0.1")
+
+    def test_testing_env_without_the_full_name_keeps_auth_on(self):
+        class Pipeline:
+            is_ready = True
+            device = "cpu"
+            model_status: dict[str, object] = {}
+
+        with clean_env(TESTING="1", BACKEND_AUTH_TOKEN="secret-token"):
+            client = TestClient(create_app(Settings(_env_file=None), pipeline=Pipeline()))
+            response = client.get("/health")
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_field_names_are_accepted_as_init_arguments(self):
+        with clean_env():
+            settings = Settings(_env_file=None, testing=True, host="::1", port=1, auth_token=" t ")
+
+        self.assertTrue(settings.testing)
+        self.assertEqual((settings.host, settings.port, settings.auth_token), ("::1", 1, "t"))
+
     def test_settings_are_immutable(self):
         with self.assertRaises(Exception):
             Settings().max_concurrent = 9
@@ -122,6 +169,12 @@ class EntryPointTests(unittest.TestCase):
             args = entrypoint.parse_args([])
 
         self.assertEqual((args.host, args.port), ("127.0.0.1", 9100))
+
+    def test_generic_host_and_port_variables_do_not_move_the_bind(self):
+        with clean_env(MANGA_TRANSLATOR_TESTING="1", HOST="0.0.0.0", PORT="3000"):
+            args = entrypoint.parse_args([])
+
+        self.assertEqual((args.host, args.port), ("127.0.0.1", 8001))
 
     def test_cli_overrides_settings(self):
         with clean_env(MANGA_TRANSLATOR_TESTING="1"):
