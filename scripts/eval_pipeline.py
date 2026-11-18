@@ -1084,6 +1084,12 @@ def _translation_metrics(result: dict[str, Any]) -> dict[str, Any]:
     chars = [int(entry.get("chars") or 0) for entry in entries]
     return {
         "units": len(result.get("length_budgets") or []),
+        # One entry per unit, in reading order: its character budget (None when
+        # the unit has no usable room).
+        "budget_chars": [
+            None if entry is None else int(entry.get("chars") or 0)
+            for entry in (result.get("length_budgets") or [])
+        ],
         "budgeted": len(entries),
         "budget_chars_min": min(chars) if chars else None,
         "budget_chars_max": max(chars) if chars else None,
