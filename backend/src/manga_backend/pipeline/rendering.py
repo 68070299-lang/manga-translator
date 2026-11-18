@@ -34,11 +34,9 @@ from manga_backend.pipeline.layout import (
 )
 from manga_backend.pipeline.masks import bubble_interior_details
 from manga_backend.pipeline.measure import (
-    HARMONIZE_CLAMP,
-    HARMONIZE_TOLERANCE,
     anchor_target,
-    harmonize_targets,
     measure_block_colours,
+    page_lettering_size,
 )
 from manga_backend.pipeline.regions import clamp_xyxy, int_box
 from manga_backend.pipeline.rooms import (
@@ -305,17 +303,16 @@ def anchor_targets(
     preferred_font_size: int,
     blocks: list[TextBlock] | None = None,
 ) -> list[int]:
-    """Anchored size per region, harmonised across the page's dialogue.
+    """Anchored size per region, harmonised to one page lettering size.
 
-    Dialogue is anchored to the source lettering's em (projection profile) and
-    snapped to the page median when it is close, which is what keeps one
-    balloon's lettering the same size as its neighbours'. Free text keeps the
-    user's preferred size as its target: it is not speech, so the balloon
-    scale does not apply. Both are floored at the minimum readable size so an
-    anchor can never make a region unreadable on its own.
+    Every region is anchored to its source lettering's em (measured while
+    masking); the page's size is the median of those anchors, so a page is
+    lettered in one type scale. A region with no measurement (or free text on
+    a page with none) keeps the user's preferred size, and the result is
+    floored at the minimum readable size.
     """
     estimates = _source_estimates(blocks if blocks is not None else regions)
-    targets: list[int] = []
+    anchors: list[int] = []
     for region in regions:
         glyph: float | None = None
         if region.render_from_bubble:
@@ -323,23 +320,11 @@ def anchor_targets(
             glyph = estimates.get(key)
             if glyph is None:
                 glyph = _nearest_estimate(key, estimates)
-        targets.append(anchor_target(glyph, preferred_font_size))
-    dialogue = [
-        index for index, region in enumerate(regions) if region.render_from_bubble
-    ]
-    # The page's lettering scale is the median over every region (dialogue
-    # anchors and the user's preferred size for free text), so a page with one
-    # big balloon does not letter that balloon in a different type scale.
-    page_scale = float(np.median(targets)) if targets else float(preferred_font_size)
-    snapped = harmonize_targets(
-        [targets[index] for index in dialogue],
-        tolerance=HARMONIZE_TOLERANCE,
-        clamp=HARMONIZE_CLAMP,
-        centre=page_scale,
-    )
-    for position, index in enumerate(dialogue):
-        targets[index] = snapped[position]
-    return [max(MIN_READABLE_FONT_SIZE, target) for target in targets]
+        elif region.source_font_size is not None:
+            glyph = region.source_font_size
+        anchors.append(anchor_target(glyph, preferred_font_size))
+    page_size = page_lettering_size(anchors, preferred_font_size)
+    return [max(MIN_READABLE_FONT_SIZE, page_size) for _ in regions]
 
 
 def render_text(

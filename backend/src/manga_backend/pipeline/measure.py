@@ -31,12 +31,6 @@ RGB = tuple[int, int, int]
 # measured at 14-16 px lettered at 14-16 px fills the same balloon as the
 # source after the usual 2.7x text expansion.
 LATIN_TARGET_FACTOR = 1.0
-# Dialogue snaps to the page median when it is within this fraction of it.
-HARMONIZE_TOLERANCE = 0.15
-# A page never mixes lettering sizes further than this from its own median:
-# outliers are pulled in, which is what keeps one balloon from shouting in a
-# different type scale than its neighbours.
-HARMONIZE_CLAMP = 0.25
 # A source glyph estimate outside this range is a measurement failure.
 MIN_SOURCE_GLYPH = 5.0
 MAX_SOURCE_GLYPH = 160.0
@@ -164,33 +158,19 @@ def anchor_target(source_glyph: float | None, preferred_font_size: int) -> int:
     return max(1, int(round(source_glyph * LATIN_TARGET_FACTOR)))
 
 
-def harmonize_targets(
-    targets: list[int],
-    *,
-    tolerance: float = HARMONIZE_TOLERANCE,
-    clamp: float = HARMONIZE_CLAMP,
-    centre: float | None = None,
-) -> list[int]:
-    """Snap dialogue targets to the page median and pull outliers in.
+def page_lettering_size(anchors: list[int], preferred_font_size: int) -> int:
+    """The one size a page is lettered at: the median of its source anchors.
 
-    Targets within ``tolerance`` of the page median take the median exactly;
-    the rest are clamped to ``clamp`` of it, so a page keeps at most a small
-    family of lettering sizes instead of one size per balloon.
+    A page mixes balloons lettered at slightly different sizes and free text
+    with no anchor at all; taking the median keeps the page in one type scale
+    (which is what professional lettering does) instead of giving every
+    balloon its own. The fitter then only ever shrinks from it, so a room that
+    cannot hold the page size still gets the largest size it can.
     """
-    if not targets:
-        return []
-    median = float(np.median(targets)) if centre is None else float(centre)
-    if median <= 0:
-        return list(targets)
-    low = max(1, int(round(median * (1.0 - clamp))))
-    high = max(low, int(round(median * (1.0 + clamp))))
-    snapped: list[int] = []
-    for target in targets:
-        if abs(target - median) <= tolerance * median:
-            snapped.append(int(round(median)))
-        else:
-            snapped.append(min(high, max(low, target)))
-    return snapped
+    usable = [anchor for anchor in anchors if anchor > 0]
+    if not usable:
+        return max(1, int(preferred_font_size))
+    return max(1, int(round(float(np.median(usable)))))
 
 
 def _median_colour(pixels: np.ndarray) -> RGB:

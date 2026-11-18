@@ -11,9 +11,9 @@ from manga_backend.pipeline.fit import fit_text_in_room, text_units
 from manga_backend.pipeline.linebreak import break_lines
 from manga_backend.pipeline.measure import (
     anchor_target,
-    harmonize_targets,
     luminance,
     measure_block_colours,
+    page_lettering_size,
     source_glyph_size,
 )
 from manga_backend.pipeline.rendering import build_rooms, render_text
@@ -288,22 +288,22 @@ class FitTests(unittest.TestCase):
 
 
 class AnchorTests(unittest.TestCase):
-    def test_harmonize_snaps_close_targets_to_the_page_median(self):
-        self.assertEqual(harmonize_targets([14, 15, 16]), [15, 15, 15])
+    def test_page_lettering_size_is_the_median_anchor(self):
+        self.assertEqual(page_lettering_size([26, 20, 26, 26], 16), 26)
+        self.assertEqual(page_lettering_size([14, 15, 16, 30], 16), 16)
 
-    def test_harmonize_pulls_outliers_into_the_page_family(self):
-        # Median 15.5; 30 is outside +-25%, so it is clamped, not dropped.
-        self.assertEqual(harmonize_targets([14, 15, 16, 30]), [16, 16, 16, 19])
-        self.assertEqual(harmonize_targets([10, 10, 40]), [10, 10, 12])
+    def test_page_lettering_size_falls_back_to_the_preference(self):
+        self.assertEqual(page_lettering_size([], 16), 16)
+        self.assertEqual(page_lettering_size([0, 0], 18), 18)
 
-    def test_harmonize_leaves_a_page_of_one_size_alone(self):
-        self.assertEqual(harmonize_targets([16, 16, 16]), [16, 16, 16])
-
-    def test_harmonize_is_empty_safe(self):
-        self.assertEqual(harmonize_targets([]), [])
+    def test_page_lettering_size_is_never_zero(self):
+        self.assertEqual(page_lettering_size([0], 0), 1)
 
     def test_anchor_uses_the_preferred_size_without_a_source_estimate(self):
         self.assertEqual(anchor_target(None, 16), 16)
+
+    def test_anchor_scales_the_source_em(self):
+        self.assertEqual(anchor_target(28.0, 16), 28)
 
     def test_source_glyph_size_reads_the_column_pitch(self):
         image = np.full((200, 80, 3), 255, dtype=np.uint8)
