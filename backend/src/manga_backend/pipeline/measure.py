@@ -36,9 +36,12 @@ HARMONIZE_CLAMP = 0.25
 # A source glyph estimate outside this range is a measurement failure.
 MIN_SOURCE_GLYPH = 5.0
 MAX_SOURCE_GLYPH = 160.0
-# Full-width Japanese glyphs fill about this share of their em box across the
-# stroke direction, so the cross-axis ink width over it estimates the em.
-CROSS_AXIS_SHARE = 0.85
+# A Japanese glyph's ink fills about this share of its em cell (kana sit
+# smaller than kanji, hence the generous share), so the median glyph span over
+# it estimates the em size.
+GLYPH_EM_SHARE = 0.75
+# A pitch this much larger than the glyph-box estimate means merged runs.
+advance_factor = 1.6
 # Two estimates further apart than this factor disagree because one of them
 # measured merged runs (pitch too big) or outside ink (cross too big).
 MERGED_RUN_FACTOR = 1.6
@@ -94,12 +97,13 @@ def _median_pitch(profile: np.ndarray, minimum: int = 2) -> float:
 
 
 def source_glyph_size(image: np.ndarray, block: TextBlock) -> float | None:
-    """Estimate the original lettering's em size from its projection profile.
+    """Estimate the original lettering's em size from its glyph boxes.
 
-    Vertical Japanese advances down a column, horizontal text advances along a
-    row; the run pitch in the advance direction is one em, and the cross-axis
-    ink width is about ``CROSS_AXIS_SHARE`` of an em. The median of the two
-    estimates is used so merged glyph runs do not double the answer.
+    Otsu splits the block's lettering from its paper; the median span of the
+    glyph components is then one em (Japanese lettering is drawn in square
+    cells, and a Latin glyph's height is a similar share of its em). The
+    projection profile of the advance direction is used as a cross-check and
+    as the fallback for lettering that the threshold broke into strokes.
     """
     height, width = image.shape[:2]
     x1, y1, x2, y2 = int_box(block.xyxy)
@@ -118,29 +122,32 @@ def source_glyph_size(image: np.ndarray, block: TextBlock) -> float | None:
     if int(np.count_nonzero(ink)) < 12:
         return None
 
+    count, _labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        ink.astype(np.uint8), connectivity=8
+    )
+    spans: list[float] = []
+    for label in range(1, count):
+        area = float(stats[label, cv2.CC_STAT_AREA])
+        component_width = float(stats[label, cv2.CC_STAT_WIDTH])
+        component_height = float(stats[label, cv2.CC_STAT_HEIGHT])
+        if area < 8:
+            continue
+        spans.append(max(component_width, component_height))
+    component_estimate = float(np.median(spans)) / GLYPH_EM_SHARE if spans else 0.0
+
     vertical = block.height > block.width * 1.25
     advance_profile = ink.sum(axis=1) if vertical else ink.sum(axis=0)
-    cross_profile = ink.sum(axis=0) if vertical else ink.sum(axis=1)
     advance = _median_pitch(advance_profile)
-    cross = _median_run(cross_profile) / CROSS_AXIS_SHARE if _median_run(cross_profile) > 0 else 0.0
-    estimates: list[float] = []
-    if advance > 0 and cross > 0:
-        # Touching glyphs merge runs and inflate the pitch; an outline or an
-        # adjacent glyph inflates the cross-axis ink. Keep the estimate that
-        # the other one corroborates.
-        if advance > cross * MERGED_RUN_FACTOR:
-            estimates.append(cross)
-        elif cross > advance * MERGED_RUN_FACTOR:
-            estimates.append(advance)
-        else:
-            estimates.extend((advance, cross))
+    if advance > 0 and component_estimate > 0:
+        # Touching glyphs merge runs and double the pitch; the glyph boxes
+        # then give the honest answer.
+        estimate = component_estimate if advance > advance_factor * component_estimate else advance
     elif advance > 0:
-        estimates.append(advance)
-    elif cross > 0:
-        estimates.append(cross)
-    if not estimates:
+        estimate = advance
+    else:
+        estimate = component_estimate
+    if estimate <= 0:
         return None
-    estimate = float(np.median(estimates))
     if not MIN_SOURCE_GLYPH <= estimate <= MAX_SOURCE_GLYPH:
         return None
     return estimate
