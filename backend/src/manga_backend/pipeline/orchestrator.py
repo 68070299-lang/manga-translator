@@ -392,9 +392,10 @@ class TranslationPipeline:
             final_blocks = [block for block in blocks if erase_from_translation(block)]
             if [id(block) for block in final_blocks] != [id(block) for block in erase_blocks]:
                 logger.info(
-                    "Step 4: Translation kept %s of %s blocks; rebuilding the mask",
-                    len(final_blocks),
+                    "Step 4: The erase set changed after translation (%s -> %s blocks); "
+                    "rebuilding the mask",
                     len(erase_blocks),
+                    len(final_blocks),
                 )
                 render_image = await self._inpaint(
                     image, final_blocks, inpainter, detector_type, result
