@@ -83,7 +83,6 @@ from manga_backend.pipeline import masks as masks_module  # noqa: E402
 from manga_backend.pipeline import orchestrator as orchestrator_module  # noqa: E402
 from manga_backend.pipeline import rendering as rendering_module  # noqa: E402
 from manga_backend.pipeline.fonts import get_cached_font  # noqa: E402
-from manga_backend.pipeline.regions import int_box  # noqa: E402
 from manga_backend.pipeline.inpainting import DEFAULT_INPAINTER  # noqa: E402
 from manga_backend.pipeline.text import is_unchanged_punctuation  # noqa: E402
 from manga_backend.utils.textblock import TextBlock  # noqa: E402
@@ -1123,122 +1122,18 @@ NO_INTERIOR_STRATEGIES = frozenset({"glyph", "no-closed-bubble", "unsafe-sfx"})
 def _bubble_interior_reason(image: np.ndarray, block: TextBlock, *, glyphs_present: bool) -> str:
     """Why no bubble interior was used for one block.
 
-    A diagnostic mirror of the candidate filters in
-    ``masks.bubble_interior_mask_for_block`` (masks.py:187-305): the same ROI
-    construction, the same helpers and the same rule order, so the counts
-    attribute each failure to the rule that caused it. The pipeline helpers
-    themselves are untouched; keep this function in sync with them (a unit
-    test cross-checks the two on real blocks).
+    Delegates to ``masks.bubble_interior_details`` so the diagnostic cannot
+    drift from the pipeline: the reason is the primary (flood) diagnosis when
+    both the flood and the contour fallback found nothing, ``text_free`` for
+    blocks the detector never gave bubble semantics, and the found-state
+    codes when an interior exists but the block still ended on the glyph path.
     """
+    result = masks_module.bubble_interior_details(image, block)
+    if result.found:
+        return "clipped_ink_empty" if glyphs_present else "interior_found"
     if block.block_type != "text":
-        # contour_safe_mask_for_block never tries an interior for these.
         return "text_free"
-    height, width = image.shape[:2]
-    tx1, ty1, tx2, ty2 = [int(value) for value in block.xyxy]
-    tx1, ty1 = max(0, tx1), max(0, ty1)
-    tx2, ty2 = min(width, tx2), min(height, ty2)
-    if tx2 <= tx1 or ty2 <= ty1:
-        return "no_contour"
-
-    detector_bounds: Box | None = None
-    bubble = block.bubble_xyxy
-    if bubble is not None:
-        try:
-            candidate = int_box(bubble)
-        except (TypeError, ValueError):
-            candidate = None
-        if candidate is not None and candidate[2] > candidate[0] and candidate[3] > candidate[1]:
-            detector_bounds = candidate
-
-    if detector_bounds is not None:
-        bx1, by1, bx2, by2 = detector_bounds
-        padding = max(6, int(min(bx2 - bx1, by2 - by1) * 0.08))
-        x1, y1 = max(0, bx1 - padding), max(0, by1 - padding)
-        x2, y2 = min(width, bx2 + padding), min(height, by2 + padding)
-    else:
-        padding_x = max(32, int((tx2 - tx1) * 1.25), int((ty2 - ty1) * 0.5))
-        padding_y = max(32, int((ty2 - ty1) * 0.75), int((tx2 - tx1) * 1.25))
-        x1, y1 = max(0, tx1 - padding_x), max(0, ty1 - padding_y)
-        x2, y2 = min(width, tx2 + padding_x), min(height, ty2 + padding_y)
-
-    roi = image[y1:y2, x1:x2]
-    if roi.size == 0 or min(roi.shape[:2]) < 5:
-        return "no_contour"
-
-    gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
-    local_text = (tx1 - x1, ty1 - y1, tx2 - x1, ty2 - y1)
-    structure_gray = gray.copy()
-    sx1, sy1 = max(0, local_text[0]), max(0, local_text[1])
-    sx2, sy2 = min(gray.shape[1], local_text[2]), min(gray.shape[0], local_text[3])
-    if sx2 > sx1 and sy2 > sy1:
-        structure_gray[sy1:sy2, sx1:sx2] = int(np.percentile(gray, 90))
-    blurred = cv2.GaussianBlur(structure_gray, (3, 3), 0)
-    otsu_threshold, _binary = cv2.threshold(
-        blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-    )
-    dark_threshold = int(np.clip(otsu_threshold, 70, 210))
-    dark = np.where(blurred <= dark_threshold, 255, 0).astype(np.uint8)
-    edges = cv2.Canny(blurred, 50, 150)
-    outline = cv2.bitwise_or(dark, edges)
-    outline = cv2.morphologyEx(
-        outline, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8), iterations=1
-    )
-    contours, _hierarchy = cv2.findContours(
-        outline, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
-    )
-    if not contours:
-        return "no_contour"
-
-    text_width = max(1, local_text[2] - local_text[0])
-    text_height = max(1, local_text[3] - local_text[1])
-    text_area = text_width * text_height
-    center = (
-        (local_text[0] + local_text[2]) / 2.0,
-        (local_text[1] + local_text[3]) / 2.0,
-    )
-    roi_height, roi_width = gray.shape
-    candidates: list[tuple[float, Any]] = []
-    single_failures: Counter[str] = Counter()
-    for contour in contours:
-        area = float(abs(cv2.contourArea(contour)))
-        failed: list[str] = []
-        if area < max(48.0, text_area * 1.15) or area >= roi.size / 3 * 0.9:
-            failed.append("area")
-        if cv2.pointPolygonTest(contour, center, False) < 0:
-            failed.append("center")
-        cx, cy, cw, ch = cv2.boundingRect(contour)
-        if cx <= 1 or cy <= 1 or cx + cw >= roi_width - 1 or cy + ch >= roi_height - 1:
-            failed.append("edge")
-        overlap_width = max(0, min(cx + cw, local_text[2]) - max(cx, local_text[0]))
-        overlap_height = max(0, min(cy + ch, local_text[3]) - max(cy, local_text[1]))
-        if overlap_width * overlap_height < text_area * 0.75:
-            failed.append("overlap")
-        if not failed:
-            candidates.append((area, contour))
-        elif len(failed) == 1:
-            single_failures[failed[0]] += 1
-
-    if not candidates:
-        # No contour survived; report the rule that rejected the near misses.
-        if single_failures.get("edge"):
-            return "contour_touches_roi_edge"
-        if single_failures.get("area"):
-            return "area_test_failed"
-        return "no_contour"
-
-    _area, contour = min(candidates, key=lambda candidate: candidate[0])
-    interior = np.zeros(gray.shape, dtype=np.uint8)
-    cv2.drawContours(interior, [contour], -1, 255, thickness=cv2.FILLED)
-    interior = cv2.erode(interior, np.ones((3, 3), np.uint8), iterations=2)
-    text_roi = interior[
-        max(0, local_text[1]) : min(roi_height, local_text[3]),
-        max(0, local_text[0]) : min(roi_width, local_text[2]),
-    ]
-    if text_roi.size == 0 or np.count_nonzero(text_roi) < text_area * 0.35:
-        return "coverage_below_35"
-    # An interior was found and kept, so a block still on the glyph path lost
-    # its glyphs to the interior clipping, not to the contour search.
-    return "clipped_ink_empty" if glyphs_present else "interior_found"
+    return result.reason
 
 
 def _mask_reason_codes(image: np.ndarray, probe: PageProbe) -> dict[str, int]:
@@ -1802,6 +1697,10 @@ METRICS: tuple[tuple[str, str, str | None], ...] = (
     ("mask.suppressed_composites", "Composite duplicates not masked", None),
     ("mask.mask_px", "Masked px", None),
     ("mask.reason_codes.text_free", "Mask reason: text_free block", None),
+    ("mask.reason_codes.flood_leak", "Mask reason: flood leaked (open bubble)", None),
+    ("mask.reason_codes.no_paper_seed", "Mask reason: no paper seed", None),
+    ("mask.reason_codes.flood_small", "Mask reason: flood fill too small", None),
+    ("mask.reason_codes.flood_coverage", "Mask reason: flood uncovered the text", None),
     ("mask.reason_codes.no_contour", "Mask reason: no contour found", None),
     ("mask.reason_codes.contour_touches_roi_edge", "Mask reason: contour touches ROI edge", None),
     ("mask.reason_codes.area_test_failed", "Mask reason: area test failed", None),

@@ -21,6 +21,7 @@ from manga_backend.pipeline import TranslationPipeline
 from manga_backend.pipeline import masks as masks_module
 from manga_backend.pipeline import orchestrator as orchestrator_module
 from manga_backend.pipeline import rendering as rendering_module
+from manga_backend.pipeline.fill_tiers import TIER_MODEL, FillDecision
 from manga_backend.utils.textblock import TextBlock
 from test_support import writable_temp_directory
 
@@ -161,10 +162,14 @@ class SyntheticCorpusTests(unittest.TestCase):
         )
         # The fill router now serves the LaMa route too, so white-bubble
         # blocks are tier-filled instead of being handed to the model.
-        self.assertGreater(self.result["summary"]["mask"]["white_fill_blocks"], 0)
-        self.assertGreater(
-            self.result["summary"]["mask"]["model_blocks"], 0
-        )
+        filled = self.result["summary"]["mask"]["white_fill_blocks"]
+        queued = self.result["summary"]["mask"]["model_blocks"]
+        self.assertGreater(filled, 0)
+        # Every non-skipped block is either verified by a tier or queued for
+        # the model; the cleaner ink masks leave the synthetic corpus fully
+        # tier-fillable, so the split is checked for consistency rather than
+        # for a non-zero model count.
+        self.assertEqual(filled + queued, kinds["contour_safe_glyph"])
 
     def test_residue_counts_only_blocks_that_still_read_as_japanese(self):
         residue = self.result["summary"]["cjk_residue"]
@@ -257,33 +262,53 @@ class HarnessModeTests(unittest.TestCase):
             loaded.append(inpainter_type)
             return FailingFlux() if inpainter_type.startswith("flux") else TeleaInpainter()
 
+        # Cleaner masks leave the synthetic corpus fully tier-fillable, so the
+        # fallback leg is exercised by declining the tiers by hand: this test
+        # is about the flux -> lama fallback plumbing, not about a tier verdict.
+        def decline(crop, mask, excluded, interior_mode, valid=None):
+            return (
+                FillDecision(
+                    TIER_MODEL, None, int(np.count_nonzero(mask > 0)), 0, 0, "test"
+                ),
+                None,
+            )
+
+        config = eval_pipeline.RunConfig(
+            label="flux",
+            detector=eval_pipeline.TRUTH_DETECTOR,
+            inpainter="flux2_klein_lanpaint",
+            warmup=False,
+        )
         with patch("manga_backend.pipeline.inpainting.create_inpainter", create):
-            result = asyncio.run(
+            white_result = asyncio.run(
                 eval_pipeline.run_corpus(
-                    pipeline,
-                    # Tone and hatching are now lattice-filled without a model,
-                    # so the fallback leg needs a page whose band no tier can
-                    # verify: lettering that crosses the bubble outline.
-                    synthetic_pages("syn-white-bubbles", "syn-text-touching-outline"),
-                    CORPUS.parent,
-                    eval_pipeline.RunConfig(
-                        label="flux",
-                        detector=eval_pipeline.TRUTH_DETECTOR,
-                        inpainter="flux2_klein_lanpaint",
-                        warmup=False,
-                    ),
+                    pipeline, synthetic_pages("syn-white-bubbles"), CORPUS.parent, config
                 )
             )
-        white, textured = result["pages"]
+        with (
+            patch("manga_backend.pipeline.inpainting.create_inpainter", create),
+            patch.object(masks_module, "route_block_fill", decline),
+        ):
+            textured_result = asyncio.run(
+                eval_pipeline.run_corpus(
+                    pipeline,
+                    synthetic_pages("syn-text-touching-outline"),
+                    CORPUS.parent,
+                    config,
+                )
+            )
+        white = white_result["pages"][0]
+        textured = textured_result["pages"][0]
         self.assertEqual(white["mask"]["path"], "flux")
         self.assertEqual(white["mask"]["white_fill_blocks"], 4)
         self.assertGreater(white["mask"]["white_fill_px"], 0)
         self.assertEqual(white["inpaint"]["strategy"], "fill_tiers")
+        self.assertEqual(white_result["summary"]["inpaint"]["fallback_pages"], 0)
         self.assertGreater(textured["mask"]["model_blocks"], 0)
         self.assertTrue(textured["inpaint"]["fallback"])
         self.assertEqual(textured["inpaint"]["used"], "lama_large")
-        self.assertEqual(result["summary"]["inpaint"]["fallback_pages"], 1)
-        self.assertEqual(result["summary"]["inpaint"]["changed_outside_mask_px"], 0)
+        self.assertEqual(textured_result["summary"]["inpaint"]["fallback_pages"], 1)
+        self.assertEqual(textured_result["summary"]["inpaint"]["changed_outside_mask_px"], 0)
         self.assertIn("lama_large", loaded)
 
     def test_leaky_inpainter_yields_no_changed_pixels_outside_the_mask(self):
@@ -656,6 +681,10 @@ class MaskReasonCodeTests(unittest.TestCase):
                         self.assertIn(
                             reason,
                             {
+                                "flood_leak",
+                                "no_paper_seed",
+                                "flood_small",
+                                "flood_coverage",
                                 "no_contour",
                                 "contour_touches_roi_edge",
                                 "area_test_failed",
@@ -666,15 +695,8 @@ class MaskReasonCodeTests(unittest.TestCase):
                         self.assertIn(reason, {"clipped_ink_empty", "interior_found"})
 
     def test_crafted_reasons_for_each_rule(self):
-        def draw_rect(image, box, width):
-            x1, y1, x2, y2 = box
-            image[y1 : y1 + width, x1:x2] = 0
-            image[y2 - width : y2, x1:x2] = 0
-            image[y1:y2, x1 : x1 + width] = 0
-            image[y1:y2, x2 - width : x2] = 0
-            return image
-
-        # text_free: sfx blocks never try an interior.
+        # text_free: a block the detector never gave bubble semantics and
+        # whose crop holds no closed bubble.
         block = TextBlock([10, 10, 20, 20], block_type="sfx")
         self.assertEqual(
             eval_pipeline._bubble_interior_reason(
@@ -683,43 +705,51 @@ class MaskReasonCodeTests(unittest.TestCase):
             "text_free",
         )
 
-        # no contour: a flat white ROI has no contour at all.
+        # flood_leak: a flat white crop gives the flood nothing to stop at,
+        # so the fill runs to the crop border and is rejected.
         blank = np.full((260, 260, 3), 255, dtype=np.uint8)
         block = TextBlock([100, 100, 160, 160], block_type="text")
         block.bubble_xyxy = [80, 80, 180, 180]
         self.assertEqual(
             eval_pipeline._bubble_interior_reason(blank, block, glyphs_present=True),
-            "no_contour",
+            "flood_leak",
         )
 
-        # area test failed: a ring hugs the text box, so both its contours
-        # pass the center, overlap and edge rules but stay under the area
-        # floor (1.15x the text box area, masks.py:273).
+        # An all-ink crop has no usable seed either, and is reported as a
+        # flood failure rather than as a contour rule.
+        ink = np.zeros((260, 260, 3), dtype=np.uint8)
+        block = TextBlock([100, 100, 160, 160], block_type="text")
+        self.assertIn(
+            eval_pipeline._bubble_interior_reason(ink, block, glyphs_present=True),
+            {"no_paper_seed", "flood_leak", "flood_small"},
+        )
+
+        # A closed bubble now yields an interior, so the block is reported as
+        # "interior found" (glyph path) rather than as a contour failure.
+        closed = np.full((260, 260, 3), 255, dtype=np.uint8)
+        cv2.ellipse(closed, (130, 130), (100, 80), 0, 0, 360, (0, 0, 0), 3)
+        block = TextBlock([110, 110, 150, 150], block_type="text")
+        block.bubble_xyxy = [30, 50, 230, 210]
+        self.assertEqual(
+            eval_pipeline._bubble_interior_reason(closed, block, glyphs_present=True),
+            "clipped_ink_empty",
+        )
+        self.assertEqual(
+            eval_pipeline._bubble_interior_reason(closed, block, glyphs_present=False),
+            "interior_found",
+        )
+
+    def test_contour_fallback_keeps_its_own_rule_codes(self):
+        # The rules that used to attribute a missing interior now live in the
+        # pipeline fallback; they are checked directly there.
         hug = np.full((260, 260, 3), 255, dtype=np.uint8)
-        draw_rect(hug, (56, 56, 204, 204), 10)
-        block = TextBlock([60, 60, 200, 200], block_type="text")
-        block.bubble_xyxy = [50, 50, 210, 210]
+        hug[56:66, 56:204] = 0
+        hug[194:204, 56:204] = 0
+        hug[56:204, 56:66] = 0
+        hug[56:204, 194:204] = 0
         self.assertEqual(
-            eval_pipeline._bubble_interior_reason(hug, block, glyphs_present=True),
-            "area_test_failed",
-        )
-
-        # contour touches the ROI edge: a rectangular frame around the text
-        # box reaches the ROI boundary (the detector bubble box plus 8%
-        # padding) on its left side, so findContours sees the outer contour
-        # clipped at the edge and the edge rule rejects it (masks.py:278).
-        # The hole of the frame is exactly the blanked text rectangle, so
-        # blanking cannot open it.
-        clipped = np.full((260, 260, 3), 255, dtype=np.uint8)
-        clipped[70:80, 38:180] = 0  # top band
-        clipped[170:180, 38:180] = 0  # bottom band
-        clipped[70:180, 38:80] = 0  # left band, on the ROI edge
-        clipped[70:180, 170:180] = 0  # right band, inside the ROI
-        block = TextBlock([80, 80, 170, 170], block_type="text")
-        block.bubble_xyxy = [50, 50, 200, 200]
-        self.assertEqual(
-            eval_pipeline._bubble_interior_reason(clipped, block, glyphs_present=True),
-            "contour_touches_roi_edge",
+            masks_module._contour_interior(hug, (60, 60, 200, 200))[1],
+            masks_module.INTERIOR_CONTOUR_AREA,
         )
 
 
@@ -778,11 +808,14 @@ class AdversarialPageTests(unittest.TestCase):
                 ):
                     self.assertIn(key, page["truth"])
 
-    def test_faint_lettering_leaves_a_mask_miss(self):
+    def test_faint_lettering_is_masked(self):
+        # H4: the old dark-only threshold passed 185-level lettering by, so
+        # the page used to leave a mask miss; the clustered ink mask now
+        # covers it (the bubble interiors also find these blocks).
         result = run(synthetic_pages_by_name("faint-lettering"))
         truth = result["pages"][0]["truth"]
-        self.assertLess(truth["ink_mask_recall"], 1.0)
-        self.assertGreater(truth["residual_out_of_mask_ratio"], 0.0)
+        self.assertEqual(truth["ink_mask_recall"], 1.0)
+        self.assertEqual(truth["residual_out_of_mask_ratio"], 0.0)
 
 
 class CharacterErrorRateTests(unittest.TestCase):
