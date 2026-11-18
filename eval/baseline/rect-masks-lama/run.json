@@ -1,9 +1,9 @@
 {
   "schema_version": 2,
-  "label": "wp4-fill-router-rect-masks-lama",
-  "created_utc": "2026-11-18T09:22:32Z",
+  "label": "wp5-ink-masks-rect-masks-lama",
+  "created_utc": "2026-11-18T12:07:36Z",
   "config": {
-    "label": "wp4-fill-router-rect-masks-lama",
+    "label": "wp5-ink-masks-rect-masks-lama",
     "detector": "rtdetr",
     "mask_mode": "rectangular",
     "inpainter": "lama_large",
@@ -141,9 +141,9 @@
       "verify": {
         "ran": true,
         "checked": 4,
-        "step6_flagged": 1,
+        "step6_flagged": 2,
         "rendered_checked": 4,
-        "kana_kanji": 1
+        "kana_kanji": 2
       },
       "truth": {
         "boxes": 4,
@@ -163,15 +163,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 1.3502,
-        "ocr": 1.0982,
+        "detect": 0.8414,
+        "ocr": 0.7059,
         "translate": 0.0001,
-        "mask": 0.0222,
-        "inpaint_model": 9.2353,
-        "render": 0.0744,
-        "verify": 1.8888,
-        "total": 13.7059,
-        "other": 0.0367
+        "mask": 0.0123,
+        "inpaint_model": 5.4604,
+        "render": 0.2198,
+        "verify": 0.9076,
+        "total": 8.1807,
+        "other": 0.0332
       }
     },
     {
@@ -286,15 +286,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 1.3276,
-        "ocr": 0.9886,
-        "translate": 0.0001,
-        "mask": 0.017,
+        "detect": 0.6707,
+        "ocr": 0.5406,
+        "translate": 0.0,
+        "mask": 0.013,
         "inpaint_model": 0.0,
-        "render": 0.038,
-        "verify": 1.0762,
-        "total": 3.4546,
-        "other": 0.0071
+        "render": 0.0711,
+        "verify": 0.4631,
+        "total": 1.7626,
+        "other": 0.0041
       }
     },
     {
@@ -424,15 +424,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 1.1873,
-        "ocr": 1.2006,
-        "translate": 0.0025,
-        "mask": 0.1695,
+        "detect": 0.8056,
+        "ocr": 0.6262,
+        "translate": 0.0021,
+        "mask": 0.0561,
         "inpaint_model": 0.0,
-        "render": 0.0436,
-        "verify": 1.3407,
-        "total": 3.9521,
-        "other": 0.0079
+        "render": 0.0257,
+        "verify": 0.6345,
+        "total": 2.1549,
+        "other": 0.0047
       }
     },
     {
@@ -546,15 +546,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 1.2975,
-        "ocr": 0.7111,
-        "translate": 0.0002,
-        "mask": 0.2836,
+        "detect": 0.7893,
+        "ocr": 0.4013,
+        "translate": 0.0,
+        "mask": 0.2185,
         "inpaint_model": 0.0,
-        "render": 0.0219,
-        "verify": 0.8609,
-        "total": 3.1807,
-        "other": 0.0055
+        "render": 0.0076,
+        "verify": 0.434,
+        "total": 1.8555,
+        "other": 0.0048
       }
     },
     {
@@ -669,9 +669,9 @@
       "verify": {
         "ran": true,
         "checked": 4,
-        "step6_flagged": 1,
+        "step6_flagged": 0,
         "rendered_checked": 4,
-        "kana_kanji": 1
+        "kana_kanji": 0
       },
       "truth": {
         "boxes": 4,
@@ -691,15 +691,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 1.3799,
-        "ocr": 1.5422,
+        "detect": 0.9891,
+        "ocr": 0.7136,
         "translate": 0.0001,
-        "mask": 0.0127,
+        "mask": 0.0065,
         "inpaint_model": 0.0,
-        "render": 0.3012,
-        "verify": 1.844,
-        "total": 5.0971,
-        "other": 0.017
+        "render": 0.2037,
+        "verify": 0.8954,
+        "total": 2.8172,
+        "other": 0.0088
       }
     },
     {
@@ -840,15 +840,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 1.2271,
-        "ocr": 1.5738,
-        "translate": 0.0023,
-        "mask": 0.5228,
+        "detect": 0.6896,
+        "ocr": 0.696,
+        "translate": 0.0001,
+        "mask": 0.2311,
         "inpaint_model": 0.0,
-        "render": 0.0328,
-        "verify": 1.8319,
-        "total": 5.1992,
-        "other": 0.0085
+        "render": 0.0344,
+        "verify": 0.9191,
+        "total": 2.5749,
+        "other": 0.0046
       }
     },
     {
@@ -977,15 +977,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 1.3654,
-        "ocr": 1.5384,
-        "translate": 0.0002,
-        "mask": 0.1973,
+        "detect": 0.8372,
+        "ocr": 0.6048,
+        "translate": 0.0,
+        "mask": 0.0871,
         "inpaint_model": 0.0,
-        "render": 0.2349,
-        "verify": 1.6896,
-        "total": 5.0345,
-        "other": 0.0087
+        "render": 0.1965,
+        "verify": 0.8787,
+        "total": 2.609,
+        "other": 0.0047
       }
     },
     {
@@ -1091,9 +1091,9 @@
       "verify": {
         "ran": true,
         "checked": 3,
-        "step6_flagged": 1,
+        "step6_flagged": 2,
         "rendered_checked": 3,
-        "kana_kanji": 1
+        "kana_kanji": 2
       },
       "truth": {
         "boxes": 3,
@@ -1113,15 +1113,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 1.1664,
-        "ocr": 1.1471,
+        "detect": 0.794,
+        "ocr": 0.7236,
         "translate": 0.0001,
-        "mask": 0.0307,
-        "inpaint_model": 9.6433,
-        "render": 0.1196,
-        "verify": 1.1638,
-        "total": 13.304,
-        "other": 0.033
+        "mask": 0.0098,
+        "inpaint_model": 6.8914,
+        "render": 0.2003,
+        "verify": 0.6593,
+        "total": 9.3,
+        "other": 0.0215
       }
     },
     {
@@ -1345,15 +1345,15 @@
       },
       "truth": null,
       "timings": {
-        "detect": 1.2722,
-        "ocr": 5.8215,
-        "translate": 0.0015,
-        "mask": 0.9477,
-        "inpaint_model": 4.9921,
-        "render": 0.2238,
-        "verify": 10.1285,
-        "total": 23.4112,
-        "other": 0.0239
+        "detect": 0.8256,
+        "ocr": 3.1083,
+        "translate": 0.0024,
+        "mask": 0.6787,
+        "inpaint_model": 3.4697,
+        "render": 0.1777,
+        "verify": 4.284,
+        "total": 12.5668,
+        "other": 0.0204
       }
     },
     {
@@ -1677,15 +1677,15 @@
       },
       "truth": null,
       "timings": {
-        "detect": 1.4221,
-        "ocr": 10.811,
-        "translate": 0.0002,
-        "mask": 1.0214,
-        "inpaint_model": 9.5639,
-        "render": 0.2541,
-        "verify": 10.9916,
-        "total": 34.1219,
-        "other": 0.0576
+        "detect": 0.9001,
+        "ocr": 6.1453,
+        "translate": 0.0003,
+        "mask": 0.6977,
+        "inpaint_model": 6.6945,
+        "render": 0.3951,
+        "verify": 6.9836,
+        "total": 21.8584,
+        "other": 0.0418
       }
     },
     {
@@ -2042,15 +2042,15 @@
       },
       "truth": null,
       "timings": {
-        "detect": 1.4922,
-        "ocr": 10.4649,
+        "detect": 1.1923,
+        "ocr": 6.0325,
         "translate": 0.0002,
-        "mask": 1.094,
-        "inpaint_model": 18.6798,
-        "render": 0.2041,
-        "verify": 11.6428,
-        "total": 43.6268,
-        "other": 0.0488
+        "mask": 0.9279,
+        "inpaint_model": 15.8269,
+        "render": 0.514,
+        "verify": 7.5925,
+        "total": 32.1222,
+        "other": 0.0359
       }
     }
   ],
@@ -2065,11 +2065,11 @@
     },
     "cjk_residue": {
       "step6_checked": 89,
-      "step6_flagged": 24,
-      "step6_rate": 0.2697,
+      "step6_flagged": 25,
+      "step6_rate": 0.2809,
       "rendered_checked": 87,
-      "kana_kanji": 24,
-      "kana_kanji_rate": 0.2759
+      "kana_kanji": 25,
+      "kana_kanji_rate": 0.2874
     },
     "inpaint": {
       "changed_outside_mask_px": 0,
@@ -2131,17 +2131,17 @@
       "touched_away_px": 71455
     },
     "timings": {
-      "detect": 14.488,
-      "ocr": 36.897,
-      "translate": 0.007,
-      "mask": 4.319,
-      "inpaint_model": 52.114,
-      "render": 1.548,
-      "verify": 44.459,
-      "other": 0.255,
-      "total": 154.088
+      "detect": 9.335,
+      "ocr": 20.298,
+      "translate": 0.005,
+      "mask": 2.939,
+      "inpaint_model": 38.343,
+      "render": 2.046,
+      "verify": 24.652,
+      "other": 0.184,
+      "total": 97.802
     },
-    "seconds_per_page": 14.008,
+    "seconds_per_page": 8.891,
     "by_tag": {
       "adversarial": {
         "pages": {
@@ -2154,11 +2154,11 @@
         },
         "cjk_residue": {
           "step6_checked": 10,
-          "step6_flagged": 2,
-          "step6_rate": 0.2,
+          "step6_flagged": 3,
+          "step6_rate": 0.3,
           "rendered_checked": 10,
-          "kana_kanji": 2,
-          "kana_kanji_rate": 0.2
+          "kana_kanji": 3,
+          "kana_kanji_rate": 0.3
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
@@ -2219,17 +2219,17 @@
           "touched_away_px": 25814
         },
         "timings": {
-          "detect": 3.759,
-          "ocr": 4.259,
-          "translate": 0.003,
-          "mask": 0.751,
-          "inpaint_model": 9.643,
-          "render": 0.387,
-          "verify": 4.685,
-          "other": 0.05,
-          "total": 23.538
+          "detect": 2.321,
+          "ocr": 2.024,
+          "translate": 0.0,
+          "mask": 0.328,
+          "inpaint_model": 6.891,
+          "render": 0.431,
+          "verify": 2.457,
+          "other": 0.031,
+          "total": 14.484
         },
-        "seconds_per_page": 7.846
+        "seconds_per_page": 4.828
       },
       "bookwalker": {
         "pages": {
@@ -2307,17 +2307,17 @@
           "touched_away_px": 0
         },
         "timings": {
-          "detect": 2.914,
-          "ocr": 21.276,
-          "translate": 0.0,
-          "mask": 2.115,
-          "inpaint_model": 28.244,
-          "render": 0.458,
-          "verify": 22.634,
-          "other": 0.106,
-          "total": 77.749
+          "detect": 2.092,
+          "ocr": 12.178,
+          "translate": 0.001,
+          "mask": 1.626,
+          "inpaint_model": 22.521,
+          "render": 0.909,
+          "verify": 14.576,
+          "other": 0.078,
+          "total": 53.981
         },
-        "seconds_per_page": 38.874
+        "seconds_per_page": 26.991
       },
       "conjoined-bubbles": {
         "pages": {
@@ -2395,17 +2395,17 @@
           "touched_away_px": 60
         },
         "timings": {
-          "detect": 4.242,
-          "ocr": 22.265,
+          "detect": 2.763,
+          "ocr": 12.718,
           "translate": 0.001,
-          "mask": 2.132,
-          "inpaint_model": 28.244,
-          "render": 0.496,
-          "verify": 23.711,
-          "other": 0.114,
-          "total": 81.203
+          "mask": 1.639,
+          "inpaint_model": 22.521,
+          "render": 0.98,
+          "verify": 15.039,
+          "other": 0.082,
+          "total": 55.743
         },
-        "seconds_per_page": 27.068
+        "seconds_per_page": 18.581
       },
       "horizontal-text": {
         "pages": {
@@ -2484,17 +2484,17 @@
           "touched_away_px": 31997
         },
         "timings": {
-          "detect": 6.326,
-          "ocr": 7.002,
-          "translate": 0.005,
-          "mask": 0.933,
-          "inpaint_model": 9.643,
-          "render": 0.732,
-          "verify": 7.87,
-          "other": 0.075,
-          "total": 32.587
+          "detect": 4.115,
+          "ocr": 3.364,
+          "translate": 0.002,
+          "mask": 0.391,
+          "inpaint_model": 6.891,
+          "render": 0.661,
+          "verify": 3.987,
+          "other": 0.044,
+          "total": 19.456
         },
-        "seconds_per_page": 6.517
+        "seconds_per_page": 3.891
       },
       "light-on-dark": {
         "pages": {
@@ -2572,17 +2572,17 @@
           "touched_away_px": 6183
         },
         "timings": {
-          "detect": 1.187,
-          "ocr": 1.201,
-          "translate": 0.003,
-          "mask": 0.17,
+          "detect": 0.806,
+          "ocr": 0.626,
+          "translate": 0.002,
+          "mask": 0.056,
           "inpaint_model": 0.0,
-          "render": 0.044,
-          "verify": 1.341,
-          "other": 0.008,
-          "total": 3.952
+          "render": 0.026,
+          "verify": 0.634,
+          "other": 0.005,
+          "total": 2.155
         },
-        "seconds_per_page": 3.952
+        "seconds_per_page": 2.155
       },
       "narration": {
         "pages": {
@@ -2661,17 +2661,17 @@
           "touched_away_px": 6628
         },
         "timings": {
-          "detect": 3.687,
-          "ocr": 8.596,
-          "translate": 0.006,
-          "mask": 1.64,
-          "inpaint_model": 4.992,
-          "render": 0.3,
-          "verify": 13.301,
-          "other": 0.04,
-          "total": 32.562
+          "detect": 2.321,
+          "ocr": 4.43,
+          "translate": 0.005,
+          "mask": 0.966,
+          "inpaint_model": 3.47,
+          "render": 0.238,
+          "verify": 5.838,
+          "other": 0.03,
+          "total": 17.297
         },
-        "seconds_per_page": 10.854
+        "seconds_per_page": 5.766
       },
       "sfx": {
         "pages": {
@@ -2749,17 +2749,17 @@
           "touched_away_px": 445
         },
         "timings": {
-          "detect": 6.711,
-          "ocr": 29.382,
-          "translate": 0.004,
-          "mask": 3.87,
-          "inpaint_model": 33.236,
-          "render": 0.737,
-          "verify": 35.456,
-          "other": 0.144,
-          "total": 109.54
+          "detect": 4.397,
+          "ocr": 16.383,
+          "translate": 0.003,
+          "mask": 2.754,
+          "inpaint_model": 25.991,
+          "render": 1.129,
+          "verify": 20.213,
+          "other": 0.107,
+          "total": 70.978
         },
-        "seconds_per_page": 21.908
+        "seconds_per_page": 14.196
       },
       "textured-background": {
         "pages": {
@@ -2838,17 +2838,17 @@
           "touched_away_px": 6628
         },
         "timings": {
-          "detect": 9.264,
-          "ocr": 32.121,
-          "translate": 0.007,
-          "mask": 4.236,
-          "inpaint_model": 33.236,
-          "render": 1.015,
-          "verify": 38.486,
-          "other": 0.161,
-          "total": 118.526
+          "detect": 6.04,
+          "ocr": 17.614,
+          "translate": 0.005,
+          "mask": 2.897,
+          "inpaint_model": 25.991,
+          "render": 1.351,
+          "verify": 21.726,
+          "other": 0.117,
+          "total": 75.742
         },
-        "seconds_per_page": 16.932
+        "seconds_per_page": 10.82
       },
       "vertical-text": {
         "pages": {
@@ -2861,11 +2861,11 @@
         },
         "cjk_residue": {
           "step6_checked": 83,
-          "step6_flagged": 23,
-          "step6_rate": 0.2771,
+          "step6_flagged": 25,
+          "step6_rate": 0.3012,
           "rendered_checked": 81,
-          "kana_kanji": 23,
-          "kana_kanji_rate": 0.284
+          "kana_kanji": 25,
+          "kana_kanji_rate": 0.3086
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
@@ -2927,17 +2927,17 @@
           "touched_away_px": 71455
         },
         "timings": {
-          "detect": 11.81,
-          "ocr": 34.644,
-          "translate": 0.007,
-          "mask": 4.023,
-          "inpaint_model": 52.114,
-          "render": 1.225,
-          "verify": 41.754,
-          "other": 0.232,
-          "total": 145.81
+          "detect": 7.556,
+          "ocr": 19.183,
+          "translate": 0.005,
+          "mask": 2.714,
+          "inpaint_model": 38.343,
+          "render": 1.835,
+          "verify": 23.322,
+          "other": 0.171,
+          "total": 93.13
         },
-        "seconds_per_page": 16.201
+        "seconds_per_page": 10.348
       },
       "webtoon-strip": {
         "pages": {
@@ -2950,11 +2950,11 @@
         },
         "cjk_residue": {
           "step6_checked": 4,
-          "step6_flagged": 1,
-          "step6_rate": 0.25,
+          "step6_flagged": 0,
+          "step6_rate": 0.0,
           "rendered_checked": 4,
-          "kana_kanji": 1,
-          "kana_kanji_rate": 0.25
+          "kana_kanji": 0,
+          "kana_kanji_rate": 0.0
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
@@ -3013,17 +3013,17 @@
           "touched_away_px": 0
         },
         "timings": {
-          "detect": 1.38,
-          "ocr": 1.542,
+          "detect": 0.989,
+          "ocr": 0.714,
           "translate": 0.0,
-          "mask": 0.013,
+          "mask": 0.006,
           "inpaint_model": 0.0,
-          "render": 0.301,
-          "verify": 1.844,
-          "other": 0.017,
-          "total": 5.097
+          "render": 0.204,
+          "verify": 0.895,
+          "other": 0.009,
+          "total": 2.817
         },
-        "seconds_per_page": 5.097
+        "seconds_per_page": 2.817
       },
       "white-bubble": {
         "pages": {
@@ -3036,11 +3036,11 @@
         },
         "cjk_residue": {
           "step6_checked": 80,
-          "step6_flagged": 23,
-          "step6_rate": 0.2875,
+          "step6_flagged": 24,
+          "step6_rate": 0.3,
           "rendered_checked": 78,
-          "kana_kanji": 23,
-          "kana_kanji_rate": 0.2949
+          "kana_kanji": 24,
+          "kana_kanji_rate": 0.3077
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
@@ -3101,22 +3101,22 @@
           "touched_away_px": 64827
         },
         "timings": {
-          "detect": 10.776,
-          "ocr": 33.412,
+          "detect": 7.05,
+          "ocr": 18.575,
           "translate": 0.003,
-          "mask": 3.343,
-          "inpaint_model": 52.114,
-          "render": 1.45,
-          "verify": 40.425,
-          "other": 0.233,
-          "total": 141.756
+          "mask": 2.433,
+          "inpaint_model": 38.343,
+          "render": 1.978,
+          "verify": 22.664,
+          "other": 0.17,
+          "total": 91.217
         },
-        "seconds_per_page": 17.72
+        "seconds_per_page": 11.402
       }
     }
   },
   "environment": {
-    "git_commit": "f048e045e079",
+    "git_commit": "0c09aec693d5",
     "git_dirty": false,
     "python": "3.13.5",
     "platform": "Windows 11 AMD64",

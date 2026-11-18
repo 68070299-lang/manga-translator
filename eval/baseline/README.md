@@ -1,18 +1,21 @@
 # Baselines
 
 Four runs of `scripts/eval_pipeline.py` on `eval/corpus.json` (11 pages), made
-on commit `f048e045` (clean tree). That commit is **WP4, the verified
-fill-tier router**: the white-or-model choice is gone; every block is now
-filled by the cheapest tier that reproduces a held-out band of its context
-ring (tier 0 flat, tier 1 smooth plane, tier 2 periodic lattice copy), and only
-blocks no tier can verify reach the model (crop LaMa, FLUX above it). Each
-folder holds `run.json` and `summary.md`. No images are committed.
+on commit `0c09aec693d5` (clean tree). That commit is **WP5, the
+ink-structure masks and seeded flood-fill bubble interiors**: the glyph mask
+is now built by clustering the crop's Lab colours against a paper estimate,
+classifying components by distance-transform stroke width (line art, periodic
+tone dots, mid-tone structure) and growing outline rings and unmixed halos;
+the bubble interior is a seeded flood fill over paper with leak rejection,
+falling back to the old smallest-closed-contour search. The router
+(tiers 0-2) and the crop-LaMa/FLUX model tier are unchanged. Each folder holds
+`run.json` and `summary.md`. No images are committed.
 
 | Folder | Flags | What it measures |
 | --- | --- | --- |
 | `rtdetr-default` | `--inpainter flux2_klein_lanpaint` | The backend default route: RT-DETR boxes, contour-safe masks, router tiers, model fallback. |
 | `rtdetr-lama` | `--inpainter lama_large` | Same masks; blocks that fail every tier go to crop LaMa. |
-| `rect-masks-default` | `--mask-mode rectangular --inpainter flux2_klein_lanpaint` | Same as `rtdetr-default` (see "rect-masks-default is now the contour route" below). |
+| `rect-masks-default` | `--mask-mode rectangular --inpainter flux2_klein_lanpaint` | Same as `rtdetr-default` (see "rect-masks-default is still the contour route" below). |
 | `rect-masks-lama` | `--mask-mode rectangular --inpainter lama_large` | Real rectangular masks on RT-DETR boxes, router tiers, LaMa for the rest. |
 
 To compare a change against one of them:
@@ -34,168 +37,164 @@ uv run --project backend --locked python scripts/eval_pipeline.py --compare eval
   untimed warm-up page, and the `POST /translate` render defaults.
 - **Pages.** All 11 pages: 5 original synthetic, 3 adversarial synthetic and
   the 3 private pages in `eval/pages/`. Synthetic lettering used MS Gothic.
+- **Clean trees.** Each run went to `eval/runs/base-<route>` with a clean
+  tree, then the artifacts were copied here, so every `run.json` records
+  `git_commit 0c09aec693d5` and `git_dirty false`.
 - **Inpainter: LaMa stands in for FLUX.** ComfyUI was not running, so the
-  8 model-queued blocks on the FLUX route fell back to `lama_large`
-  (`fallback_pages` 4; the other 7 pages needed no model at all). Read the
+  3 model-queued blocks on the FLUX route fell back to `lama_large`
+  (`fallback_pages` 2; the other 9 pages needed no model at all). Read the
   `*-default` runs as "FLUX route with LaMa fill".
 - **Detector: RT-DETR only.** The AnimeText YOLO weights are gated and not on
   disk; `--mask-mode rectangular` emulates that mask path on RT-DETR boxes.
 
-## What the router chose (87 blocks to erase)
+## Headline numbers (`rtdetr-default`)
+
+| Metric | WP4 | WP5 | Change |
+| --- | --- | --- | --- |
+| ink-mask recall | 84.8% | 98.1% | +13.3 pt |
+| residual ink in mask (fill failure) | 1.3% | 0.5% | -0.8 pt |
+| residual ink out of mask (mask miss) | 6.5% | 1.4% | -5.1 pt |
+| residual ink | 7.7% | 1.8% | -5.9 pt |
+| text-region MAE | 5.04 | 1.36 | -3.68 |
+| tone flattened in text boxes (px) | 1305 | 684 | -621 |
+| over-erased px | 908 | 364 | -544 |
+| masked px | 194,315 | 169,214 | -25,101 (-13%) |
+| blocks queued to the model | 8 | 3 | -5 |
+| mask stage per run | 2.21 s | 4.17 s | +1.96 s (~0.18 s/page) |
+| seconds per page | 8.40 | 5.39 | machine-dependent |
+
+Per tag (`rtdetr-default`, residual ink / residual in mask / residual out of
+mask / text MAE):
+
+| Tag | Residual | In mask | Out of mask | MAE |
+| --- | --- | --- | --- | --- |
+| adversarial | 4.5% | 1.3% | 3.2% | 2.83 |
+| conjoined-bubbles | 0.0% | 0.0% | 0.0% | 0.09 |
+| horizontal-text | 2.7% | 0.8% | 1.9% | 1.97 |
+| light-on-dark | 0.1% | 0.0% | 0.1% | 1.27 |
+| narration | 1.3% | 1.1% | 0.2% | 1.35 |
+| sfx | 1.9% | 1.1% | 0.7% | 1.13 |
+| textured-background | 1.1% | 0.8% | 0.4% | 1.08 |
+| vertical-text | 2.3% | 0.7% | 1.6% | 1.66 |
+| webtoon-strip | 0.0% | 0.0% | 0.0% | 0.10 |
+| white-bubble | 2.2% | 0.3% | 1.9% | 1.47 |
+
+The whole `white-bubble` residual is the adversarial `syn-text-touching-outline`
+page (9.4% out of mask); every other white-bubble page is at 0.0%.
+
+Per synthetic page (`rtdetr-default`):
+
+| Page | Recall | Out of mask | In mask | Hole in tone | Over-erased |
+| --- | --- | --- | --- | --- | --- |
+| syn-white-bubbles | 100.0% | 0.0% | 0.0% | 0 | 0 |
+| syn-conjoined-bubbles | 100.0% | 0.0% | 0.0% | 0 | 0 |
+| syn-textured-narration | 100.0% | 0.0% | 0.0% | 0 | 0 |
+| syn-sfx | 95.9% | 1.2% | 0.0% | 0 | 0 |
+| syn-webtoon-strip | 100.0% | 0.0% | 0.0% | 0 | 0 |
+| syn-tone-rotated | 99.0% | 0.3% | 2.2% | 24 | 0 |
+| syn-faint-lettering | 100.0% | 0.0% | 0.8% | 0 | 0 |
+| syn-text-touching-outline | 89.5% | 9.4% | 0.8% | 660 | 364 |
+
+## What the masks are now (87 blocks to erase)
+
+| | WP4 | WP5 |
+| --- | --- | --- |
+| `bubble-clipped-glyph` | 22 | 30 |
+| `contour-clipped-glyph` | 2 | 0 |
+| `glyph` (no interior clip) | 61 | 55 |
+| reason `no_contour` | 39 | 0 |
+| reason `flood_leak` (open/borderless bubble) | n/a | 35 |
+| reason `text_free` (no bubble semantics) | 22 | 20 |
+
+Every block that used to end with `no_contour` now names the flood's own
+diagnosis, and four more blocks per run are clipped to a verified bubble
+interior (the four white-bubble blocks under RT-DETR, which used to fall back
+to the unclipped glyph mask; the two faint-lettering blocks that only the
+contour fallback could serve also moved to the flood). The interiors are
+found by a seeded flood fill, so a block with lettering touching the outline
+no longer loses its interior to the edge rule - it now leaks and falls back,
+which is what `flood_leak` reports.
+
+## What the router chose
 
 | Tiers | `rtdetr-default` | `rtdetr-lama` | `rect-masks-default` | `rect-masks-lama` |
 | --- | --- | --- | --- | --- |
-| flat | 39 | 39 | 39 | 16 |
+| flat | 44 | 44 | 44 | 16 |
 | smooth | 1 | 1 | 1 | 1 |
 | lattice | 37 | 37 | 37 | 42 |
-| model | 8 | 8 | 8 | 26 |
-| Blocks queued to the model | 8 of 87 | 8 of 87 | 8 of 87 | 26 of 87 |
+| model | 3 | 3 | 3 | 26 |
+| Blocks queued to the model | 3 of 87 | 3 of 87 | 3 of 87 | 26 of 87 |
 
-Per block type: flat won every white-bubble and webtoon block; smooth won the
-dark gradient narration; lattice won the screentone narration (integer and
-rotated non-integer), the SFX blocks over hatching on the contour routes, and
-most toned real-page blocks (BookWalker spreads: 11 and 14 lattice blocks).
-What escalates: 1 white-bubble block with a rtdetr box close to the outline,
-the lettering-crossing-outline blocks on the rect route, and real-page blocks
-whose surroundings are genuinely unmodellable art. The previous behavior sent
-78 blocks to the flat white path and 7-9 (or all 85 on `rtdetr-lama`) to the
-model.
+Tier shifts against WP4: flat 39 -> 44, lattice 37 -> 37, model 8 -> 3. The
+moves are on `syn-white-bubbles` (its last model block is now flat-filled
+because the flood verifies an interior and the clip keeps the outline out of
+the mask) and on the two BookWalker spreads (four and one fewer model
+escalations; five and four fewer lattice blocks, replaced by flat). Those
+masks no longer reach the sampled ring, so a flat fill verifies where an
+outline-contaminated mask used to force the lattice or the model. Screentone
+and hatching still go to the lattice tier; the dark gradient still goes to
+smooth.
 
-## Headline numbers
+## Findings and caveats
 
-Times are wall-clock totals over the 11 pages, except seconds per page. **The
-timing window was degraded** (ambient desktop load; `detect`/`ocr`/`verify`
-read about 1.5-2x the WP1 baselines' values on unchanged code paths) — treat
-all timing rows as upper bounds and compare quality rows instead.
+- **H1 (SFX white outline) is closed.** `syn-sfx` recall 50.6% -> 95.9% and
+  out-of-mask residual 10.1% -> 1.2%. The outline is found by growing outline
+  bands outward while the band keeps one level and either differs from the
+  local background or carries none of its texture (a white ring over
+  screentone has the paper's own level and only the *absence* of dots marks
+  it). `sfx` residual 17.9% (WP1) -> 12.2% (WP4) -> 1.9%.
+- **H4 (faint lettering) is closed.** `syn-faint-lettering` 15.7% -> 0.8%;
+  the 185-level lettering used to be invisible to a dark-only threshold.
+- **H5 (bubble interiors).** `white-bubble` blocks with a verified interior:
+  1 of 4 under RT-DETR (WP4) -> 4 of 4. `contour-clipped-glyph` is gone: the
+  two faint-lettering blocks that needed the contour fallback now get a flood
+  interior. `syn-conjoined-bubbles` still gets no interior on either side of
+  the change: the detector bubble box is one lobe, the ROI cuts the shared
+  outline, and the flood therefore leaks (the plan's conjoined split is out of
+  scope here).
+- **`syn-text-touching-outline` is better but not solved.** 21.8% -> 9.4%
+  out-of-mask, 10.2% residual, 660 hole-in-tone and 364 over-erased px. The
+  lettering that crosses the wall is now mostly masked (the merged
+  lettering+outline component survives the stroke-width rules) but the
+  detector box is wider than the bubble, so the parts outside the interior
+  are clipped away and the outline the lettering covers cannot be
+  reconstructed by any cheap tier. Reported as a follow-up, not a gate.
+- **Tone dots leave the mask, but only where they are dot-shaped.** A dot
+  that touches a glyph merges into its component; it is removed by its
+  little plateau at the tone level (a cross erosion passes a dot and kills a
+  glyph's one-pixel antialiased ramp), which is what keeps `hole_in_tone`
+  at 684 px instead of the 6,179 px it reached before that step.
+- **`px touched away from text` rose 1,035 -> 4,068**, all of it on
+  `syn-textured-narration` and all of it *below* the 40-level visibility
+  bound (`hole_in_tone` and `over_erased` both improved). It is a
+  sub-visible lattice phase difference: the tighter mask changes which
+  band the lattice tier verifies on, and the copy phase shifts by a pixel on
+  some dot edges. Records as noise for the "any change at all" row only.
+- **rect-masks-default is still identical to rtdetr-default.** Redefining
+  rectangular mask semantics remains out of scope (WP4 note, unchanged).
+- **Timings are machine-bound.** The WP4 baselines were made in a degraded
+  window (8.40 s/page); the same work now reads 5.39 s/page, so only the
+  mask-stage delta is meaningful: 2.21 -> 4.17 s per 11-page run, about
+  +0.18 s/page, inside the D3 budget (default route 5.39 s/page now).
+- **Quality rows are deterministic.** The three contour routes are
+  byte-identical on every quality row, and a rerun of `rtdetr-default`
+  reproduced them exactly (only timings move). The Lab k-means init is
+  quantile-based rather than OpenCV's RNG exactly so this stays true.
+- **Real pages.** No truth ink exists for them, so only the mask/count rows
+  are meaningful: mask px `real-single-page-01` 21,022 -> 25,728,
+  `real-bookwalker-spread-01` 22,433 -> 20,837, `real-bookwalker-spread-02`
+  29,677 -> 23,732. CJK residue (Step 6) moved 21.3% -> 19.1% overall
+  (kana/kanji 21.8% -> 19.5%); one real spread got one block worse. Step 6
+  is WP3's path and was not touched.
 
-| Metric | `rtdetr-default` | `rtdetr-lama` | `rect-masks-default` | `rect-masks-lama` |
-| --- | --- | --- | --- | --- |
-| Inpainter used (pages) | fill_tiers x7, lama_large x4 (fallback) | lama_large x4, fill_tiers x7 | fill_tiers x7, lama_large x4 (fallback) | lama_large x9, fill_tiers x2 |
-| Blocks detected / to erase | 89 / 87 | 89 / 87 | 89 / 87 | 89 / 87 |
-| Router-filled blocks / queued to model | 77 / 8 | 77 / 8 | 77 / 8 | 59 / 26 |
-| CJK residue, Step 6 verdict | 21.3% | 21.3% | 21.3% | 27.0% |
-| CJK residue, kana/kanji only | 21.8% (19 blocks) | 21.8% | 21.8% | 27.6% (24) |
-| Px changed outside mask | 0 | 0 | 0 | 0 |
-| Px inpainter changed outside its mask | 0 | 0 | 0 | 0 |
-| Masks: glyph-kind / rectangular-kind | 85 / 0 | 85 / 0 | 85 / 0 | 0 / 85 |
-| Composite duplicates not masked | 2 | 2 | 2 | 2 |
-| Masked px | 194,315 | 194,315 | 194,315 | 914,494 |
-| Render regions / shrink / below 10 px / overflow / unfit | 85 / 32 / 6 / 4 / 0 | 85 / 32 / 6 / 4 / 0 | 85 / 32 / 6 / 4 / 0 | 85 / 32 / 6 / 4 / 0 |
-| Synthetic: detection recall | 100% | 100% | 100% | 100% |
-| Synthetic: ink-mask recall | 84.8% | 84.8% | 84.8% | 98.7% |
-| Synthetic: residual ink ratio | 7.7% | 7.7% | 7.7% | 2.2% |
-| Synthetic: residual ink in mask (fill failure) | 1.3% | 1.3% | 1.3% | 1.0% |
-| Synthetic: residual ink outside mask (mask miss) | 6.5% | 6.5% | 6.5% | 1.2% |
-| Synthetic: residual ink after low-pass | 8.6% | 8.6% | 8.6% | 1.4% |
-| Synthetic: tone flattened in text boxes (px) | 1,305 | 1,305 | 1,305 | 163 |
-| Synthetic: text-region MAE | 5.04 | 5.04 | 5.04 | 2.41 |
-| Synthetic: OCR character error rate | 0.092 | 0.092 | 0.092 | 0.092 |
-| Synthetic: over-erased px (visible) | 908 | 908 | 908 | 707 |
-| Synthetic: px touched away from text | 1,035 | 1,035 | 1,035 | 71,455 |
-| Synthetic: rendered ink outside bubble interior (px) | 0 | 0 | 0 | 0 |
-| Seconds per page (busy window) | 8.4 | 10.2 | 11.2 | 14.0 |
-| Time: detect / OCR / mask / inpaint model / render / verify (s) | 11.2 / 32.5 / 2.2 / 6.1 / 1.2 / 39.0 | 15.1 / 37.3 / 3.1 / 5.8 / 1.6 / 49.4 | 15.8 / 44.2 / 3.3 / 6.5 / 1.6 / 51.7 | 14.5 / 36.9 / 4.3 / 52.1 / 1.5 / 44.5 |
+## Follow-ups
 
-The three contour routes are byte-identical in every quality row: same masks,
-same router, and the 8 model blocks are filled by the same LaMa fallback.
-Their only differences are which name the model was requested under and
-timing noise. `rect-masks-default` is one of them (see below).
-
-## What moved against the WP1 baselines (commit `9d179d6`)
-
-Rows that moved because of the router, per route (`rtdetr-default` /
-`rtdetr-lama` / `rect-masks-lama`):
-
-- Residual ink **in mask (fill failure)**: 5.4% / 5.9% / 12.9% → **1.3% /
-  1.3% / 1.0%** — the router's tiers are near-exact where they win.
-- **Text-region MAE**: 11.57 / 11.71 / 16.29 → **5.04 / 5.04 / 2.41**.
-- **Tone flattened (hole-in-tone)**: 44,541 / 40,056 / 120 px → **1,305 /
-  1,305 / 163 px** (H2's white-fill flattening is gone; the remaining 1,305 px
-  sit in `syn-tone-rotated`'s SFX block, filled by the model fallback, plus
-  dot-edge phase slips of the rotated lattice — `rect-masks-lama`'s 163 is a
-  small regression from 120 for the same phase-slip reason).
-- **Over-erased px**: 8,709 / 8,616 / 16,888 → **908 / 908 / 707** — LaMa no
-  longer repaints large visible areas away from the mask.
-- **Residual after low-pass**: 36.4% / 33.7% / 1.4% → **8.6% / 8.6% / 1.4%**
-  — the phase-mismatch smear on SFX is mostly gone.
-- **Blocks to the model on the LaMa route**: 85 → **8**; `inpaint_model`
-  89.3 s → ~6 s. On `rect-masks-lama`: 85 → 26, 128.1 s → 52.1 s.
-- Ink-mask recall is unchanged everywhere (the router does not touch masks):
-  84.8% / 84.8% / 98.7%.
-- `seconds_per_page` (busy window): 8.2 / 12.8 / 20.8 → 8.4 / 10.2 / 14.0;
-  the router adds ~0.2-0.4 s of CPU per page (`mask` stage) and removes most
-  model calls. The WP1 numbers were measured in a calmer window.
-- **Moved the wrong way — CJK residue (Step 6 / kana-kanji)**: 14.9% /
-  16.1% / 12.6% → **21.8% / 21.8% / 27.6%**. Not leftover ink: every truth
-  metric above improved, and per-block inspection of the flagged blocks shows
-  either manga-ocr misreading short rendered English as kana (the documented
-  noise floor) or reading through composite-parent boxes whose gaps were
-  never covered by any child rect (a pre-existing mask gap, WP5's territory).
-  Reproduced texture around the replacement text makes the re-OCR noisier
-  than LaMa's smooth smear did. WP3 owns the Step-6 decision; the fill-side
-  evidence (residual ink down everywhere) says the lettering itself is gone.
-
-Synthetic pages, residual ink / visible over-erased px:
-
-| Page | `rtdetr-default` | `rtdetr-lama` | `rect-masks-default` | `rect-masks-lama` |
-| --- | --- | --- | --- | --- |
-| `syn-white-bubbles` | 0.0% / 183 | 0.0% / 183 | 0.0% / 183 | 0.0% / 58 |
-| `syn-conjoined-bubbles` | 0.0% / 84 | 0.0% / 84 | 0.0% / 84 | 0.0% / 60 |
-| `syn-textured-narration` | 0.0% / 0 | 0.0% / 0 | 0.0% / 0 | 0.0% / 0 |
-| `syn-sfx` | 11.4% / 0 | 11.4% / 0 | 11.4% / 0 | 0.0% / 0 |
-| `syn-webtoon-strip` | 0.0% / 0 | 0.0% / 0 | 0.0% / 0 | 0.0% / 0 |
-| `syn-tone-rotated` | 13.0% / 539 | 13.0% / 539 | 13.0% / 539 | 7.2% / 445 |
-| `syn-faint-lettering` | 15.7% / 102 | 15.7% / 102 | 15.7% / 102 | 0.0% / 0 |
-| `syn-text-touching-outline` | 21.8% / 0 | 21.8% / 0 | 21.8% / 0 | 10.1% / 144 |
-
-Reading the adversarial pages: the remaining `syn-tone-rotated` residual
-(13.0%) is almost entirely out-of-mask (its mask recall is unchanged);
-`syn-faint-lettering` keeps its out-of-mask faint strokes; and
-`syn-text-touching-outline` keeps the outline-crossing strokes — all three are
-WP5's mask-miss half, untouched by design. The in-mask halves collapsed
-(10.3% → ~0 on tone-rotated; 11.1% → 0 on faint; 0% stayed 0 on
-touching-outline).
-
-## rect-masks-default is now the contour route
-
-Before WP4, the FLUX route's `--mask-mode rectangular` grew the white-fill
-area around the glyphs (masked px 290,274 vs 194,315), which was its only
-difference from `rtdetr-default`. The white path is gone, so the flag no
-longer changes anything on the FLUX route: `rect-masks-default` is
-`rtdetr-default`. The route is kept for continuity; a follow-up may redefine
-it to build real rectangles on the FLUX route (that is a mask-semantics
-decision, WP5's scope). `rect-masks-lama` still measures real rectangular
-masks.
-
-## What the tiers fixed (H1-H5 follow-up)
-
-- **H2 (tone passes the white test) is fixed where it fired**: tone blocks
-  now go to the lattice tier and come back in phase — hole-in-tone fell from
-  44,541 px to 1,305 on the default route, and the rotated non-integer tone
-  (`syn-tone-rotated`) reproduces within dot-edge phase slips (fill error
-  mean ~3.7 levels on a synthetic patch).
-- **The fill-failure half of H1 (SFX over hatching)**: `syn-sfx` residual
-  fell 20.1% → 11.4% on the contour routes (lattice reproduces the
-  hatching under the letters) and 40.4% → 0.0% on `rect-masks-lama`.
-  The out-of-mask outline half remains for WP5.
-- **The H4-rejected light-on-dark block** was all fill-side; it is now
-  tier-1/0 filled (residual 12.0% → 0.0%, MAE 21.7 → 0.5 on that tag).
-
-## Noise
-
-- **Quality rows are deterministic.** The three contour routes scored
-  byte-identical quality numbers, and two independent runs of the same route
-  (the gate run and this baseline run, hours apart) matched on every count.
-  The router is pure CPU numpy/OpenCV with no randomness.
-- **Timings.** This window was degraded: `detect`, `ocr` and `verify` — code
-  paths WP4 does not touch — read about 1.5-2x the WP1 baselines on the same
-  work. Treat the timing rows as upper bounds. The one real timing change is
-  the `mask` stage (+0.2-0.4 s/page of router CPU) against a large drop in
-  `inpaint_model`. If `render` or `mask` moves another ~20% against these
-  numbers on unchanged code, rerun before trusting it.
-- **kana/kanji floor.** Still about 1 block per page of manga-ocr noise on
-  clean pages, but the floor is higher around reproduced texture (see the
-  CJK-residue note above): treat it as a Step-6 diagnostic, not a fill
-  signal; check `residual ink` first, which is ground-truthed.
-- **Private pages.** The three pages in `eval/pages/` are fixed; `--compare`
-  between runs on this machine scopes itself to pages scored in both.
+- Lettering that crosses a bubble wall: needs an interior that follows the
+  wall through the lettering (or a model tier that reconstructs the outline).
+- Conjoined bubbles: the flood needs the joined outline inside the ROI, or
+  the plan's notch/watershed split.
+- Lattice phase slips: a subpixel period refinement would remove the
+  remaining sub-visible "touched" pixels (and the 163 -> 24 hole-in-tone px
+  on `syn-tone-rotated`).
+- Rectangular mask semantics are still undefined (rect routes equal the
+  contour routes except for `rect-masks-lama`).
