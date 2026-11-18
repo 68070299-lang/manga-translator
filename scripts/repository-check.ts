@@ -36,6 +36,9 @@ export const FORBIDDEN_PATHS: readonly string[] = [
   'test_run.py',
   'artifacts/',
   'extension/_metadata/',
+  // Private eval pages and local eval runs (scripts/eval_pipeline.py).
+  'eval/pages/',
+  'eval/runs/',
 ];
 
 /**
@@ -85,6 +88,8 @@ const GENERATED_PATHS: readonly string[] = [
   'backend/src/manga_backend/models/__pycache__/detector.cpython-312.pyc',
   'shopee-analyzer/data/sample.json',
   'shopee-analyzer/exports/report.csv',
+  'eval/pages/page-001.png',
+  'eval/runs/local/run.json',
 ];
 
 export const REQUIRED_PATHS: readonly string[] = [
