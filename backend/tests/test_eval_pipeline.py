@@ -890,6 +890,106 @@ class HarnessReReadTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["pages"][0]["verify"]["ran"])
 
 
+class ResidualFlagMetricTests(unittest.TestCase):
+    @staticmethod
+    def _page():
+        clean = np.zeros((80, 80, 3), np.uint8)
+        ink = np.zeros((80, 80), dtype=bool)
+        ink[10:20, 10:20] = True
+        ink[50:60, 50:60] = True
+        return eval_pipeline.SyntheticPage(
+            name="metric",
+            image=clean.copy(),
+            clean=clean,
+            ink=ink,
+            truth=(),
+            glyph_source="test",
+        )
+
+    def _metrics(self, decisions, *, error_at_first=True):
+        page = self._page()
+        inpainted = page.clean.copy()
+        if error_at_first:
+            inpainted[10:20, 10:20] = 200
+        erase = np.zeros((80, 80), dtype=bool)
+        erase[10:20, 10:20] = True
+        probe = eval_pipeline.PageProbe()
+        probe.fill_decisions = decisions
+        return eval_pipeline._residual_flag_metrics(probe, page, inpainted, erase)
+
+    def test_agreement_counts_a_true_positive_and_a_false_positive(self):
+        metrics = self._metrics(
+            [
+                {"block_bbox": [0, 0, 40, 40], "tier_name": "flat", "residual_flag": True},
+                {"block_bbox": [40, 40, 80, 80], "tier_name": "flat", "residual_flag": True},
+            ]
+        )
+        self.assertEqual(metrics["scored_blocks"], 2)
+        self.assertEqual(metrics["flagged_blocks"], 2)
+        self.assertEqual(metrics["truth_blocks"], 1)
+        self.assertEqual((metrics["true_positives"], metrics["false_positives"]), (1, 1))
+        self.assertEqual(metrics["agreement"], 0.5)
+        self.assertEqual(metrics["in_mask_agreement"], 0.5)
+
+    def test_an_unflagged_block_with_residue_is_a_false_negative(self):
+        metrics = self._metrics(
+            [{"block_bbox": [0, 0, 40, 40], "tier_name": "flat", "residual_flag": False}]
+        )
+        self.assertEqual(metrics["false_negatives"], 1)
+        self.assertEqual(metrics["in_mask_false_negatives"], 1)
+        self.assertEqual(metrics["agreement"], 0.0)
+
+    def test_model_blocks_and_blocks_without_truth_ink_are_skipped(self):
+        metrics = self._metrics(
+            [
+                {"block_bbox": [0, 0, 20, 20], "tier_name": "model", "residual_flag": True},
+                {"block_bbox": [40, 40, 60, 60], "tier_name": "flat", "residual_flag": True},
+            ]
+        )
+        self.assertEqual(metrics["scored_blocks"], 1)
+        self.assertEqual(metrics["truth_blocks"], 0)
+        self.assertEqual(metrics["agreement"], 0.0)
+
+    def test_escalation_statistics_are_aggregated_even_without_truth(self):
+        metrics = eval_pipeline._residual_flag_metrics(
+            probe=self._probe_with_escalations(),
+            synthetic=None,
+            inpainted=np.zeros((20, 20, 3), np.uint8),
+            erase=np.zeros((20, 20), dtype=bool),
+        )
+        self.assertEqual(metrics["escalated_blocks"], 2)
+        self.assertEqual(metrics["second_flags"], 1)
+        self.assertEqual(metrics["mask_grown_px"], 70)
+        self.assertIsNone(metrics["agreement"])
+
+    @staticmethod
+    def _probe_with_escalations():
+        probe = eval_pipeline.PageProbe()
+        probe.fill_decisions = [
+            {"tier_name": "smooth", "escalated": True, "second_flag": False, "escalation_grown_px": 20},
+            {"tier_name": "model", "escalated": True, "second_flag": True, "escalation_grown_px": 50},
+        ]
+        return probe
+
+
+class ResidualCheckDecisionTests(unittest.TestCase):
+    def test_every_fill_decision_records_the_check(self):
+        result = run(synthetic_pages("syn-tone-rotated"))
+        decisions = result["pages"][0]["mask"]["fill_decisions"]
+        self.assertTrue(decisions)
+        for decision in decisions:
+            with self.subTest(tier=decision["tier_name"]):
+                self.assertIn("residual_flag", decision)
+                self.assertIn("block_bbox", decision)
+                self.assertIn("escalation_grown_px", decision)
+        # Clean synthetic fills leave nothing letter-shaped behind, so the
+        # flag is silent and nothing escalates there.
+        summary = result["summary"]["residual_flag"]
+        self.assertEqual(summary["escalated_blocks"], 0)
+        self.assertEqual(summary["second_flags"], 0)
+        self.assertIsNotNone(summary["agreement"])
+
+
 class CharacterErrorRateTests(unittest.TestCase):
     def test_edit_distance(self):
         self.assertEqual(eval_pipeline._edit_distance("kitten", "sitting"), 3)

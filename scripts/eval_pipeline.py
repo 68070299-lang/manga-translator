@@ -1330,6 +1330,105 @@ async def _verify_rendered_text(
     )
 
 
+def _residual_flag_metrics(
+    probe: PageProbe,
+    synthetic: SyntheticPage | None,
+    inpainted: np.ndarray,
+    erase: np.ndarray,
+) -> dict[str, Any]:
+    """Agreement between the pre-render residue flag and the synthetic truth.
+
+    A block's truth residue is the truth lettering inside its box that is
+    still visibly wrong in the inpainted page (the same 40-level bound as
+    ``residual_ink_ratio``). Only blocks the router filled are scored: a
+    model-tier block has no cheap fill to check, and a box with no truth
+    lettering in it (a detector duplicate) says nothing about the flag.
+
+    The in-mask agreement is the stricter target of the check (fill failure);
+    the overall agreement also counts lettering the mask never covered, which
+    the flag can only see when the extractor saw it too. Both are reported so
+    a mask miss is not silently blamed on the fill.
+    """
+    decisions = probe.fill_decisions
+    escalated = [decision for decision in decisions if decision.get("escalated")]
+    metrics: dict[str, Any] = {
+        "escalated_blocks": len(escalated),
+        "second_flags": sum(bool(decision.get("second_flag")) for decision in escalated),
+        "mask_grown_px": sum(
+            int(decision.get("escalation_grown_px") or 0) for decision in escalated
+        ),
+        "scored_blocks": 0,
+        "flagged_blocks": sum(bool(decision.get("residual_flag")) for decision in decisions),
+        "truth_blocks": 0,
+        "truth_residual_px": 0,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "true_negatives": 0,
+        "agreement": None,
+        "in_mask_truth_blocks": 0,
+        "in_mask_true_positives": 0,
+        "in_mask_false_positives": 0,
+        "in_mask_false_negatives": 0,
+        "in_mask_true_negatives": 0,
+        "in_mask_agreement": None,
+    }
+    if synthetic is None:
+        return metrics
+
+    error = np.abs(inpainted.astype(np.int16) - synthetic.clean.astype(np.int16)).max(axis=2)
+    bad = error > VISIBLE_LEVELS
+    ink = synthetic.ink
+    height, width = ink.shape[:2]
+    scored = 0
+    for decision in decisions:
+        bbox = decision.get("block_bbox")
+        if not bbox or decision.get("tier_name") in ("model", "skipped"):
+            continue
+        x1, y1, x2, y2 = (int(value) for value in bbox)
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(width, x2), min(height, y2)
+        if x2 <= x1 or y2 <= y1:
+            continue
+        truth = ink[y1:y2, x1:x2]
+        if not truth.any():
+            continue
+        wrong = bad[y1:y2, x1:x2] & truth
+        predicted = bool(decision.get("residual_flag"))
+        scored += 1
+        metrics["scored_blocks"] += 1
+        metrics["truth_residual_px"] += int(np.count_nonzero(wrong))
+        if wrong.any():
+            metrics["truth_blocks"] += 1
+            if predicted:
+                metrics["true_positives"] += 1
+            else:
+                metrics["false_negatives"] += 1
+        elif predicted:
+            metrics["false_positives"] += 1
+        else:
+            metrics["true_negatives"] += 1
+        in_mask_wrong = wrong & erase[y1:y2, x1:x2]
+        if in_mask_wrong.any():
+            metrics["in_mask_truth_blocks"] += 1
+            if predicted:
+                metrics["in_mask_true_positives"] += 1
+            else:
+                metrics["in_mask_false_negatives"] += 1
+        elif predicted:
+            metrics["in_mask_false_positives"] += 1
+        else:
+            metrics["in_mask_true_negatives"] += 1
+    if scored:
+        correct = metrics["true_positives"] + metrics["true_negatives"]
+        in_mask_correct = (
+            metrics["in_mask_true_positives"] + metrics["in_mask_true_negatives"]
+        )
+        metrics["agreement"] = _rate(correct, scored)
+        metrics["in_mask_agreement"] = _rate(in_mask_correct, scored)
+    return metrics
+
+
 def _verify_metrics(probe: PageProbe) -> dict[str, Any]:
     blocks = probe.verified_blocks
     if blocks is None:
@@ -1454,6 +1553,9 @@ def measure_page(
         "inpaint": _inpaint_metrics(probe, erase, requested_inpainter, result),
         "render": _render_metrics(probe),
         "verify": _verify_metrics(probe),
+        "residual_flag": _residual_flag_metrics(
+            probe, loaded.synthetic, np.asarray(inpainted), erase
+        ),
         "truth": None
         if loaded.synthetic is None
         else _truth_metrics(
@@ -1665,6 +1767,40 @@ def summarize(records: Sequence[dict[str, Any]], *, by_tag: bool = True) -> dict
         tiers.update(record["mask"].get("tier_counts") or {})
     sizes = [size for record in scored for size in record["render"]["font_sizes"]]
     truths = [record["truth"] for record in scored if record.get("truth")]
+    flag_keys = (
+        "escalated_blocks",
+        "second_flags",
+        "mask_grown_px",
+        "scored_blocks",
+        "flagged_blocks",
+        "truth_blocks",
+        "truth_residual_px",
+        "true_positives",
+        "false_positives",
+        "false_negatives",
+        "true_negatives",
+        "in_mask_truth_blocks",
+        "in_mask_true_positives",
+        "in_mask_false_positives",
+        "in_mask_false_negatives",
+        "in_mask_true_negatives",
+    )
+    flags = Counter()
+    for record in scored:
+        section = record.get("residual_flag") or {}
+        for key in flag_keys:
+            flags[key] += int(section.get(key) or 0)
+    flag_blocks = flags["scored_blocks"]
+    in_mask_blocks = flags["scored_blocks"]
+    flag_summary: dict[str, Any] = {key: flags[key] for key in flag_keys}
+    flag_summary["agreement"] = _rate(
+        flags["true_positives"] + flags["true_negatives"], flag_blocks
+    )
+    flag_summary["in_mask_agreement"] = _rate(
+        flags["in_mask_true_positives"] + flags["in_mask_true_negatives"],
+        in_mask_blocks,
+    )
+
     def truth_mean(key: str) -> float | None:
         return _mean([truth.get(key) for truth in truths])
 
@@ -1740,6 +1876,7 @@ def summarize(records: Sequence[dict[str, Any]], *, by_tag: bool = True) -> dict
             "over_erased_px": sum(int(truth["over_erased_px"]) for truth in truths),
             "touched_away_px": sum(int(truth["touched_away_px"]) for truth in truths),
         },
+        "residual_flag": flag_summary,
         "timings": timings,
         "seconds_per_page": round(timings["total"] / len(scored), 3) if scored else None,
     }
@@ -1807,6 +1944,14 @@ METRICS: tuple[tuple[str, str, str | None], ...] = (
     ("truth.ocr_cer", "Synthetic: OCR character error rate", "lower"),
     ("truth.over_erased_px", "Synthetic: over-erased px (visible)", "lower"),
     ("truth.touched_away_px", "Synthetic: px touched away from text", "lower"),
+    ("residual_flag.agreement", "Pre-render flag: agreement with truth residue", "higher"),
+    ("residual_flag.in_mask_agreement", "Pre-render flag: agreement (fill failure only)", "higher"),
+    ("residual_flag.truth_blocks", "Pre-render flag: blocks with truth residue", None),
+    ("residual_flag.flagged_blocks", "Pre-render flag: blocks flagged", None),
+    ("residual_flag.false_positives", "Pre-render flag: false positives", "lower"),
+    ("residual_flag.false_negatives", "Pre-render flag: false negatives", "lower"),
+    ("residual_flag.escalated_blocks", "Residual escalation: blocks escalated", None),
+    ("residual_flag.second_flags", "Residual escalation: second flags (not retried)", None),
     ("seconds_per_page", "Seconds per page", "lower"),
     ("timings.verify_harness", "Time: harness re-OCR (s)", None),
     *((f"timings.{stage}", f"Time: {stage} (s)", "lower") for stage in STAGES),
