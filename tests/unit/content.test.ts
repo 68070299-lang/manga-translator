@@ -1058,3 +1058,19 @@ describe('content script', () => {
     });
   });
 });
+
+describe('content script entrypoint', () => {
+  it('starts without posting a page-visible message that names the extension', async () => {
+    const { default: definition } = await import('../../extension/entrypoints/content/index');
+    const { ContentScriptContext } = await import('wxt/utils/content-script-context');
+    const { main: _main, ...options } = definition;
+    const postMessage = vi.spyOn(window, 'postMessage');
+
+    // The same construction WXT's isolated-world wrapper runs before main().
+    const ctx = new ContentScriptContext('content', options);
+    ctx.abort();
+
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(options).toMatchObject({ noScriptStartedPostMessage: true });
+  });
+});
