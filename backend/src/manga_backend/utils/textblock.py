@@ -54,6 +54,8 @@ class TextBlock:
     # Layout hints written while building render regions.
     render_from_bubble: bool
     composite_render_group: CompositeGroup | None
+    # Source lettering's em size, measured on the original page while masking.
+    source_font_size: float | None
 
     def __init__(
         self,
@@ -74,6 +76,7 @@ class TextBlock:
         self.verification_passed = None
         self.render_from_bubble = False
         self.composite_render_group = None
+        self.source_font_size = None
 
     @property
     def xyxy(self) -> NDArray[np.int32]:

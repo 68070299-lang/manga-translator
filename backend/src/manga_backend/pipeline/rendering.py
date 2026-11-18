@@ -39,7 +39,6 @@ from manga_backend.pipeline.measure import (
     anchor_target,
     harmonize_targets,
     measure_block_colours,
-    source_glyph_size,
 )
 from manga_backend.pipeline.regions import clamp_xyxy, int_box
 from manga_backend.pipeline.rooms import (
@@ -266,15 +265,12 @@ def _clamp_room(room: Room, bounds: list[int]) -> Room:
     return Room(mask, (x1, y1, x2, y2), center, room.kind, room.air)
 
 
-def _source_estimates(
-    image: np.ndarray, blocks: list[TextBlock]
-) -> dict[Box, float]:
+def _source_estimates(blocks: list[TextBlock]) -> dict[Box, float]:
     """Source glyph size per bubble, measured on the original OCR text box.
 
-    The render region is the bubble box inset, and an ellipse outline passes
-    just inside that inset, which would contaminate the projection profile.
-    The detector/OCR box is tight around the lettering, so the estimate is
-    taken there and looked up per bubble.
+    The renderer only ever sees the filled page, so the measurement itself
+    happens while masking (``prepare_flux_inpainting`` has the original
+    pixels); this maps each bubble to the size its blocks recorded.
     """
     estimates: dict[Box, float] = {}
     for block in blocks:
@@ -283,7 +279,7 @@ def _source_estimates(
         key = int_box(block.bubble_xyxy)
         if key in estimates:
             continue
-        size = source_glyph_size(image, block)
+        size = block.source_font_size
         if size is not None:
             estimates[key] = size
     return estimates
@@ -305,7 +301,6 @@ def _nearest_estimate(key: Box, estimates: dict[Box, float]) -> float | None:
 
 
 def anchor_targets(
-    image: np.ndarray,
     regions: list[TextBlock],
     preferred_font_size: int,
     blocks: list[TextBlock] | None = None,
@@ -319,7 +314,7 @@ def anchor_targets(
     scale does not apply. Both are floored at the minimum readable size so an
     anchor can never make a region unreadable on its own.
     """
-    estimates = _source_estimates(image, blocks if blocks is not None else regions)
+    estimates = _source_estimates(blocks if blocks is not None else regions)
     targets: list[int] = []
     for region in regions:
         glyph: float | None = None
@@ -381,7 +376,7 @@ def render_text(
     base_stroke_width = max(0, int(border_size))
 
     rooms = build_rooms(image, render_regions, blocks)
-    targets = anchor_targets(image, render_regions, preferred_font_size, blocks)
+    targets = anchor_targets(render_regions, preferred_font_size, blocks)
     page_height, page_width = image.shape[:2]
 
     for region, room, target in zip(render_regions, rooms, targets):

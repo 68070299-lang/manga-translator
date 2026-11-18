@@ -13,12 +13,16 @@ snapped to the page median so a page of balloons shares one lettering size.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import cv2
 import numpy as np
 
 from manga_backend.pipeline.regions import int_box
-from manga_backend.pipeline.rooms import Room
 from manga_backend.utils.textblock import TextBlock
+
+if TYPE_CHECKING:
+    from manga_backend.pipeline.rooms import Room
 
 RGB = tuple[int, int, int]
 
@@ -196,7 +200,7 @@ def _median_colour(pixels: np.ndarray) -> RGB:
 
 def measure_block_colours(
     image: np.ndarray,
-    room: Room,
+    room: "Room",
     user_text: RGB,
     user_border: RGB,
     user_background: RGB,

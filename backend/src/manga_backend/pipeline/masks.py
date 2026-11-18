@@ -32,6 +32,7 @@ from typing import Any
 import cv2
 import numpy as np
 
+from manga_backend.pipeline.measure import source_glyph_size
 from manga_backend.pipeline.fill_tiers import (
     FRINGE_RADIUS,
     RING_RADIUS,
@@ -1369,6 +1370,9 @@ def prepare_flux_inpainting(
     entries: list[tuple[TextBlock, np.ndarray, Box, str]] = []
     ink_union = np.zeros((height, width), dtype=np.uint8)
     for block in routed:
+        # The renderer only sees the filled page, so the source lettering's
+        # size is measured here, on the original pixels (WP7 anchored sizes).
+        block.source_font_size = source_glyph_size(image, block)
         mask_builder = (
             rectangular_mask_for_block if rectangular else contour_safe_mask_for_block
         )

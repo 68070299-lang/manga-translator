@@ -365,6 +365,8 @@ class CeilingTests(unittest.TestCase):
         block.bubble_xyxy = [30, 30, 330, 330]
         block.bubble_text_center = [180.0, 180.0]
         block.render_from_bubble = True
+        # The mask stage measures the source lettering on the original page.
+        block.source_font_size = 30.0
         return image, block
 
     def test_a_big_bubble_is_lettered_above_sixteen_pixels(self):
