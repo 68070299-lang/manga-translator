@@ -169,6 +169,18 @@ def _fit_at_size(
             continue
         broken = break_lines(units, widths, measure, joiner=joiner, mode=mode)
         if broken is None:
+            # The consecutive-hyphen cap is a typographic preference; when it
+            # is the only thing standing between this size and a layout, a
+            # readable size wins over a ladder-free one.
+            broken = break_lines(
+                units,
+                widths,
+                measure,
+                joiner=joiner,
+                mode=mode,
+                max_hyphen_run=MAX_LINES,
+            )
+        if broken is None:
             continue
         if broken.widths and any(
             width > band.width + 0.5 for width, band in zip(broken.widths, bands)
