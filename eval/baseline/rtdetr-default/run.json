@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "label": "rtdetr-default",
-  "created_utc": "2026-11-18T03:34:49Z",
+  "created_utc": "2026-11-18T04:56:18Z",
   "config": {
     "label": "rtdetr-default",
     "detector": "rtdetr",
@@ -93,7 +93,7 @@
       "verify": {
         "ran": true,
         "checked": 4,
-        "step6_flagged": 4,
+        "step6_flagged": 1,
         "rendered_checked": 4,
         "kana_kanji": 1
       },
@@ -107,15 +107,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.8957,
-        "ocr": 0.9155,
+        "detect": 0.6897,
+        "ocr": 0.6989,
         "translate": 0.0001,
-        "mask": 0.0216,
+        "mask": 0.0181,
         "inpaint_model": 0.0,
-        "render": 0.0406,
-        "verify": 1.017,
-        "total": 2.8957,
-        "other": 0.0052
+        "render": 0.0273,
+        "verify": 0.8361,
+        "total": 2.274,
+        "other": 0.0038
       }
     },
     {
@@ -181,7 +181,7 @@
       "verify": {
         "ran": true,
         "checked": 2,
-        "step6_flagged": 2,
+        "step6_flagged": 0,
         "rendered_checked": 2,
         "kana_kanji": 0
       },
@@ -195,15 +195,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.6692,
-        "ocr": 0.6216,
+        "detect": 0.5929,
+        "ocr": 0.5776,
         "translate": 0.0001,
-        "mask": 0.0157,
+        "mask": 0.0205,
         "inpaint_model": 0.0,
-        "render": 0.0254,
-        "verify": 0.5203,
-        "total": 1.8571,
-        "other": 0.0048
+        "render": 0.0182,
+        "verify": 0.5112,
+        "total": 1.7243,
+        "other": 0.0038
       }
     },
     {
@@ -273,7 +273,7 @@
       "verify": {
         "ran": true,
         "checked": 3,
-        "step6_flagged": 3,
+        "step6_flagged": 0,
         "rendered_checked": 3,
         "kana_kanji": 0
       },
@@ -287,15 +287,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.8654,
-        "ocr": 0.7761,
-        "translate": 0.0003,
-        "mask": 0.0134,
-        "inpaint_model": 8.1584,
-        "render": 0.0399,
-        "verify": 1.305,
-        "total": 11.1629,
-        "other": 0.0044
+        "detect": 0.6836,
+        "ocr": 0.5904,
+        "translate": 0.0011,
+        "mask": 0.0174,
+        "inpaint_model": 7.6752,
+        "render": 0.0265,
+        "verify": 1.0548,
+        "total": 10.055,
+        "other": 0.006
       }
     },
     {
@@ -360,7 +360,7 @@
       "verify": {
         "ran": true,
         "checked": 2,
-        "step6_flagged": 2,
+        "step6_flagged": 0,
         "rendered_checked": 2,
         "kana_kanji": 0
       },
@@ -374,15 +374,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.8613,
-        "ocr": 0.6057,
-        "translate": 0.0006,
-        "mask": 0.0149,
-        "inpaint_model": 5.4928,
-        "render": 0.0172,
-        "verify": 0.7969,
-        "total": 7.7943,
-        "other": 0.0049
+        "detect": 0.9437,
+        "ocr": 0.5733,
+        "translate": 0.0001,
+        "mask": 0.0087,
+        "inpaint_model": 4.8788,
+        "render": 0.0081,
+        "verify": 0.7429,
+        "total": 7.1601,
+        "other": 0.0045
       }
     },
     {
@@ -450,7 +450,7 @@
       "verify": {
         "ran": true,
         "checked": 4,
-        "step6_flagged": 4,
+        "step6_flagged": 1,
         "rendered_checked": 4,
         "kana_kanji": 1
       },
@@ -464,15 +464,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.9822,
-        "ocr": 0.9761,
-        "translate": 0.0002,
-        "mask": 0.111,
+        "detect": 0.8181,
+        "ocr": 1.0252,
+        "translate": 0.0001,
+        "mask": 0.0187,
         "inpaint_model": 0.0,
-        "render": 0.145,
-        "verify": 0.9361,
-        "total": 3.1615,
-        "other": 0.0109
+        "render": 0.1675,
+        "verify": 1.0697,
+        "total": 3.1103,
+        "other": 0.011
       }
     },
     {
@@ -552,21 +552,21 @@
       "verify": {
         "ran": true,
         "checked": 14,
-        "step6_flagged": 14,
+        "step6_flagged": 1,
         "rendered_checked": 14,
         "kana_kanji": 1
       },
       "truth": null,
       "timings": {
-        "detect": 0.8491,
-        "ocr": 3.5401,
-        "translate": 0.0006,
-        "mask": 0.0373,
-        "inpaint_model": 5.8399,
-        "render": 0.1216,
-        "verify": 5.961,
-        "total": 16.3549,
-        "other": 0.0053
+        "detect": 0.755,
+        "ocr": 4.2031,
+        "translate": 0.0012,
+        "mask": 0.0322,
+        "inpaint_model": 5.0222,
+        "render": 0.0985,
+        "verify": 6.288,
+        "total": 16.4052,
+        "other": 0.005
       }
     },
     {
@@ -656,21 +656,21 @@
       "verify": {
         "ran": true,
         "checked": 25,
-        "step6_flagged": 24,
+        "step6_flagged": 7,
         "rendered_checked": 23,
         "kana_kanji": 7
       },
       "truth": null,
       "timings": {
-        "detect": 0.9556,
-        "ocr": 7.2346,
-        "translate": 0.0007,
-        "mask": 0.0509,
-        "inpaint_model": 13.4598,
-        "render": 0.1934,
-        "verify": 8.4375,
-        "total": 30.3437,
-        "other": 0.0112
+        "detect": 1.3674,
+        "ocr": 8.8887,
+        "translate": 0.0002,
+        "mask": 0.0676,
+        "inpaint_model": 14.8494,
+        "render": 0.2081,
+        "verify": 10.5344,
+        "total": 35.9274,
+        "other": 0.0116
       }
     },
     {
@@ -763,21 +763,21 @@
       "verify": {
         "ran": true,
         "checked": 25,
-        "step6_flagged": 25,
+        "step6_flagged": 1,
         "rendered_checked": 25,
         "kana_kanji": 1
       },
       "truth": null,
       "timings": {
-        "detect": 1.3081,
-        "ocr": 7.2441,
-        "translate": 0.0002,
-        "mask": 0.0763,
-        "inpaint_model": 14.0337,
-        "render": 0.1838,
-        "verify": 9.7702,
-        "total": 32.6268,
-        "other": 0.0104
+        "detect": 1.2039,
+        "ocr": 8.7938,
+        "translate": 0.0003,
+        "mask": 0.0665,
+        "inpaint_model": 12.7802,
+        "render": 0.1522,
+        "verify": 9.4943,
+        "total": 32.5022,
+        "other": 0.011
       }
     }
   ],
@@ -792,8 +792,8 @@
     },
     "cjk_residue": {
       "step6_checked": 79,
-      "step6_flagged": 78,
-      "step6_rate": 0.9873,
+      "step6_flagged": 11,
+      "step6_rate": 0.1392,
       "rendered_checked": 77,
       "kana_kanji": 11,
       "kana_kanji_rate": 0.1429
@@ -844,17 +844,17 @@
       "touched_away_px": 2832
     },
     "timings": {
-      "detect": 7.387,
-      "ocr": 21.914,
+      "detect": 7.054,
+      "ocr": 25.351,
       "translate": 0.003,
-      "mask": 0.341,
-      "inpaint_model": 46.985,
-      "render": 0.767,
-      "verify": 28.744,
+      "mask": 0.25,
+      "inpaint_model": 45.206,
+      "render": 0.706,
+      "verify": 30.531,
       "other": 0.057,
-      "total": 106.197
+      "total": 109.159
     },
-    "seconds_per_page": 13.275,
+    "seconds_per_page": 13.645,
     "by_tag": {
       "bookwalker": {
         "pages": {
@@ -867,8 +867,8 @@
         },
         "cjk_residue": {
           "step6_checked": 50,
-          "step6_flagged": 49,
-          "step6_rate": 0.98,
+          "step6_flagged": 8,
+          "step6_rate": 0.16,
           "rendered_checked": 48,
           "kana_kanji": 8,
           "kana_kanji_rate": 0.1667
@@ -918,17 +918,17 @@
           "touched_away_px": 0
         },
         "timings": {
-          "detect": 2.264,
-          "ocr": 14.479,
+          "detect": 2.571,
+          "ocr": 17.682,
           "translate": 0.001,
-          "mask": 0.127,
-          "inpaint_model": 27.493,
-          "render": 0.377,
-          "verify": 18.208,
-          "other": 0.022,
-          "total": 62.971
+          "mask": 0.134,
+          "inpaint_model": 27.63,
+          "render": 0.36,
+          "verify": 20.029,
+          "other": 0.023,
+          "total": 68.43
         },
-        "seconds_per_page": 31.485
+        "seconds_per_page": 34.215
       },
       "conjoined-bubbles": {
         "pages": {
@@ -941,8 +941,8 @@
         },
         "cjk_residue": {
           "step6_checked": 52,
-          "step6_flagged": 51,
-          "step6_rate": 0.9808,
+          "step6_flagged": 8,
+          "step6_rate": 0.1538,
           "rendered_checked": 50,
           "kana_kanji": 8,
           "kana_kanji_rate": 0.16
@@ -993,17 +993,17 @@
           "touched_away_px": 84
         },
         "timings": {
-          "detect": 2.933,
-          "ocr": 15.1,
+          "detect": 3.164,
+          "ocr": 18.26,
           "translate": 0.001,
-          "mask": 0.143,
-          "inpaint_model": 27.493,
-          "render": 0.403,
-          "verify": 18.728,
+          "mask": 0.155,
+          "inpaint_model": 27.63,
+          "render": 0.379,
+          "verify": 20.54,
           "other": 0.026,
-          "total": 64.828
+          "total": 70.154
         },
-        "seconds_per_page": 21.609
+        "seconds_per_page": 23.385
       },
       "horizontal-text": {
         "pages": {
@@ -1016,8 +1016,8 @@
         },
         "cjk_residue": {
           "step6_checked": 7,
-          "step6_flagged": 7,
-          "step6_rate": 1.0,
+          "step6_flagged": 1,
+          "step6_rate": 0.1429,
           "rendered_checked": 7,
           "kana_kanji": 1,
           "kana_kanji_rate": 0.1429
@@ -1068,17 +1068,17 @@
           "touched_away_px": 2496
         },
         "timings": {
-          "detect": 1.848,
-          "ocr": 1.752,
+          "detect": 1.502,
+          "ocr": 1.616,
           "translate": 0.001,
-          "mask": 0.124,
-          "inpaint_model": 8.158,
-          "render": 0.185,
-          "verify": 2.241,
-          "other": 0.015,
-          "total": 14.324
+          "mask": 0.036,
+          "inpaint_model": 7.675,
+          "render": 0.194,
+          "verify": 2.125,
+          "other": 0.017,
+          "total": 13.165
         },
-        "seconds_per_page": 7.162
+        "seconds_per_page": 6.582
       },
       "light-on-dark": {
         "pages": {
@@ -1091,8 +1091,8 @@
         },
         "cjk_residue": {
           "step6_checked": 3,
-          "step6_flagged": 3,
-          "step6_rate": 1.0,
+          "step6_flagged": 0,
+          "step6_rate": 0.0,
           "rendered_checked": 3,
           "kana_kanji": 0,
           "kana_kanji_rate": 0.0
@@ -1142,17 +1142,17 @@
           "touched_away_px": 2496
         },
         "timings": {
-          "detect": 0.865,
-          "ocr": 0.776,
-          "translate": 0.0,
-          "mask": 0.013,
-          "inpaint_model": 8.158,
-          "render": 0.04,
-          "verify": 1.305,
-          "other": 0.004,
-          "total": 11.163
+          "detect": 0.684,
+          "ocr": 0.59,
+          "translate": 0.001,
+          "mask": 0.017,
+          "inpaint_model": 7.675,
+          "render": 0.026,
+          "verify": 1.055,
+          "other": 0.006,
+          "total": 10.055
         },
-        "seconds_per_page": 11.163
+        "seconds_per_page": 10.055
       },
       "narration": {
         "pages": {
@@ -1165,8 +1165,8 @@
         },
         "cjk_residue": {
           "step6_checked": 17,
-          "step6_flagged": 17,
-          "step6_rate": 1.0,
+          "step6_flagged": 1,
+          "step6_rate": 0.0588,
           "rendered_checked": 17,
           "kana_kanji": 1,
           "kana_kanji_rate": 0.0588
@@ -1216,17 +1216,17 @@
           "touched_away_px": 2496
         },
         "timings": {
-          "detect": 1.714,
-          "ocr": 4.316,
-          "translate": 0.001,
-          "mask": 0.051,
-          "inpaint_model": 13.998,
-          "render": 0.162,
-          "verify": 7.266,
-          "other": 0.01,
-          "total": 27.518
+          "detect": 1.439,
+          "ocr": 4.793,
+          "translate": 0.002,
+          "mask": 0.05,
+          "inpaint_model": 12.697,
+          "render": 0.125,
+          "verify": 7.343,
+          "other": 0.011,
+          "total": 26.46
         },
-        "seconds_per_page": 13.759
+        "seconds_per_page": 13.23
       },
       "sfx": {
         "pages": {
@@ -1239,8 +1239,8 @@
         },
         "cjk_residue": {
           "step6_checked": 66,
-          "step6_flagged": 65,
-          "step6_rate": 0.9848,
+          "step6_flagged": 9,
+          "step6_rate": 0.1364,
           "rendered_checked": 64,
           "kana_kanji": 9,
           "kana_kanji_rate": 0.1406
@@ -1290,17 +1290,17 @@
           "touched_away_px": 0
         },
         "timings": {
-          "detect": 3.974,
-          "ocr": 18.625,
+          "detect": 4.27,
+          "ocr": 22.459,
           "translate": 0.002,
-          "mask": 0.179,
-          "inpaint_model": 38.826,
-          "render": 0.516,
-          "verify": 24.966,
+          "mask": 0.175,
+          "inpaint_model": 37.531,
+          "render": 0.467,
+          "verify": 27.06,
           "other": 0.032,
-          "total": 87.12
+          "total": 91.995
         },
-        "seconds_per_page": 21.78
+        "seconds_per_page": 22.999
       },
       "textured-background": {
         "pages": {
@@ -1313,8 +1313,8 @@
         },
         "cjk_residue": {
           "step6_checked": 69,
-          "step6_flagged": 68,
-          "step6_rate": 0.9855,
+          "step6_flagged": 9,
+          "step6_rate": 0.1304,
           "rendered_checked": 67,
           "kana_kanji": 9,
           "kana_kanji_rate": 0.1343
@@ -1364,17 +1364,17 @@
           "touched_away_px": 2496
         },
         "timings": {
-          "detect": 4.84,
-          "ocr": 19.401,
-          "translate": 0.002,
-          "mask": 0.193,
-          "inpaint_model": 46.985,
-          "render": 0.556,
-          "verify": 26.271,
-          "other": 0.036,
-          "total": 98.283
+          "detect": 4.954,
+          "ocr": 23.049,
+          "translate": 0.003,
+          "mask": 0.192,
+          "inpaint_model": 45.206,
+          "render": 0.493,
+          "verify": 28.114,
+          "other": 0.038,
+          "total": 102.05
         },
-        "seconds_per_page": 19.657
+        "seconds_per_page": 20.41
       },
       "vertical-text": {
         "pages": {
@@ -1387,8 +1387,8 @@
         },
         "cjk_residue": {
           "step6_checked": 73,
-          "step6_flagged": 72,
-          "step6_rate": 0.9863,
+          "step6_flagged": 10,
+          "step6_rate": 0.137,
           "rendered_checked": 71,
           "kana_kanji": 10,
           "kana_kanji_rate": 0.1408
@@ -1439,17 +1439,17 @@
           "touched_away_px": 2832
         },
         "timings": {
-          "detect": 5.543,
-          "ocr": 20.332,
-          "translate": 0.002,
-          "mask": 0.215,
-          "inpaint_model": 41.492,
-          "render": 0.605,
-          "verify": 27.011,
+          "detect": 5.292,
+          "ocr": 23.752,
+          "translate": 0.003,
+          "mask": 0.222,
+          "inpaint_model": 40.327,
+          "render": 0.531,
+          "verify": 28.719,
           "other": 0.041,
-          "total": 95.241
+          "total": 98.888
         },
-        "seconds_per_page": 15.873
+        "seconds_per_page": 16.481
       },
       "webtoon-strip": {
         "pages": {
@@ -1462,8 +1462,8 @@
         },
         "cjk_residue": {
           "step6_checked": 4,
-          "step6_flagged": 4,
-          "step6_rate": 1.0,
+          "step6_flagged": 1,
+          "step6_rate": 0.25,
           "rendered_checked": 4,
           "kana_kanji": 1,
           "kana_kanji_rate": 0.25
@@ -1512,17 +1512,17 @@
           "touched_away_px": 0
         },
         "timings": {
-          "detect": 0.982,
-          "ocr": 0.976,
+          "detect": 0.818,
+          "ocr": 1.025,
           "translate": 0.0,
-          "mask": 0.111,
+          "mask": 0.019,
           "inpaint_model": 0.0,
-          "render": 0.145,
-          "verify": 0.936,
+          "render": 0.168,
+          "verify": 1.07,
           "other": 0.011,
-          "total": 3.162
+          "total": 3.11
         },
-        "seconds_per_page": 3.162
+        "seconds_per_page": 3.11
       },
       "white-bubble": {
         "pages": {
@@ -1535,8 +1535,8 @@
         },
         "cjk_residue": {
           "step6_checked": 74,
-          "step6_flagged": 73,
-          "step6_rate": 0.9865,
+          "step6_flagged": 11,
+          "step6_rate": 0.1486,
           "rendered_checked": 72,
           "kana_kanji": 11,
           "kana_kanji_rate": 0.1528
@@ -1587,22 +1587,22 @@
           "touched_away_px": 336
         },
         "timings": {
-          "detect": 5.66,
-          "ocr": 20.532,
+          "detect": 5.427,
+          "ocr": 24.187,
           "translate": 0.002,
-          "mask": 0.313,
-          "inpaint_model": 33.333,
-          "render": 0.71,
-          "verify": 26.642,
-          "other": 0.048,
-          "total": 87.24
+          "mask": 0.224,
+          "inpaint_model": 32.652,
+          "render": 0.672,
+          "verify": 28.734,
+          "other": 0.046,
+          "total": 91.943
         },
-        "seconds_per_page": 14.54
+        "seconds_per_page": 15.324
       }
     }
   },
   "environment": {
-    "git_commit": "1b0b4cfe4700",
+    "git_commit": "c1af6c2297dc",
     "git_dirty": false,
     "python": "3.13.5",
     "platform": "Windows 11 AMD64",

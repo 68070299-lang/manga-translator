@@ -1,9 +1,11 @@
 # Baselines
 
 Four runs of `scripts/eval_pipeline.py` on `eval/corpus.json`, made on commit
-`1b0b4cfe` (clean tree), which sits on `publish/rewrite-modern-stack`
-(`189f34ed`). Each folder holds `run.json` and `summary.md`. No images are
-committed.
+`c1af6c2` (clean tree). That commit adds the Step 6 fix (`0c03191`) to the
+harness branch, which sits on `publish/rewrite-modern-stack` (`189f34ed`).
+The baselines committed before the fix (`c2e36e99`) differ only in the Step 6
+verdict and in timings. Each folder holds `run.json` and `summary.md`. No
+images are committed.
 
 | Folder | Flags | What it measures |
 | --- | --- | --- |
@@ -52,7 +54,7 @@ Times are wall-clock totals over the 8 pages, except seconds per page.
 | --- | --- | --- | --- | --- |
 | Inpainter used (pages) | white fill only x3, lama_large x5 (fallback) | lama_large x8 | white fill only x3, lama_large x5 (fallback) | lama_large x8 |
 | Blocks detected / to erase | 79 / 77 | 79 / 77 | 79 / 77 | 79 / 77 |
-| CJK residue, Step 6 verdict | 98.7% | 98.7% | 98.7% | 98.7% |
+| CJK residue, Step 6 verdict | 13.9% | 15.2% | 12.7% | 11.4% |
 | CJK residue, kana/kanji only | 14.3% | 15.6% | 13.0% | 11.7% |
 | Px changed outside mask | 0 | 0 | 0 | 0 |
 | Px inpainter changed outside its mask | 0 | 0 | 0 | 0 |
@@ -68,8 +70,13 @@ Times are wall-clock totals over the 8 pages, except seconds per page.
 | Synthetic: text-region MAE | 7.97 | 8.09 | 7.97 | 13.44 |
 | Synthetic: over-erased px (visible) | 2,832 | 2,658 | 2,832 | 9,667 |
 | Synthetic: px touched away from text | 2,832 | 6,407 | 2,832 | 227,139 |
-| Seconds per page | 13.3 | 20.1 | 14.3 | 19.9 |
-| Time: detect / OCR / inpaint model / verify (s) | 7.4 / 21.9 / 47.0 / 28.7 | 9.9 / 24.9 / 93.7 / 31.0 | 7.9 / 23.7 / 51.0 / 30.4 | 8.7 / 25.6 / 91.5 / 32.3 |
+| Seconds per page | 13.6 | 20.2 | 22.1\* | 28.5\* |
+| Time: detect / OCR / inpaint model / verify (s) | 7.1 / 25.4 / 45.2 / 30.5 | 8.7 / 24.5 / 87.4 / 39.8 | 12.4 / 43.2 / 67.6 / 52.0\* | 13.3 / 37.4 / 122.5 / 53.1\* |
+
+\* Measured while another process loaded the CPU: even rendering, which is
+plain CPU work, ran 1.4 to 2 times slower than in the other runs. Do not use
+these two runs for timing comparisons. On a quiet CPU, the same flags took
+14.3 and 19.9 s per page before the fix.
 
 Synthetic pages, as residual ink / visible over-erased px:
 
@@ -86,12 +93,13 @@ Synthetic pages, as residual ink / visible over-erased px:
 The harness changes nothing in the pipeline. These are observations for
 follow-up work.
 
-1. **Step 6 flags almost every block.** The verdict is 98.7% on every run,
-   although the synthetic pages show 0% residual ink in white bubbles.
-   manga-ocr widens ASCII to full-width forms (`jaconv.h2z(ascii=True)`), and
-   `has_cjk` counts the full-width block U+FF00-FFEF as CJK. As a result,
-   rendered English comes back as full-width Latin and fails: "Right me." was
-   read as "Ｒｅｓｔｒｙｅ．". Use `kana_kanji_rate` until Step 6 is fixed.
+1. **Step 6 flagged almost every block (fixed in `0c03191`).** Before the
+   fix, the verdict was 98.7% on every run, although white bubbles showed 0%
+   residual ink. manga-ocr widens ASCII to full-width forms
+   (`jaconv.h2z(ascii=True)`), and `has_cjk` counted that block
+   (U+FF00-FFEF) as CJK. So rendered English failed: "Right me." was read as
+   "Ｒｅｓｔｒｙｅ．". Step 6 now counts only Han, kana and Hangul letters.
+   Its rate, 11.4% to 15.2%, tracks `kana_kanji_rate`.
 2. **The kana/kanji rate has a noise floor.** manga-ocr reads some short
    English as kana. On `syn-white-bubbles` and `syn-webtoon-strip`, 1 of 4
    blocks is counted each, with 0% residual ink. On the real pages, treat a
@@ -114,22 +122,26 @@ follow-up work.
    px 181,216 vs 124,721). The per-block masks and every synthetic score stay
    the same as the default.
 6. **The white-fill fast path is the main speed win.** It handles 68 of the
-   75 masked blocks, which halves the inpainter time against LaMa-only (47 s
-   vs 94 s).
+   75 masked blocks, which halves the inpainter time against LaMa-only (45 s
+   vs 87 s).
 7. **Typesetting.** With the stub's text length, 32 of 75 regions shrink below
    the preferred 16 px, 6 fall below 10 px, and 4 move to an overflow box.
    These counts do not depend on the mask path.
 
 ## Noise
 
-- **Timings.** These baselines were run twice with the same flags. Timings
-  differed by up to about 45% between the two runs: `rect-masks-default`
-  took 20.5 s per page in the first run and 14.3 s in the second. Other
-  processes shared the CPU. Compare timings only with care.
+- **Timings.** Each set of flags has been run three to five times on this
+  machine. On a quiet CPU, seconds per page stayed within about 10% between
+  runs. When another process loaded the CPU, they rose by up to 80%. Compare
+  timings only between runs made close together. Rerun when render or mask
+  time, which is plain CPU work, moves by more than about 20%.
 - **Masks and synthetic scores.** Mask counts, render counts and the
-  synthetic truth metrics were identical in both runs.
-- **Visible over-erasure on screentone.** On `syn-textured-narration`, about
-  2,500 px count as over-erased on every route. Regenerated tone dots do not
-  line up with the original pattern, so they differ by more than 40 levels
-  even where the fill looks right. Watch that page's change rather than its
-  level.
+  synthetic truth metrics were identical in every run.
+- **Over-erasure on screentone is not yet explained.** On
+  `syn-textured-narration`, about 2,500 px count as visibly over-erased on
+  every route. On the default route, every touched pixel there is visibly
+  changed (2,496 of 2,496). That pattern points to white fill painting
+  screentone flat. On the LaMa route, only 2,572 of 6,001 touched pixels are
+  visible, which fits regenerated tone that does not line up with the
+  original. Neither has been checked by eye yet; `--save-images` writes the
+  images to look at.

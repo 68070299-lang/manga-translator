@@ -1,6 +1,6 @@
 # Pipeline eval: rtdetr-lama
 
-- Created: 2026-11-18T03:38:09Z, commit `1b0b4cfe4700`
+- Created: 2026-11-18T04:59:37Z, commit `c1af6c2297dc`
 - Detector `rtdetr`, mask mode `auto`, inpainter `lama_large` (used: `lama_large` x8), OCR `manga-ocr`, translator `stub`, device `cpu`
 - ComfyUI reachable: False
 - Pages: total 8, scored 8
@@ -12,7 +12,7 @@
 | Pages scored | 8 |
 | Blocks detected | 79 |
 | Blocks to erase | 77 |
-| CJK residue, Step 6 verdict | 98.7% |
+| CJK residue, Step 6 verdict | 15.2% |
 | CJK residue, kana/kanji only | 15.6% |
 | Px changed outside mask | 0 |
 | Px inpainter changed outside its mask | 0 |
@@ -35,14 +35,14 @@
 | Synthetic: residual ink ratio | 6.5% |
 | Synthetic: over-erased px (visible) | 2658 |
 | Synthetic: px touched away from text | 6407 |
-| Seconds per page | 20.065 |
-| Time: detect (s) | 9.874 |
-| Time: ocr (s) | 24.856 |
-| Time: translate (s) | 0.001 |
-| Time: mask (s) | 0.203 |
-| Time: inpaint_model (s) | 93.663 |
-| Time: render (s) | 0.891 |
-| Time: verify (s) | 30.961 |
+| Seconds per page | 20.192 |
+| Time: detect (s) | 8.746 |
+| Time: ocr (s) | 24.509 |
+| Time: translate (s) | 0.003 |
+| Time: mask (s) | 0.168 |
+| Time: inpaint_model (s) | 87.383 |
+| Time: render (s) | 0.905 |
+| Time: verify (s) | 39.753 |
 
 ## By tag
 
@@ -63,11 +63,11 @@
 
 | Page | Status | Blocks | Residue kana/kanji (Step 6) | Px outside mask | Masks glyph/interior/rect/skip +white | Shrink/overflow/unfit | Inpainter | Seconds |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| syn-white-bubbles | ok | 4 | 1/4 (4/4) | 0 | 4/0/0/0 +0w | 0/0/0 | lama_large | 14.711 |
-| syn-conjoined-bubbles | ok | 2 | 0/2 (2/2) | 0 | 2/0/0/0 +0w | 0/0/0 | lama_large | 11.181 |
-| syn-textured-narration | ok | 3 | 0/3 (3/3) | 0 | 3/0/0/0 +0w | 0/0/0 | lama_large | 14.807 |
-| syn-sfx | ok | 2 | 0/2 (2/2) | 0 | 2/0/0/0 +0w | 0/0/0 | lama_large | 10.166 |
-| syn-webtoon-strip | ok | 4 | 1/4 (4/4) | 0 | 4/0/0/0 +0w | 0/0/0 | lama_large | 26.742 |
-| real-single-page-01 | ok | 14 | 2/14 (14/14) | 0 | 13/0/0/0 +0w | 8/1/0 | lama_large | 20.012 |
-| real-bookwalker-spread-01 | ok | 25 | 8/23 (24/25) | 0 | 22/0/0/0 +0w | 14/2/0 | lama_large | 30.649 |
-| real-bookwalker-spread-02 | ok | 25 | 0/25 (25/25) | 0 | 25/0/0/0 +0w | 10/1/0 | lama_large | 32.253 |
+| syn-white-bubbles | ok | 4 | 1/4 (1/4) | 0 | 4/0/0/0 +0w | 0/0/0 | lama_large | 13.419 |
+| syn-conjoined-bubbles | ok | 2 | 0/2 (0/2) | 0 | 2/0/0/0 +0w | 0/0/0 | lama_large | 9.114 |
+| syn-textured-narration | ok | 3 | 0/3 (0/3) | 0 | 3/0/0/0 +0w | 0/0/0 | lama_large | 10.025 |
+| syn-sfx | ok | 2 | 0/2 (0/2) | 0 | 2/0/0/0 +0w | 0/0/0 | lama_large | 7.502 |
+| syn-webtoon-strip | ok | 4 | 1/4 (1/4) | 0 | 4/0/0/0 +0w | 0/0/0 | lama_large | 31.42 |
+| real-single-page-01 | ok | 14 | 2/14 (2/14) | 0 | 13/0/0/0 +0w | 8/1/0 | lama_large | 18.357 |
+| real-bookwalker-spread-01 | ok | 25 | 8/23 (8/25) | 0 | 22/0/0/0 +0w | 14/2/0 | lama_large | 33.906 |
+| real-bookwalker-spread-02 | ok | 25 | 0/25 (0/25) | 0 | 25/0/0/0 +0w | 10/1/0 | lama_large | 37.791 |
