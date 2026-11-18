@@ -264,13 +264,19 @@ class HarnessModeTests(unittest.TestCase):
         self.assertEqual(result["summary"]["inpaint"]["changed_outside_mask_px"], 0)
         self.assertIn("lama_large", loaded)
 
-    def test_inpainter_changes_outside_the_mask_are_counted(self):
+    def test_leaky_inpainter_yields_no_changed_pixels_outside_the_mask(self):
+        """The pipeline's mask-union composite clamps a leaky inpainter.
+
+        The harness still observes the model's own leak (so a regression in
+        the composite would be caught), but no pixel outside the erased
+        regions reaches the rendered page.
+        """
         result = run(synthetic_pages("syn-white-bubbles"), inpainter=LeakyInpainter(), name="fake-leaky")
         page = result["pages"][0]
         self.assertGreater(page["inpaint"]["model_changed_outside_mask_px"], 0)
-        self.assertGreater(page["inpaint"]["changed_outside_mask_px"], 0)
-        self.assertGreater(page["truth"]["over_erased_px"], 0)
-        self.assertEqual(result["summary"]["inpaint"]["pages_changed_outside_mask"], 1)
+        self.assertEqual(page["inpaint"]["changed_outside_mask_px"], 0)
+        self.assertEqual(page["truth"]["over_erased_px"], 0)
+        self.assertEqual(result["summary"]["inpaint"]["pages_changed_outside_mask"], 0)
 
     def test_missing_private_page_is_reported_and_the_run_continues(self):
         with writable_temp_directory() as directory:

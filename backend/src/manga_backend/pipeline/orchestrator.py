@@ -346,10 +346,30 @@ class TranslationPipeline:
             # Skip model initialization when every detected block was safely
             # removed from a plain white background.
             if np.any(mask):
-                render_image, result["inpainter_used"] = await self._inpainters.inpaint_page(
+                inpainted, result["inpainter_used"] = await self._inpainters.inpaint_page(
                     inpainter, inpaint_source, mask
                 )
                 result["inpainting_fallback"] = result["inpainter_used"] != inpainter
+                # Pipeline-level composite: keep only what changed inside the
+                # mask union, so "nothing outside the erased regions changes"
+                # no longer depends on each inpainter's own discipline. The
+                # union is the block masks handed to the model plus the pixels
+                # the white-fill shortcut already repainted.
+                if inpainted.shape == image.shape:
+                    mask_union = mask[:, :, None] > 0 if mask.ndim == 2 else mask > 0
+                    if inpaint_source is not image:
+                        mask_union = mask_union | np.any(
+                            inpaint_source != image, axis=2, keepdims=True
+                        )
+                    render_image = np.where(mask_union, inpainted, image)
+                else:  # Malformed backend output: keep the old passthrough.
+                    logger.warning(
+                        "Inpainter returned shape %s for a page of %s; skipping the "
+                        "mask-union composite",
+                        inpainted.shape,
+                        image.shape,
+                    )
+                    render_image = inpainted
             else:
                 render_image = inpaint_source
                 result["inpainter_used"] = inpainter

@@ -532,6 +532,102 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
             create_mask(image, [block], rectangular=True),
         )
 
+    async def test_inpainter_changes_outside_the_mask_union_are_discarded(self):
+        pipeline = TranslationPipeline(device="cpu")
+        image = np.full((60, 100, 3), 255, dtype=np.uint8)
+        image[22:30, 25:45] = 0
+        block = TextBlock([15, 15, 55, 40])
+
+        class FakeDetector:
+            async def detect(self, _image):
+                return [block]
+
+        class LeakyInpainter:
+            last_backend_used = "test"
+
+            async def inpaint(self, source, mask):
+                self.mask = mask
+                return np.full_like(source, 9)
+
+        inpainter = LeakyInpainter()
+        pipeline._detectors.default = FakeDetector()
+        pipeline._ocr = FakeOcrEngine()
+        pipeline._inpainters.instance = inpainter
+        pipeline._inpainters.type = "test"
+        pipeline.model_status["inpainter"] = {"status": "loaded", "name": "test"}
+
+        with patch(
+            "manga_backend.pipeline.orchestrator.render_text", side_effect=lambda i, b, **o: i
+        ):
+            result = await pipeline.translate(
+                image,
+                translator="none",
+                inpainter="test",
+                render=True,
+            )
+
+        rendered = result["image"]
+        mask_union = inpainter.mask > 0
+        np.testing.assert_array_equal(rendered[~mask_union], image[~mask_union])
+        self.assertTrue(np.all(rendered[mask_union] == 9))
+
+    async def test_flux_route_composite_preserves_the_white_fill(self):
+        pipeline = TranslationPipeline(device="cpu")
+        image = np.full((60, 200, 3), 255, dtype=np.uint8)
+        # A striped background keeps the right block out of the white-fill
+        # shortcut, so the flux mask is non-empty and the model runs.
+        stripes = np.arange(100) % 2 * 8 + 150
+        image[:, 100:, :] = stripes[None, :, None]
+        image[22:30, 25:45] = 0
+        image[22:30, 125:145] = 0
+        white_block = TextBlock([15, 15, 55, 40])
+        textured_block = TextBlock([115, 15, 155, 40])
+
+        class FakeDetector:
+            async def detect(self, _image):
+                return [white_block, textured_block]
+
+        class PassthroughInpainter:
+            last_backend_used = "flux2_klein_lanpaint"
+
+            async def initialize(self):
+                return None
+
+            async def inpaint(self, source, mask):
+                self.source = source
+                self.mask = mask
+                return source.copy()
+
+        inpainter = PassthroughInpainter()
+        pipeline._detectors.default = FakeDetector()
+        pipeline._ocr = FakeOcrEngine()
+        pipeline._inpainters.instance = None
+        pipeline._inpainters.type = "flux2_klein_lanpaint"
+        pipeline.model_status["inpainter"] = {"status": "not_loaded", "name": "flux2_klein_lanpaint"}
+
+        def create(_inpainter_type, _device):
+            return inpainter
+
+        with patch("manga_backend.pipeline.inpainting.create_inpainter", create), patch(
+            "manga_backend.pipeline.orchestrator.render_text", side_effect=lambda i, b, **o: i
+        ):
+            result = await pipeline.translate(
+                image,
+                translator="none",
+                inpainter="flux2_klein_lanpaint",
+                render=True,
+            )
+
+        rendered = result["image"]
+        white_glyphs = np.zeros(image.shape[:2], dtype=bool)
+        white_glyphs[22:30, 25:45] = True
+        # The white-fill shortcut repainted the glyphs before the model ran,
+        # and the composite keeps that fill inside the mask union.
+        self.assertTrue(np.all(inpainter.source[white_glyphs] == 255))
+        self.assertTrue(np.all(rendered[white_glyphs] == 255))
+        mask_union = (inpainter.mask > 0) | np.any(inpainter.source != image, axis=2)
+        np.testing.assert_array_equal(rendered[~mask_union], image[~mask_union])
+
     async def test_ocr_routes_google_with_api_key_and_language_hint(self):
         pipeline = TranslationPipeline(device="cpu")
         image = np.zeros((12, 24, 3), dtype=np.uint8)
