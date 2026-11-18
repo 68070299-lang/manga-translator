@@ -1,6 +1,6 @@
-# Pipeline eval: wp5-ink-masks-rtdetr-default
+# Pipeline eval: wp7-gate8
 
-- Created: 2026-11-18T12:01:30Z, commit `0c09aec693d5`
+- Created: 2026-11-18T14:10:18Z, commit `c0e8b15088aa`
 - Detector `rtdetr`, mask mode `auto`, inpainter `flux2_klein_lanpaint` (used: `flux2_klein_lanpaint` x9, `lama_large` x2), OCR `manga-ocr`, translator `stub`, device `cpu`
 - ComfyUI reachable: False
 - Pages: total 11, scored 11
@@ -12,8 +12,8 @@
 | Pages scored | 11 |
 | Blocks detected | 89 |
 | Blocks to erase | 87 |
-| CJK residue, Step 6 verdict | 19.1% |
-| CJK residue, kana/kanji only | 19.5% |
+| CJK residue, Step 6 verdict | 14.6% |
+| CJK residue, kana/kanji only | 14.9% |
 | Px changed outside mask | 0 |
 | Px inpainter changed outside its mask | 0 |
 | Pages with inpainter fallback | 2 |
@@ -40,12 +40,13 @@
 | Mask reason: coverage below 35% | n/a |
 | Mask reason: interior found, clipped ink empty | n/a |
 | Render regions | 85 |
-| Shrink events (< preferred size) | 32 |
+| Shrink events (< anchored target) | 27 |
 | Below min readable size | 6 |
-| Overflow events | 4 |
+| Overflow events | 0 |
 | Unfit regions skipped | 0 |
 | Median font size | 16 |
-| Font size spread per page (mean) | 2.546 |
+| Font size spread per page (mean) | 2.182 |
+| Dialogue font size spread per page (mean) | 1.8 |
 | Synthetic: detection recall | 100.0% |
 | Synthetic: text-region MAE | 1.358 |
 | Synthetic: residual ink ratio | 1.8% |
@@ -58,43 +59,43 @@
 | Synthetic: OCR character error rate | 0.092 |
 | Synthetic: over-erased px (visible) | 364 |
 | Synthetic: px touched away from text | 4068 |
-| Seconds per page | 5.387 |
-| Time: detect (s) | 8.697 |
-| Time: ocr (s) | 18.218 |
-| Time: translate (s) | 0.003 |
-| Time: mask (s) | 4.169 |
-| Time: inpaint_model (s) | 2.231 |
-| Time: render (s) | 2.187 |
-| Time: verify (s) | 23.601 |
+| Seconds per page | 5.085 |
+| Time: detect (s) | 9.273 |
+| Time: ocr (s) | 16.176 |
+| Time: translate (s) | 0.001 |
+| Time: mask (s) | 3.913 |
+| Time: inpaint_model (s) | 2.1 |
+| Time: render (s) | 4.166 |
+| Time: verify (s) | 20.192 |
 
 ## By tag
 
 | Tag | Pages | Blocks | Residue (kana/kanji) | Px outside mask | Shrink | Overflow | Residual ink | Ink recall | Resid in->out mask |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | adversarial | 3 | 10 | 20.0% | 0 | 0 | 0 | 4.5% | 96.2% | 1.3% -> 3.2% |
-| bookwalker | 2 | 50 | 14.6% | 0 | 24 | 3 | n/a | n/a | n/a -> n/a |
-| conjoined-bubbles | 3 | 52 | 14.0% | 0 | 24 | 3 | 0.0% | 100.0% | 0.0% -> 0.0% |
-| horizontal-text | 5 | 17 | 17.6% | 0 | 0 | 0 | 2.7% | 97.7% | 0.8% -> 1.9% |
-| light-on-dark | 1 | 3 | 33.3% | 0 | 0 | 0 | 0.1% | 100.0% | 0.0% -> 0.1% |
-| narration | 3 | 21 | 28.6% | 0 | 8 | 1 | 1.3% | 99.5% | 1.1% -> 0.1% |
-| sfx | 5 | 70 | 17.6% | 0 | 32 | 4 | 1.8% | 97.4% | 1.1% -> 0.7% |
-| textured-background | 7 | 76 | 18.9% | 0 | 32 | 4 | 1.1% | 98.7% | 0.8% -> 0.4% |
-| vertical-text | 9 | 83 | 21.0% | 0 | 32 | 4 | 2.3% | 98.1% | 0.7% -> 1.6% |
+| bookwalker | 2 | 50 | 12.5% | 0 | 21 | 0 | n/a | n/a | n/a -> n/a |
+| conjoined-bubbles | 3 | 52 | 12.0% | 0 | 21 | 0 | 0.0% | 100.0% | 0.0% -> 0.0% |
+| horizontal-text | 5 | 17 | 11.8% | 0 | 0 | 0 | 2.7% | 97.7% | 0.8% -> 1.9% |
+| light-on-dark | 1 | 3 | 0.0% | 0 | 0 | 0 | 0.1% | 100.0% | 0.0% -> 0.1% |
+| narration | 3 | 21 | 23.8% | 0 | 6 | 0 | 1.3% | 99.5% | 1.1% -> 0.1% |
+| sfx | 5 | 70 | 16.2% | 0 | 27 | 0 | 1.8% | 97.4% | 1.1% -> 0.7% |
+| textured-background | 7 | 76 | 17.6% | 0 | 27 | 0 | 1.1% | 98.7% | 0.8% -> 0.4% |
+| vertical-text | 9 | 83 | 16.1% | 0 | 27 | 0 | 2.3% | 98.1% | 0.7% -> 1.6% |
 | webtoon-strip | 1 | 4 | 0.0% | 0 | 0 | 0 | 0.0% | 100.0% | 0.0% -> 0.0% |
-| white-bubble | 8 | 80 | 20.5% | 0 | 32 | 4 | 2.2% | 97.9% | 0.3% -> 1.9% |
+| white-bubble | 8 | 80 | 16.7% | 0 | 27 | 0 | 2.2% | 97.9% | 0.3% -> 1.9% |
 
 ## Pages
 
 | Page | Status | Blocks | Residue kana/kanji (Step 6) | Px outside mask | Masks glyph/interior/rect/skip +router | Shrink/overflow/unfit | Inpainter | Seconds |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| syn-white-bubbles | ok | 4 | 2/4 (2/4) | 0 | 4/0/0/0 +4r | 0/0/0 | flux2_klein_lanpaint | 2.88 |
-| syn-conjoined-bubbles | ok | 2 | 0/2 (0/2) | 0 | 2/0/0/0 +2r | 0/0/0 | flux2_klein_lanpaint | 1.889 |
-| syn-textured-narration | ok | 3 | 1/3 (1/3) | 0 | 3/0/0/0 +3r | 0/0/0 | flux2_klein_lanpaint | 2.273 |
-| syn-sfx | ok | 2 | 0/2 (0/2) | 0 | 2/0/0/0 +2r | 0/0/0 | flux2_klein_lanpaint | 1.952 |
-| syn-webtoon-strip | ok | 4 | 0/4 (0/4) | 0 | 4/0/0/0 +4r | 0/0/0 | flux2_klein_lanpaint | 2.626 |
-| syn-tone-rotated | ok | 4 | 0/4 (0/4) | 0 | 4/0/0/0 +4r | 0/0/0 | flux2_klein_lanpaint | 2.695 |
-| syn-faint-lettering | ok | 3 | 1/3 (1/3) | 0 | 3/0/0/0 +3r | 0/0/0 | flux2_klein_lanpaint | 2.45 |
-| syn-text-touching-outline | ok | 3 | 1/3 (1/3) | 0 | 3/0/0/0 +3r | 0/0/0 | flux2_klein_lanpaint | 2.39 |
-| real-single-page-01 | ok | 14 | 5/14 (5/14) | 0 | 13/0/0/0 +13r | 8/1/0 | flux2_klein_lanpaint | 8.815 |
-| real-bookwalker-spread-01 | ok | 25 | 4/23 (4/25) | 0 | 22/0/0/0 +21r | 14/2/0 | lama_large (fallback) | 16.611 |
-| real-bookwalker-spread-02 | ok | 25 | 3/25 (3/25) | 0 | 25/0/0/0 +23r | 10/1/0 | lama_large (fallback) | 14.678 |
+| syn-white-bubbles | ok | 4 | 0/4 (0/4) | 0 | 4/0/0/0 +4r | 0/0/0 | flux2_klein_lanpaint | 2.836 |
+| syn-conjoined-bubbles | ok | 2 | 0/2 (0/2) | 0 | 2/0/0/0 +2r | 0/0/0 | flux2_klein_lanpaint | 2.605 |
+| syn-textured-narration | ok | 3 | 0/3 (0/3) | 0 | 3/0/0/0 +3r | 0/0/0 | flux2_klein_lanpaint | 2.259 |
+| syn-sfx | ok | 2 | 0/2 (0/2) | 0 | 2/0/0/0 +2r | 0/0/0 | flux2_klein_lanpaint | 1.8 |
+| syn-webtoon-strip | ok | 4 | 0/4 (0/4) | 0 | 4/0/0/0 +4r | 0/0/0 | flux2_klein_lanpaint | 2.6 |
+| syn-tone-rotated | ok | 4 | 0/4 (0/4) | 0 | 4/0/0/0 +4r | 0/0/0 | flux2_klein_lanpaint | 2.644 |
+| syn-faint-lettering | ok | 3 | 2/3 (2/3) | 0 | 3/0/0/0 +3r | 0/0/0 | flux2_klein_lanpaint | 2.562 |
+| syn-text-touching-outline | ok | 3 | 0/3 (0/3) | 0 | 3/0/0/0 +3r | 0/0/0 | flux2_klein_lanpaint | 2.653 |
+| real-single-page-01 | ok | 14 | 5/14 (5/14) | 0 | 13/0/0/0 +13r | 6/0/0 | flux2_klein_lanpaint | 8.343 |
+| real-bookwalker-spread-01 | ok | 25 | 5/23 (5/25) | 0 | 22/0/0/0 +21r | 14/0/0 | lama_large (fallback) | 13.979 |
+| real-bookwalker-spread-02 | ok | 25 | 1/25 (1/25) | 0 | 25/0/0/0 +23r | 7/0/0 | lama_large (fallback) | 13.651 |
