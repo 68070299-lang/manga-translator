@@ -190,30 +190,31 @@ class LineBreakTests(unittest.TestCase):
         assert broken is not None
         self.assertEqual(broken.lines, ["aaaa b", "cc"])
 
-    def test_an_oversized_unit_is_split_by_characters(self):
+    def test_an_oversized_unit_is_split_by_characters_with_a_hyphen(self):
         broken = break_lines(
-            ["abcdefghijkl"], [4.0, 4.0, 4.0], self.measure, joiner=lambda parts: "".join(parts)
+            ["abcdefghijkl"], [5.0, 5.0, 5.0], self.measure, joiner=lambda parts: "".join(parts)
         )
 
         self.assertIsNotNone(broken)
         assert broken is not None
-        self.assertEqual(broken.lines, ["abcd", "efgh", "ijkl"])
+        self.assertEqual(broken.lines, ["abcd-", "efgh-", "ijkl"])
+        self.assertEqual(broken.hyphenated, [False, True, True])
         for width in broken.widths:
-            self.assertLessEqual(width, 4.0)
+            self.assertLessEqual(width, 5.0)
 
     def test_consecutive_mid_word_lines_are_capped(self):
         unit = "abcdefghijkl"
 
         capped = break_lines(
             [unit],
-            [4.0, 4.0, 4.0],
+            [5.0, 5.0, 5.0],
             self.measure,
             joiner=lambda parts: "".join(parts),
             max_hyphen_run=1,
         )
         allowed = break_lines(
             [unit],
-            [4.0, 4.0, 4.0],
+            [5.0, 5.0, 5.0],
             self.measure,
             joiner=lambda parts: "".join(parts),
             max_hyphen_run=2,

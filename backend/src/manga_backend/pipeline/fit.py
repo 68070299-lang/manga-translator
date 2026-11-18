@@ -17,6 +17,7 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+import numpy as np
 from PIL import Image, ImageDraw
 
 from manga_backend.pipeline.fonts import FontObject, get_font_object
@@ -32,9 +33,6 @@ COARSE_STEP_MINIMUM = 2
 MIN_BAND_FRACTION = 0.35
 # More lines than this are never lettered, however tall the room is.
 MAX_LINES = 12
-# The size below which a mid-word break is better than shrinking any further.
-# This is the readable floor the harness counts (below_min_readable).
-MIN_READABLE_FONT_SIZE = 10
 # Vertical text is set one character per line; this is the smallest pitch the
 # fitter will use before it reports an overflow.
 MIN_VERTICAL_SIZE = 1
@@ -118,8 +116,14 @@ class _Measurer:
         return width
 
 
-def _bands_for(room: Room, size: int, count: int, line_spacing: float) -> list[Band]:
-    return room.eroded(air_inset(size)).bands(size, count, line_spacing)
+def _bands_for(
+    room: Room,
+    size: int,
+    count: int,
+    line_spacing: float,
+    spans: np.ndarray | None = None,
+) -> list[Band]:
+    return room.eroded(air_inset(size)).bands(size, count, line_spacing, spans=spans)
 
 
 def _fit_at_size(
@@ -131,22 +135,24 @@ def _fit_at_size(
     line_spacing: float,
     base_stroke: int,
     mode: str,
-    allow_splits: bool,
 ) -> FitResult | None:
     """Best line count for one size, or None when the size cannot be set."""
     stroke = min(base_stroke, max(0, int(round(size * 0.15))))
     font = get_font_object(font_path, size)
     measure = _Measurer(font, stroke)
-    room_height = room.height - air_inset(size) * 2
+    air = air_inset(size)
+    room_height = room.height - air * 2
     if room_height < size:
         return None
+    eroded = room.eroded(air)
+    spans = eroded.row_spans()
     pitch = max(1.0, size * line_spacing)
     max_lines = min(MAX_LINES, len(units), int(room_height // pitch) + 1)
     minimum_band = max(3.0, size * MIN_BAND_FRACTION)
 
     best: tuple[float, int, list[Band], list[str], bool, list[float]] | None = None
     for count in range(1, max_lines + 1):
-        bands = _bands_for(room, size, count, line_spacing)
+        bands = eroded.bands(size, count, line_spacing, spans=spans)
         if len(bands) < count:
             continue
         widths = [band.width for band in bands]
@@ -154,10 +160,6 @@ def _fit_at_size(
             continue
         broken = break_lines(units, widths, measure, joiner=joiner, mode=mode)
         if broken is None:
-            continue
-        if any(broken.hyphenated) and not allow_splits:
-            # A mid-word break is the last resort: a smaller size that keeps
-            # every word whole is preferred, so this size does not qualify.
             continue
         if broken.widths and any(
             width > band.width + 0.5 for width, band in zip(broken.widths, bands)
@@ -275,7 +277,6 @@ def fit_text_in_room(
             line_spacing,
             base_stroke_width,
             mode,
-            allow_splits=size < MIN_READABLE_FONT_SIZE,
         )
         if result is not None:
             feasible = result
@@ -295,7 +296,6 @@ def fit_text_in_room(
             line_spacing,
             base_stroke_width,
             mode,
-            allow_splits=True,
         )
         if result is None:
             band = Band(
@@ -333,7 +333,6 @@ def fit_text_in_room(
             line_spacing,
             base_stroke_width,
             mode,
-            allow_splits=middle < MIN_READABLE_FONT_SIZE,
         )
         if candidate is not None:
             feasible = candidate

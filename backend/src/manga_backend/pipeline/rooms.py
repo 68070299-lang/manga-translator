@@ -122,11 +122,18 @@ class Room:
         spans[:, 1] = np.where(empty, -1, right)
         return spans
 
-    def bands(self, size: int, count: int, line_spacing: float) -> list[Band]:
+    def bands(
+        self,
+        size: int,
+        count: int,
+        line_spacing: float,
+        spans: np.ndarray | None = None,
+    ) -> list[Band]:
         """Lay ``count`` line bands of ``size`` px on the room's body axis."""
         if count <= 0 or size <= 0:
             return []
-        spans = self.row_spans()
+        if spans is None:
+            spans = self.row_spans()
         height = spans.shape[0]
         if height <= 0:
             return []

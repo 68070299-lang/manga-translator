@@ -26,11 +26,7 @@ from manga_backend.pipeline.bubbles import (
     infer_bubble_render_bounds,
     infer_bubble_text_centers,
 )
-from manga_backend.pipeline.fit import (
-    MIN_READABLE_FONT_SIZE,
-    FitResult,
-    fit_text_in_room,
-)
+from manga_backend.pipeline.fit import FitResult, fit_text_in_room
 from manga_backend.pipeline.fonts import FontObject, get_cached_font, get_font_object
 from manga_backend.pipeline.layout import (
     build_render_regions,
@@ -56,6 +52,9 @@ from manga_backend.utils.textblock import Box, TextBlock
 
 logger = logging.getLogger(__name__)
 
+# Below this size the harness counts a region as unreadable. The fitter has no
+# floor of its own: it shrinks only when the room cannot hold the text.
+MIN_READABLE_FONT_SIZE = 10
 # Dialogue regions whose bubbles are this close share one room candidate: a
 # conjoined outline is one shape with two lobes.
 CONJOINED_GAP_PX = 12

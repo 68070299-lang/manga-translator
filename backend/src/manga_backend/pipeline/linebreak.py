@@ -26,6 +26,9 @@ LAST_LINE_WEIGHT = 0.15
 # One extra line is a real cost, so a balanced layout that needs a line more
 # only wins when it fills the room noticeably better.
 LINE_PENALTY = 0.08
+# A mid-word line is a last resort at a given size: it costs more than any
+# plausible slack, so whole words always win when they fit.
+HYPHEN_PENALTY = 1.5
 
 
 @dataclass(frozen=True)
@@ -41,14 +44,19 @@ class BrokenLines:
 def split_oversized_unit(
     unit: str, max_width: float, measure: Callable[[str], float]
 ) -> list[str]:
-    """Split a unit wider than every band into chunks that fit, char by char."""
+    """Split a unit wider than every band into chunks that fit, char by char.
+
+    The chunk budget leaves room for the hyphen the broken line carries, so a
+    chunk never overflows the band it was sized for.
+    """
     if measure(unit) <= max_width:
         return [unit]
+    budget = max(1.0, max_width - measure("-"))
     chunks: list[str] = []
     current = ""
     for char in unit:
         candidate = current + char
-        if current and measure(candidate) > max_width:
+        if current and measure(candidate) > budget:
             chunks.append(current)
             current = char
         else:
@@ -95,11 +103,18 @@ def break_lines(
 
     width_cache: dict[tuple[int, int], float] = {}
 
+    def ends_mid_word(end: int) -> bool:
+        return end < len(chunks) and continues[end]
+
+    def span_text(start: int, end: int) -> str:
+        text = join(chunks[start:end])
+        return text + "-" if ends_mid_word(end) else text
+
     def span_width(start: int, end: int) -> float:
         key = (start, end)
         cached = width_cache.get(key)
         if cached is None:
-            cached = measure(join(chunks[start:end]))
+            cached = measure(span_text(start, end))
             width_cache[key] = cached
         return cached
 
@@ -143,6 +158,8 @@ def break_lines(
                     continue
                 cost += LINE_PENALTY
                 hyphenated = continues[start] if start > 0 else False
+                if ends_mid_word(end):
+                    cost += HYPHEN_PENALTY
                 for run in range(max_hyphen_run + 1):
                     previous = dp[line - 1][start][run]
                     if previous == infinity:
@@ -169,7 +186,7 @@ def break_lines(
         if parent is None:  # pragma: no cover - reconstruction invariant
             return None
         start, previous_run, count = parent
-        lines.append(join(chunks[start:unit]))
+        lines.append(span_text(start, unit))
         widths_used.append(span_width(start, unit))
         hyphenated_lines.append(continues[start] if start > 0 else False)
         line, unit, run = line - 1, start, previous_run
