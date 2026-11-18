@@ -108,7 +108,7 @@ Per page, summed in `summary`, and summed again per tag in `summary.by_tag`:
 
 | Metric | Source | Meaning |
 | --- | --- | --- |
-| `cjk_residue.step6_rate` | Step 6 `verification_passed` | Share of blocks the pipeline's own re-OCR check flags as still containing CJK. |
+| `cjk_residue.step6_rate` | Step 6 `verification_passed` | Share of blocks the pipeline's own re-OCR check flags as still showing Han, kana or Hangul. |
 | `cjk_residue.kana_kanji_rate` | Step 6 `verified_text` | The same re-OCR text, NFKC-folded and counted only when it contains kana or kanji. It covers only blocks that were erased and rendered. |
 | `inpaint.changed_outside_mask_px` | inpaint step input vs output | Pixels the inpainting step changed outside every mask it built. These masks are the per-block masks plus the white-fill masks. Expected 0. |
 | `inpaint.model_changed_outside_mask_px` | inpainter call | Pixels the inpainter model changed outside the mask it was given. Expected 0. |
@@ -129,11 +129,12 @@ Per page, summed in `summary`, and summed again per tag in `summary.by_tag`:
 
 ### Caveats
 
-- **The Step 6 verdict over-reports residue.** manga-ocr widens ASCII to
-  full-width forms, and the pipeline's `has_cjk` counts full-width forms as
-  CJK. So almost every block with rendered English fails Step 6. The harness
-  reports that rate as the pipeline computes it. Use `kana_kanji_rate` to see
-  Japanese that was actually left behind.
+- **Step 6 before and after `0c03191`.** manga-ocr widens ASCII to full-width
+  forms. Before that commit, Step 6 counted full-width forms as CJK, so
+  almost every block with rendered English failed it. Runs on older code show
+  a Step 6 rate near 99%. Since then Step 6 counts only Han, kana and Hangul
+  letters, so its rate tracks `kana_kanji_rate`. The two differ only because
+  `kana_kanji_rate` leaves out blocks that were not erased and rendered.
 - **The kana/kanji rate has a noise floor.** manga-ocr sometimes reads short
   rendered English as kana; for example, "We." came back as それは、. On the
   synthetic white-bubble pages, 2 of 10 rendered blocks were counted this way
