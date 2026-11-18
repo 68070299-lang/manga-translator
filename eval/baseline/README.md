@@ -346,3 +346,60 @@ state is identical across all four baselines — `rtdetr-default` records the
 merge commit `c3f8679` (it IS the clean identity run), `rtdetr-lama`
 records `f365082`, and the two rect routes record `0039533`. Labels inside
 the run files still read `merge-identity` / `base-<route>`.
+
+## WP6b (page context, length budgets, concurrent erasing): baselines unchanged
+
+`wp6b/page-context` (`eaca86a` + `719d456`, based on the WP6a merge head
+`77ef4ad`) makes the translation step multimodal and length-aware: a
+vision-capable provider gets the downscaled page with a reading-order number
+drawn at each translation unit, every unit gets a character budget read from
+its WP7 room, a unit that cannot be set at the minimum readable size gets one
+re-ask for a shorter version, and masking/inpainting now start with the
+translation instead of after it.
+
+All four routes were re-run on the branch (11 pages, clean tree, commit
+`719d456`) and compared against these baselines:
+
+| Route | Quality and render rows | Pages with a different rendered image |
+| --- | --- | --- |
+| `rtdetr-default` | all identical | 0 |
+| `rtdetr-lama` | all identical | 0 |
+| `rect-masks-default` | all identical | 0 |
+| `rect-masks-lama` | all identical | 0 |
+
+Masked px (169,214 / 914,494 on the rect-LaMa route), the tier counts, the mask
+reasons, the render region count, shrink / below-min / overflow / unfit, the
+font spreads, the CJK re-OCR rows and px-outside-mask are byte-identical on
+every route, and every page reports `ok` rather than `ok (image differs)` — the
+rendered images match too. **The baselines are therefore not regenerated:
+nothing moved, so they still measure this line.** `--translator` stays the stub
+for all four, and the stub bypasses the provider, so a translator-side change
+cannot move a row; the concurrent erase was built to keep the erase set
+identical on the stub, which these runs confirm.
+
+The runs add one **additive** section to `run.json` (schema version 3):
+`translate`, with `budget_chars` (one character budget per unit, in reading
+order), `budget_chars_min/max/mean`, `page_image`, `requests`, `reask_units`,
+`reask_shortened` and `reask_failed`. On the stub the budgets are real and the
+provider counts are zero (the stub never enters the translation step). Across
+the 11 pages: 89 units budgets, mean 31.9 characters, min 6. The `compare`
+table gains six rows for these numbers; they read `n/a` on these baselines
+because the baselines predate the section. Nothing else in the metric
+definitions changed.
+
+Timing on the stub grew slightly (rtdetr-default 5.107 -> 5.193 s/page, mask
+3.634 -> 4.049 s): the page context (rooms, font metrics, one flood per bubble)
+is on the critical path because the stub provider is instant. With a real
+provider it runs under the provider latency. `rect-masks-default` timings from
+the branch runs are unusable — one run hit a ~7 h machine suspend and the
+reruns ran at 30-54% ambient load; its quality rows were identical in all
+three.
+
+**Real-translator rows: blocked-on-key.** The D5 recipe (`LOCAL_LLM_API_KEY`
+from the main checkout's `.env`, `LOCAL_LLM_BASE_URL=https://opencode.ai/...`)
+produced the backend's sanitised `TranslatorError`, and a status-only probe
+against both candidate endpoints returned HTTP 403 for the configured model.
+`below_min_readable` / `overflow_events` on a real provider and the
+concurrency saving are therefore unmeasured; the budgets and the one re-ask are
+unit-tested and the per-unit numbers are recorded. A refreshed key makes
+`--translator local` runs work with no code change.
