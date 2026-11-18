@@ -33,6 +33,13 @@ COARSE_STEP_MINIMUM = 2
 MIN_BAND_FRACTION = 0.35
 # More lines than this are never lettered, however tall the room is.
 MAX_LINES = 12
+# Below this size the harness counts a region as unreadable; the fitter tries
+# tighter leading before it lets a region fall under it.
+MIN_READABLE_FONT_SIZE = 10
+# Leading multipliers tried, in order, when the room cannot hold the text at
+# the requested line spacing: cramped rooms get tighter leading, not smaller
+# type.
+LEADING_FACTORS = (1.0, 0.9, 0.82)
 # Vertical text is set one character per line; this is the smallest pitch the
 # fitter will use before it reports an overflow.
 MIN_VERTICAL_SIZE = 1
@@ -266,6 +273,42 @@ def fit_text_in_room(
     if not units:
         return FitResult(target, [], [], [], target, 0, False, False, mode, kind)
 
+    result: FitResult | None = None
+    for factor in LEADING_FACTORS:
+        spacing = max(1.0, line_spacing * factor)
+        result = _search_size(
+            room,
+            str(text),
+            units,
+            joiner,
+            font_path,
+            target,
+            spacing,
+            base_stroke_width,
+            mode,
+            fixed_size,
+            kind,
+        )
+        if result.size >= MIN_READABLE_FONT_SIZE:
+            return result
+    assert result is not None
+    return result
+
+
+def _search_size(
+    room: Room,
+    text: str,
+    units: Sequence[str],
+    joiner: Callable[[Sequence[str]], str],
+    font_path: str | None,
+    target: int,
+    line_spacing: float,
+    base_stroke_width: int,
+    mode: str,
+    fixed_size: bool,
+    kind: str,
+) -> FitResult:
+    """Coarse-then-bisect downward search for the largest size that fits."""
     feasible: FitResult | None = None
     previous_failed: int | None = None
     candidates = [target] if fixed_size else _size_candidates(target)
