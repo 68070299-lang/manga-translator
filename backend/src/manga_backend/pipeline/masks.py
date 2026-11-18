@@ -963,15 +963,22 @@ def _flood_interior(
         blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
     )
     dark_threshold = int(np.clip(otsu_threshold, INTERIOR_DARK_MIN, INTERIOR_DARK_MAX))
-    barrier = (blurred <= dark_threshold) | (cv2.Canny(blurred, 50, 150) > 0)
+    dark_barrier = blurred <= dark_threshold
+    edge_barrier = cv2.Canny(blurred, 50, 150) > 0
     # Neither background texture nor paper itself is a wall. Tone dots that
     # survive the close can knit into a lattice and enclose paper pockets,
     # and Canny marks a paper-coloured pixel next to every tone dot; either
-    # way a pocket would be mistaken for a bubble interior.
+    # way a pocket would be mistaken for a bubble interior. The paper test
+    # applies to edges only: a dark outline pixel is never paper, and
+    # removing light antialiased stroke pixels from the dark term would open
+    # the very wall the flood has to stop at.
     texture_level = _texture_level(light, float(paper.light))
     if texture_level is not None:
-        barrier &= ~(np.abs(light - texture_level) <= RING_TEXTURE_DEVIATION)
-    barrier &= ~(np.abs(light - paper.light) <= PAPER_SEED_TOLERANCE)
+        texture_pixels = np.abs(light - texture_level) <= RING_TEXTURE_DEVIATION
+        dark_barrier &= ~texture_pixels
+        edge_barrier &= ~texture_pixels
+    edge_barrier &= ~(np.abs(light - paper.light) <= PAPER_SEED_TOLERANCE)
+    barrier = dark_barrier | edge_barrier
     barrier = cv2.morphologyEx(
         barrier.astype(np.uint8) * 255,
         cv2.MORPH_CLOSE,
@@ -1008,6 +1015,15 @@ def _flood_interior(
     seed_labels = seed_labels[seed_labels > 0]
     if seed_labels.size == 0:
         return None, INTERIOR_NO_SEED
+    # A seed that belongs to the border-touching component is on the wrong
+    # side of the outline (a one-pixel nick where the box corner meets the
+    # wall is enough); only enclosed seeds define the interior.
+    border_labels = np.unique(
+        np.concatenate([labels[0, :], labels[-1, :], labels[:, 0], labels[:, -1]])
+    )
+    seed_labels = seed_labels[~np.isin(seed_labels, border_labels)]
+    if seed_labels.size == 0:
+        return None, INTERIOR_LEAK
     interior = np.isin(labels, seed_labels)
     area = float(np.count_nonzero(interior))
     if area < max(64.0, INTERIOR_MIN_AREA_FRACTION * text_area):
