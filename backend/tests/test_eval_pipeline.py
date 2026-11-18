@@ -310,6 +310,23 @@ class HarnessModeTests(unittest.TestCase):
                 with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                     eval_pipeline.load_corpus(manifest)
 
+    def test_compare_limits_overall_totals_to_pages_scored_in_both_runs(self):
+        full = run(synthetic_pages("syn-sfx", "syn-white-bubbles"))
+        partial = json.loads(json.dumps(full))
+        partial["label"] = "partial"
+        partial["pages"] = [
+            {"id": page["id"], "tags": [], "status": "missing"} if page["id"] == "syn-white-bubbles" else page
+            for page in partial["pages"]
+        ]
+        partial["summary"] = eval_pipeline.summarize(partial["pages"])
+
+        report = eval_pipeline.render_compare_markdown(full, partial)
+
+        self.assertIn("Computed over the 1 pages scored in both runs.", report)
+        rows = {line.split("|")[1].strip(): line for line in report.splitlines() if line.startswith("|")}
+        self.assertTrue(rows["Blocks detected"].rstrip().endswith("| = |"), rows["Blocks detected"])
+        self.assertIn("ok -> missing", rows["syn-white-bubbles"])
+
     def test_compare_cli_writes_markdown(self):
         result = run(synthetic_pages("syn-sfx"))
         with writable_temp_directory() as directory:

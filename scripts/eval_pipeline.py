@@ -803,6 +803,8 @@ class Instrumentation:
 # Hiragana, katakana (without the middle dot and prolonged sound mark) and Han.
 _KANA_KANJI = re.compile(r"[ぁ-ゖァ-ヺ㐀-䶿一-鿿豈-﫿々]")
 MIN_READABLE_FONT_SIZE = rendering_module.MIN_READABLE_FONT_SIZE
+# A pixel that differs by more than this many levels (any channel) counts as visible.
+VISIBLE_LEVELS = 40
 
 
 def has_kana_kanji(text: str | None) -> bool:
@@ -964,14 +966,20 @@ def _truth_metrics(synthetic: SyntheticPage, detected: list[list[int]], inpainte
             covered += 1
     error = np.abs(inpainted.astype(np.int16) - synthetic.clean.astype(np.int16))
     near_text = cv2.dilate(text_region.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
-    over_erased = _changed(inpainted, synthetic.image) & ~near_text
+    away = ~near_text
+    damage = np.abs(inpainted.astype(np.int16) - synthetic.image.astype(np.int16)).max(axis=2)
     ink = synthetic.ink
     return {
         "boxes": len(synthetic.truth),
         "recall": round(covered / len(synthetic.truth), 4) if synthetic.truth else None,
         "text_mae": round(float(error.mean(axis=2)[text_region].mean()), 3) if text_region.any() else None,
-        "residual_ink_ratio": round(float((error.max(axis=2)[ink] > 40).mean()), 4) if ink.any() else None,
-        "over_erased_px": int(np.count_nonzero(over_erased)),
+        "residual_ink_ratio": round(float((error.max(axis=2)[ink] > VISIBLE_LEVELS).mean()), 4)
+        if ink.any()
+        else None,
+        # Art visibly repainted away from any text (outlines, line art, tone).
+        "over_erased_px": int(np.count_nonzero((damage > VISIBLE_LEVELS) & away)),
+        # Any change away from text, however slight (re-synthesized flat areas).
+        "touched_away_px": int(np.count_nonzero((damage > 0) & away)),
         "glyph_source": synthetic.glyph_source,
     }
 
@@ -1223,6 +1231,7 @@ def summarize(records: Sequence[dict[str, Any]], *, by_tag: bool = True) -> dict
             "text_mae": _mean([truth["text_mae"] for truth in truths]),
             "residual_ink_ratio": _mean([truth["residual_ink_ratio"] for truth in truths]),
             "over_erased_px": sum(int(truth["over_erased_px"]) for truth in truths),
+            "touched_away_px": sum(int(truth["touched_away_px"]) for truth in truths),
         },
         "timings": timings,
         "seconds_per_page": round(timings["total"] / len(scored), 3) if scored else None,
@@ -1266,7 +1275,8 @@ METRICS: tuple[tuple[str, str, str | None], ...] = (
     ("truth.recall", "Synthetic: detection recall", "higher"),
     ("truth.text_mae", "Synthetic: text-region MAE", "lower"),
     ("truth.residual_ink_ratio", "Synthetic: residual ink ratio", "lower"),
-    ("truth.over_erased_px", "Synthetic: over-erased px", "lower"),
+    ("truth.over_erased_px", "Synthetic: over-erased px (visible)", "lower"),
+    ("truth.touched_away_px", "Synthetic: px touched away from text", "lower"),
     ("seconds_per_page", "Seconds per page", "lower"),
     *((f"timings.{stage}", f"Time: {stage} (s)", "lower") for stage in STAGES),
 )
@@ -1400,8 +1410,24 @@ def _delta(before: Any, after: Any, key: str, better: str | None) -> str:
     return f"{text} ({'better' if improved else 'worse'})"
 
 
+def _scored_ids(run: dict[str, Any]) -> set[str]:
+    return {record["id"] for record in run["pages"] if record.get("status") == "ok"}
+
+
 def render_compare_markdown(before: dict[str, Any], after: dict[str, Any]) -> str:
-    """Diff two runs: overall metrics, then per-page changes."""
+    """Diff two runs: overall metrics, then per-page changes.
+
+    When the runs scored different pages (a machine without the private pages
+    compared with a committed baseline, say), the overall table is recomputed
+    over the pages scored in both, so the totals stay comparable.
+    """
+    before_summary, after_summary = before["summary"], after["summary"]
+    common = _scored_ids(before) & _scored_ids(after)
+    scope = "all scored pages"
+    if common != _scored_ids(before) or common != _scored_ids(after):
+        before_summary = summarize([r for r in before["pages"] if r["id"] in common], by_tag=False)
+        after_summary = summarize([r for r in after["pages"] if r["id"] in common], by_tag=False)
+        scope = f"the {len(common)} pages scored in both runs"
     lines = [
         f"# Pipeline eval comparison: {before['label']} -> {after['label']}",
         "",
@@ -1413,11 +1439,13 @@ def render_compare_markdown(before: dict[str, Any], after: dict[str, Any]) -> st
         "",
         "## Overall",
         "",
+        f"Computed over {scope}.",
+        "",
     ]
     rows = []
     for key, label, better in METRICS:
-        first = lookup(before["summary"], key)
-        second = lookup(after["summary"], key)
+        first = lookup(before_summary, key)
+        second = lookup(after_summary, key)
         rows.append([label, _format(first, key), _format(second, key), _delta(first, second, key, better)])
     lines += _table(["Metric", "A", "B", "B - A"], rows)
 
