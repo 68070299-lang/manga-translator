@@ -42,6 +42,7 @@ from manga_backend.pipeline.rendering import (
     render_text,
     wrap_text_to_lines,
 )
+from manga_backend.pipeline.text import has_cjk, has_cjk_letters
 from manga_backend.utils.textblock import TextBlock
 
 
@@ -2165,6 +2166,33 @@ class PipelineEventLoopTests(unittest.TestCase):
 
         self.assertTrue(responsive)
         self.assertEqual(health, "ok")
+
+
+class RenderedTextVerificationTests(unittest.IsolatedAsyncioTestCase):
+    def test_cjk_letters_ignore_full_width_latin_and_punctuation(self):
+        for text in ("Ｒｅａｄｙ．", "ＯＫ！？", "。", "「…」", "１２３", "Ready.", ""):
+            with self.subTest(text=text):
+                self.assertFalse(has_cjk_letters(text))
+        for text in ("それは、", "ＱｕｒｒｙになってＭＥ？", "漢字", "々", "ｱｲｳ", "한국어"):
+            with self.subTest(text=text):
+                self.assertTrue(has_cjk_letters(text))
+        # Font choice, wrapping and the translate decision keep the wider check.
+        self.assertTrue(has_cjk("Ｒｅａｄｙ．"))
+
+    async def test_step6_passes_rendered_english_read_back_full_width(self):
+        class ReadBackOcr:
+            async def process(self, image, blocks):
+                return ["Ｒｅａｄｙ．", "それは、", "", "。"]
+
+        blocks = [TextBlock([0, 0, 10, 10], text="待って") for _ in range(4)]
+        await TranslationPipeline._verify_rendered_text(
+            ReadBackOcr(), np.zeros((10, 10, 3), np.uint8), blocks
+        )
+
+        self.assertEqual(
+            [block.verification_passed for block in blocks], [True, False, True, True]
+        )
+        self.assertEqual(blocks[0].verified_text, "Ｒｅａｄｙ．")
 
 
 class FontObjectCacheTests(unittest.TestCase):

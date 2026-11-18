@@ -13,8 +13,31 @@ _CJK_PATTERN = re.compile(
 )
 
 
+_CJK_LETTER_PATTERN = re.compile(
+    "["
+    "㐀-䶿一-鿿豈-﫿\U00020000-\U0002a6df"  # Han
+    "々-〇"  # 々 〆 〇
+    "ぁ-ゟ"  # Hiragana
+    "ァ-ヺー-ヿ"  # Katakana and ー, without the middle dot
+    "ᄀ-ᇿㄱ-ㆎ가-힯"  # Hangul
+    "]"
+)
+
+
 def has_cjk(text: str) -> bool:
     return _CJK_PATTERN.search(text) is not None
+
+
+def has_cjk_letters(text: str) -> bool:
+    """Return True when text still holds Han, kana or Hangul after NFKC folding.
+
+    Use this to decide whether OCR of rendered output still shows source text.
+    OCR engines such as manga-ocr widen ASCII to full-width forms, so rendered
+    English comes back as "Ｒｅａｄｙ．". NFKC folds that to "Ready." and
+    half-width katakana to full-width katakana. CJK punctuation on its own,
+    such as "。" or "「」", is not counted.
+    """
+    return _CJK_LETTER_PATTERN.search(unicodedata.normalize("NFKC", text)) is not None
 
 
 def is_unchanged_punctuation(original: object, translated: object) -> bool:

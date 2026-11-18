@@ -36,7 +36,7 @@ from manga_backend.pipeline.inpainting import (
 from manga_backend.pipeline.masks import create_mask, prepare_flux_inpainting
 from manga_backend.pipeline.ocr import blocks_from_payload, run_ocr
 from manga_backend.pipeline.rendering import render_text
-from manga_backend.pipeline.text import has_cjk, is_unchanged_punctuation
+from manga_backend.pipeline.text import has_cjk_letters, is_unchanged_punctuation
 from manga_backend.pipeline.translation import translate_texts
 from manga_backend.utils.textblock import TextBlock
 
@@ -364,7 +364,11 @@ class TranslationPipeline:
     async def _verify_rendered_text(
         ocr_engine: OCREngine, rendered: np.ndarray, blocks: list[TextBlock]
     ) -> None:
-        """Step 6: re-OCR the rendered page and flag blocks that still contain CJK."""
+        """Step 6: re-OCR the rendered page and flag blocks that still show CJK letters.
+
+        Full-width Latin and CJK punctuation do not count: OCR engines return
+        rendered English in full-width forms (see ``has_cjk_letters``).
+        """
         try:
             start_time = time.time()
             logger.info("Step 6: Verifying rendered text (re-OCR)...")
@@ -372,7 +376,7 @@ class TranslationPipeline:
             issue_count = 0
             for index, (block, verified) in enumerate(zip(blocks, verified_texts)):
                 block.verified_text = verified
-                block.verification_passed = not (verified and has_cjk(verified))
+                block.verification_passed = not (verified and has_cjk_letters(verified))
                 if not block.verification_passed:
                     issue_count += 1
                     logger.warning(

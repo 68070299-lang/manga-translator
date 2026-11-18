@@ -159,19 +159,20 @@ class SyntheticCorpusTests(unittest.TestCase):
         )
         self.assertEqual(self.result["summary"]["mask"]["white_fill_blocks"], 0)
 
-    def test_residue_reports_step6_verdict_and_kana_kanji_separately(self):
+    def test_residue_counts_only_blocks_that_still_read_as_japanese(self):
         residue = self.result["summary"]["cjk_residue"]
-        # Full-width Latin is CJK to the pipeline's has_cjk, not kana/kanji.
-        self.assertEqual(residue["step6_flagged"], residue["step6_checked"])
-        # EchoOcr reads free text (no bubble, so RT-DETR's "sfx" type) back as Japanese.
+        # EchoOcr reads rendered English back as full-width Latin, like manga-ocr,
+        # and free text (no bubble, so RT-DETR's "sfx" type) back as Japanese.
         free_text = sum(
             truth.bubble is None
             for name in eval_pipeline.SYNTHETIC_PAGES
             for truth in eval_pipeline.build_synthetic_page(name).truth
         )
         self.assertGreater(free_text, 0)
+        self.assertLess(free_text, residue["step6_checked"])
+        # Step 6 ignores full-width Latin, so its verdict and the kana/kanji reading agree.
+        self.assertEqual(residue["step6_flagged"], free_text)
         self.assertEqual(residue["kana_kanji"], free_text)
-        self.assertLess(residue["kana_kanji_rate"], residue["step6_rate"])
 
     def test_ground_truth_scores_erasure_against_the_clean_plate(self):
         for page in self.result["pages"]:
