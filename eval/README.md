@@ -163,3 +163,43 @@ Per page, summed in `summary`, and summed again per tag in `summary.by_tag`:
 images), with notes on how they were made. Compare a change against the
 matching baseline, and add a new baseline when the pipeline intentionally
 changes.
+
+## Reading-order labels (optional)
+
+The pipeline sorts detected blocks into reading order before OCR and
+translation (panels first — found via paper-colored gutters — then the
+lettering inside each panel; right to left for manga pages, left to right
+for tall webtoon strips, height >= 1.6 x width). `scripts/eval_reading_order.py`
+scores that order against an expected order per page:
+
+- synthetic pages use the page generator's ground-truth boxes ordered by the
+  documented convention, so they need no labels;
+- real pages need a hand-labelled file, by default
+  `eval/reading-order-labels.json` (gitignored like the page images):
+
+```json
+{
+  "real-single-page-01": [
+    { "text": "ちょっとロバートぉ！！", "bbox": [39, 43, 82, 136] },
+    { "text": "え！？", "bbox": [350, 39, 388, 99] }
+  ]
+}
+```
+
+Each entry lists that page's text regions in the intended reading order,
+with `bbox` in `[x1, y1, x2, y2]` pixels. A detected block matches a label
+when the boxes' overlap covers at least half of the smaller box (RT-DETR
+text boxes are usually larger than a hand-labelled text box); the report is
+Kendall's tau over the matched blocks plus an exact-match flag, so
+detection misses do not penalize the order of the blocks that were found.
+Run it with::
+
+```powershell
+uv run --project backend --locked python scripts/eval_reading_order.py
+uv run --project backend --locked python scripts/eval_reading_order.py --detector truth
+```
+
+`--detector truth` uses the synthetic ground-truth boxes (no model load);
+the default runs the real RT-DETR and needs `MANGA_BACKEND_MODELS_DIR` like
+the main harness. `--direction rtl|ltr` overrides the aspect-ratio rule.
+Unlabelled real pages are reported but do not enter the summary.
