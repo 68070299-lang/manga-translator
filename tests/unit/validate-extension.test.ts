@@ -406,7 +406,8 @@ describe('validateExtension', () => {
     });
   });
 
-  describe.skipIf(!fs.existsSync(path.join(DIST_DIR, 'manifest.json')))(
+  // CI builds before the unit tests, so there a missing build fails here instead of skipping.
+  describe.skipIf(!process.env.CI && !fs.existsSync(path.join(DIST_DIR, 'manifest.json')))(
     'current build output',
     () => {
       it('passes validation', () => {

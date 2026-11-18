@@ -33,10 +33,17 @@ jobs:
       - run: npm run verify:repository
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm test
 
       # The build:done hook validates the manifest, permissions, assets and fonts.
+      # It runs before the unit tests: the generated-manifest and build-output
+      # tests need dist/, and fail (rather than skip) without it when CI is set.
       - run: npm run build
+
+      # Unit tests with the coverage gate from vitest.config.ts.
+      - run: npm run test:coverage
+
+      # The store zip: packed from the validated staging build, without the key.
+      - run: npm run zip
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
