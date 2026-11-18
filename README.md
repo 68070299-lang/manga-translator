@@ -60,6 +60,18 @@ Install Node dependencies from the repo root with: rtk npm install (Node 24 or n
 
 Build the extension with `npm run build`, then load `dist/chrome-mv3` as an unpacked extension in Chrome (chrome://extensions, Developer mode, Load unpacked). `npm run dev` runs WXT's dev mode with rebuild-on-change, and `npm run zip` produces a store-ready zip under dist/.
 
+Builds are staged in `dist/.build/` and validated (`scripts/validate-extension.ts`) before they replace `dist/chrome-mv3`, so a failed build leaves the last good extension loaded. The unpacked copy carries a fixed manifest `key` (`scripts/extension-key.ts`), so its extension ID is always `jnakpckdlnjolbfdggkifidibbfenhdh`, wherever the folder lives. The store zip is packed from the staging build and has no `key`, because the Chrome Web Store rejects one.
+
+### Upgrading from the pre-rewrite extension
+
+The old extension was loaded unpacked from `extension/`, which no longer contains a manifest. Chrome gives an unpacked extension without a `key` an ID derived from its folder, and each ID has its own storage, so the rebuilt extension starts empty. After loading `dist/chrome-mv3`:
+
+1. Remove the old "Manga Translator" entry in chrome://extensions (it now shows a load error).
+2. In the extension options, re-enter the Backend Access Token (the value of `BACKEND_AUTH_TOKEN` in `backend/.env`) and any cloud provider API keys, and re-apply your settings.
+3. Re-enable translation on the sites you used it on. Translated pages are re-cached as you read.
+
+This happens once: the fixed `key` keeps the ID stable from now on.
+
 Install backend dependencies with uv from backend/: uv sync --python 3.12 (CPU by default). For a GPU runtime sync exactly one group, for example `uv sync --no-default-groups --group gpu --python 3.12` (or `--group directml`); see backend/README.md.
 
 Set `BACKEND_AUTH_TOKEN` in `backend/.env`, enter the same value in the

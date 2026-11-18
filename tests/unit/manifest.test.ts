@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -6,6 +7,7 @@ import bookwalkerCorsRules from '../../extension/public/rules/bookwalker-cors.js
   type: 'json',
 };
 import packageJson from '../../package.json' with { type: 'json' };
+import { UNPACKED_EXTENSION_ID, UNPACKED_EXTENSION_KEY } from '../../scripts/extension-key.ts';
 import { FORBIDDEN_PERMISSIONS, PERMISSION_BUDGET } from '../../scripts/validate-extension.ts';
 import wxtConfig from '../../wxt.config.ts';
 
@@ -36,19 +38,52 @@ interface BuiltManifest {
   background: { service_worker: string };
   content_scripts: Array<{ matches: string[]; js: string[]; run_at?: string }>;
   declarative_net_request: { rule_resources: unknown[] };
+  key?: string;
 }
 
-const builtManifestPath = path.join(
-  import.meta.dirname,
-  '..',
-  '..',
-  'dist',
-  'chrome-mv3',
-  'manifest.json',
-);
-const builtManifest: BuiltManifest | null = fs.existsSync(builtManifestPath)
-  ? (JSON.parse(fs.readFileSync(builtManifestPath, 'utf8')) as BuiltManifest)
-  : null;
+function readBuiltManifest(...segments: string[]): BuiltManifest | null {
+  const file = path.join(import.meta.dirname, '..', '..', 'dist', ...segments, 'manifest.json');
+  return fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')) as BuiltManifest) : null;
+}
+
+// dist/chrome-mv3 is the promoted unpacked build; dist/.build/chrome-mv3 is the
+// validated staging build that `wxt zip` packs.
+const builtManifest = readBuiltManifest('chrome-mv3');
+const stagedManifest = readBuiltManifest('.build', 'chrome-mv3');
+
+describe('build output in CI', () => {
+  // CI builds before the unit tests, so there a missing build is a failure,
+  // not a reason to skip the generated-manifest checks below.
+  it.runIf(Boolean(process.env.CI))('exists, so the generated-manifest checks run', () => {
+    expect(builtManifest).not.toBeNull();
+    expect(stagedManifest).not.toBeNull();
+  });
+});
+
+describe('unpacked extension ID', () => {
+  it('is the ID Chrome derives from the fixed key', () => {
+    // Chrome: first 128 bits of SHA-256 over the DER public key, hex digits mapped to a-p.
+    const digest = createHash('sha256')
+      .update(Buffer.from(UNPACKED_EXTENSION_KEY, 'base64'))
+      .digest('hex');
+    const id = [...digest.slice(0, 32)]
+      .map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16)))
+      .join('');
+    expect(id).toBe(UNPACKED_EXTENSION_ID);
+  });
+
+  it('keeps the key out of the configured manifest, since store uploads reject it', () => {
+    expect(manifest).not.toHaveProperty('key');
+  });
+
+  it.runIf(builtManifest !== null)('is pinned in the unpacked build', () => {
+    expect(builtManifest?.key).toBe(UNPACKED_EXTENSION_KEY);
+  });
+
+  it.runIf(stagedManifest !== null)('is absent from the staging build that gets zipped', () => {
+    expect(stagedManifest).not.toHaveProperty('key');
+  });
+});
 
 describe('extension manifest (wxt.config.ts)', () => {
   it('allows persistent storage for a five-page rendered translation cache', () => {
