@@ -143,6 +143,11 @@ RING_BACKGROUND_OUTER = 21
 HALO_RADIUS = 3
 HALO_ALPHA_MIN = 0.1
 HALO_MIN_CONTRAST = 8.0
+# Tone never belongs to the ink: screentone dots sit at their own level, and
+# a dot touching a glyph would otherwise be kept as glyph ink (it is not,
+# and filling it would flatten the tone). The halo also skips that level, so
+# the removed pixels are not readmitted as blends.
+TONE_REMOVAL_TOLERANCE = 24.0
 
 # --- Bubble interiors ----------------------------------------------------
 # Structure threshold bounds for the flood barrier (same Otsu clamp as the
@@ -676,11 +681,49 @@ def _grow_outline_bands(
     return grown
 
 
+def _texture_level(lightness: np.ndarray, paper_level: float) -> float | None:
+    """The level of the background texture (screentone dots, hatching), if any."""
+    inside = lightness[np.abs(lightness - paper_level) <= PAPER_MODE_TOLERANCE]
+    if inside.size == 0:
+        return None
+    dominant = _dominant_level(inside)
+    deviating = lightness[np.abs(lightness - dominant) > RING_TEXTURE_DEVIATION]
+    if deviating.size < 8:
+        return None
+    if float(deviating.size) / max(1, lightness.size) < RING_TEXTURE_SHARE:
+        return None
+    return float(np.median(deviating))
+
+
+def _tone_dot_bodies(light: np.ndarray, tone_dots: np.ndarray) -> np.ndarray:
+    """The body of every tone dot, including dots merged into a glyph.
+
+    A dot that touches a glyph joins the glyph's component and escapes the
+    population test, yet it is still paper: filling it would flatten the
+    tone. A dot's interior is a little plateau at the tone level, while a
+    glyph's antialiased edge is a one-pixel ramp, so plateau pixels (their
+    whole 3x3 neighbourhood stays on the level) plus one pixel of margin
+    pick the dots and only the dots.
+    """
+    empty = np.zeros(light.shape, bool)
+    if int(np.count_nonzero(tone_dots)) < DOT_MIN_POPULATION:
+        return empty
+    tone_level = float(np.median(light[tone_dots]))
+    plateau = (np.abs(light - tone_level) <= TONE_REMOVAL_TOLERANCE).astype(np.uint8)
+    cross = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    interior = cv2.erode(plateau, cross) > 0
+    if not np.any(interior):
+        return empty
+    margin = np.ones((3, 3), np.uint8)
+    return (cv2.dilate(interior.astype(np.uint8), margin) > 0) & (plateau > 0)
+
+
 def _cover_halo(
     roi: np.ndarray,
     mask: np.ndarray,
     paper: _Paper,
     ink_colours: list[np.ndarray],
+    excluded: np.ndarray | None = None,
 ) -> np.ndarray:
     """Add antialiased fringe pixels by alpha-unmixing against a local background.
 
@@ -693,6 +736,8 @@ def _cover_halo(
         return grown
     kernel = np.ones((2 * HALO_RADIUS + 1, 2 * HALO_RADIUS + 1), np.uint8)
     halo = cv2.dilate(grown.astype(np.uint8), kernel).astype(bool) & ~grown
+    if excluded is not None:
+        halo &= ~excluded
     if not halo.any():
         return grown
     values = roi.astype(np.float32)
@@ -808,11 +853,16 @@ def glyph_mask_for_block(
     for candidate, _colour in populations:
         union |= candidate
         cores |= _classify_ink_components(candidate, light, paper.rgb.mean())
-    cores &= ~_tone_dot_mask(union, light)
+    tone_dots = _tone_dot_mask(union, light)
+    cores &= ~tone_dots
+    tone = _tone_dot_bodies(light, tone_dots)
+    cores &= ~tone
     if not np.any(cores):
         return np.zeros(roi.shape[:2], dtype=np.uint8), (x1, y1, x2, y2)
     grown = _grow_outline_bands(roi, cores)
-    glyphs = _cover_halo(roi, grown, paper, _core_colours(roi, light, cores, paper))
+    glyphs = _cover_halo(
+        roi, grown, paper, _core_colours(roi, light, cores, paper), tone
+    )
     return glyphs.astype(np.uint8) * 255, (x1, y1, x2, y2)
 
 
@@ -858,20 +908,6 @@ def _interior_window(
     if x2 <= x1 or y2 <= y1:
         return None
     return (x1, y1, x2, y2), (tx1 - x1, ty1 - y1, tx2 - x1, ty2 - y1), detector_bounds
-
-
-def _texture_level(lightness: np.ndarray, paper_level: float) -> float | None:
-    """The level of the background texture (screentone dots, hatching), if any."""
-    inside = lightness[np.abs(lightness - paper_level) <= PAPER_MODE_TOLERANCE]
-    if inside.size == 0:
-        return None
-    dominant = _dominant_level(inside)
-    deviating = lightness[np.abs(lightness - dominant) > RING_TEXTURE_DEVIATION]
-    if deviating.size < 8:
-        return None
-    if float(deviating.size) / max(1, lightness.size) < RING_TEXTURE_SHARE:
-        return None
-    return float(np.median(deviating))
 
 
 def _drop_dot_barriers(barrier: np.ndarray) -> np.ndarray:
