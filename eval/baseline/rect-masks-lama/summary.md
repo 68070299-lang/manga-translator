@@ -1,6 +1,6 @@
-# Pipeline eval: wp5-ink-masks-rect-masks-lama
+# Pipeline eval: wp3-base-rect-lama
 
-- Created: 2026-11-18T12:07:36Z, commit `0c09aec693d5`
+- Created: 2026-11-18T13:35:46Z, commit `517c4c47c56b`
 - Detector `rtdetr`, mask mode `rectangular`, inpainter `lama_large` (used: `lama_large` x11), OCR `manga-ocr`, translator `stub`, device `cpu`
 - ComfyUI reachable: False
 - Pages: total 11, scored 11
@@ -22,13 +22,13 @@
 | Masks: rectangular | 85 |
 | Masks: skipped (no safe mask) | 0 |
 | Masks: other (incl. oracle ink) | 0 |
-| Router-filled blocks (no model) | 59 |
-| Blocks queued to the model | 26 |
+| Router-filled blocks (no model) | 58 |
+| Blocks queued to the model | 27 |
 | Fill tier: flat blocks | 16 |
 | Fill tier: smooth blocks | 1 |
-| Fill tier: lattice blocks | 42 |
+| Fill tier: lattice blocks | 41 |
 | Composite duplicates not masked | 2 |
-| Masked px | 914494 |
+| Masked px | 914650 |
 | Mask reason: text_free block | n/a |
 | Mask reason: flood leaked (open bubble) | n/a |
 | Mask reason: no paper seed | n/a |
@@ -58,14 +58,23 @@
 | Synthetic: OCR character error rate | 0.092 |
 | Synthetic: over-erased px (visible) | 707 |
 | Synthetic: px touched away from text | 71455 |
-| Seconds per page | 8.891 |
-| Time: detect (s) | 9.335 |
-| Time: ocr (s) | 20.298 |
-| Time: translate (s) | 0.005 |
-| Time: mask (s) | 2.939 |
-| Time: inpaint_model (s) | 38.343 |
-| Time: render (s) | 2.046 |
-| Time: verify (s) | 24.652 |
+| Pre-render flag: agreement with truth residue | 0.857 |
+| Pre-render flag: agreement (fill failure only) | 0.857 |
+| Pre-render flag: blocks with truth residue | 3 |
+| Pre-render flag: blocks flagged | 1 |
+| Pre-render flag: false positives | 0 |
+| Pre-render flag: false negatives | 3 |
+| Residual escalation: blocks escalated | 1 |
+| Residual escalation: second flags (not retried) | 0 |
+| Seconds per page | 6.749 |
+| Time: harness re-OCR (s) | 27.728 |
+| Time: detect (s) | 9.1 |
+| Time: ocr (s) | 21.015 |
+| Time: translate (s) | 0.001 |
+| Time: mask (s) | 4.426 |
+| Time: inpaint_model (s) | 37.447 |
+| Time: render (s) | 2.079 |
+| Time: verify (s) | 0 |
 
 ## By tag
 
@@ -87,14 +96,14 @@
 
 | Page | Status | Blocks | Residue kana/kanji (Step 6) | Px outside mask | Masks glyph/interior/rect/skip +router | Shrink/overflow/unfit | Inpainter | Seconds |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| syn-white-bubbles | ok | 4 | 2/4 (2/4) | 0 | 0/0/4/0 +2r | 0/0/0 | lama_large | 8.181 |
-| syn-conjoined-bubbles | ok | 2 | 0/2 (0/2) | 0 | 0/0/2/0 +2r | 0/0/0 | lama_large | 1.763 |
-| syn-textured-narration | ok | 3 | 1/3 (1/3) | 0 | 0/0/3/0 +3r | 0/0/0 | lama_large | 2.155 |
-| syn-sfx | ok | 2 | 0/2 (0/2) | 0 | 0/0/2/0 +2r | 0/0/0 | lama_large | 1.855 |
-| syn-webtoon-strip | ok | 4 | 0/4 (0/4) | 0 | 0/0/4/0 +4r | 0/0/0 | lama_large | 2.817 |
-| syn-tone-rotated | ok | 4 | 0/4 (0/4) | 0 | 0/0/4/0 +4r | 0/0/0 | lama_large | 2.575 |
-| syn-faint-lettering | ok | 3 | 1/3 (1/3) | 0 | 0/0/3/0 +3r | 0/0/0 | lama_large | 2.609 |
-| syn-text-touching-outline | ok | 3 | 2/3 (2/3) | 0 | 0/0/3/0 +1r | 0/0/0 | lama_large | 9.3 |
-| real-single-page-01 | ok | 14 | 6/14 (6/14) | 0 | 0/0/13/0 +9r | 8/1/0 | lama_large | 12.567 |
-| real-bookwalker-spread-01 | ok | 25 | 7/23 (7/25) | 0 | 0/0/22/0 +13r | 14/2/0 | lama_large | 21.858 |
-| real-bookwalker-spread-02 | ok | 25 | 6/25 (6/25) | 0 | 0/0/25/0 +16r | 10/1/0 | lama_large | 32.122 |
+| syn-white-bubbles | ok | 4 | 2/4 (2/4) | 0 | 0/0/4/0 +2r | 0/0/0 | lama_large | 6.735 |
+| syn-conjoined-bubbles | ok | 2 | 0/2 (0/2) | 0 | 0/0/2/0 +2r | 0/0/0 | lama_large | 1.478 |
+| syn-textured-narration | ok | 3 | 1/3 (1/3) | 0 | 0/0/3/0 +3r | 0/0/0 | lama_large | 1.724 |
+| syn-sfx | ok | 2 | 0/2 (0/2) | 0 | 0/0/2/0 +2r | 0/0/0 | lama_large | 1.412 |
+| syn-webtoon-strip | ok | 4 | 0/4 (0/4) | 0 | 0/0/4/0 +4r | 0/0/0 | lama_large | 1.89 |
+| syn-tone-rotated | ok | 4 | 0/4 (0/4) | 0 | 0/0/4/0 +4r | 0/0/0 | lama_large | 1.77 |
+| syn-faint-lettering | ok | 3 | 1/3 (1/3) | 0 | 0/0/3/0 +3r | 0/0/0 | lama_large | 1.624 |
+| syn-text-touching-outline | ok | 3 | 2/3 (2/3) | 0 | 0/0/3/0 +1r | 0/0/0 | lama_large | 7.393 |
+| real-single-page-01 | ok | 14 | 6/14 (6/14) | 0 | 0/0/13/0 +8r | 8/1/0 | lama_large | 11.248 |
+| real-bookwalker-spread-01 | ok | 25 | 7/23 (7/25) | 0 | 0/0/22/0 +13r | 14/2/0 | lama_large | 16.028 |
+| real-bookwalker-spread-02 | ok | 25 | 6/25 (6/25) | 0 | 0/0/25/0 +16r | 10/1/0 | lama_large | 22.935 |
