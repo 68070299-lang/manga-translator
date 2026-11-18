@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
-
 import numpy as np
 
 from manga_backend.pipeline.regions import (
@@ -18,11 +16,6 @@ from manga_backend.pipeline.text import (
     normalize_render_source,
 )
 from manga_backend.utils.textblock import Box, TextBlock
-
-# fit_box(width, height) -> (padding, inner_width, inner_height, font_size)
-FitLayout = tuple[int, int, int, int]
-FitBox = Callable[[int, int], FitLayout]
-
 
 def build_render_regions(
     blocks: list[TextBlock], image_shape: tuple[int, ...]
@@ -139,6 +132,7 @@ def bubble_region(bubble_key: Box, blocks: list[TextBlock]) -> TextBlock:
         default=1.0,
     )
     region.render_from_bubble = True
+    region.bubble_xyxy = list(bubble_key)
     body_centers = [
         block.bubble_text_center
         for block in grouped
@@ -329,66 +323,3 @@ def partition_render_regions(regions: list[TextBlock]) -> list[TextBlock]:
     return [
         region for index, region in enumerate(ordered) if index not in discarded
     ]
-
-
-def find_overflow_region(
-    block: TextBlock,
-    regions: list[TextBlock],
-    image_shape: tuple[int, ...],
-    fit_box: FitBox,
-    minimum_font_size: int,
-) -> tuple[list[int], FitLayout] | None:
-    """Find the smallest, least overlapping growth that reaches a readable font."""
-    x1, y1, x2, y2 = [int(value) for value in block.xyxy]
-    width, height = x2 - x1, y2 - y1
-    image_height, image_width = image_shape[:2]
-    group = block.composite_render_group
-    width_growth = 16 if group is not None else max(48, min(72, int(round(width * 0.75))))
-    height_growth = 12 if group is not None else max(16, min(48, int(round(height * 0.3))))
-
-    def dimensions(start: int, end: int) -> list[int]:
-        values = list(range(start, end + 1, 2))
-        if not values or values[-1] != end:
-            values.append(end)
-        return values
-
-    neighbors = [
-        other
-        for other in regions
-        if other is not block
-        and (group is None or other.composite_render_group != group)
-    ]
-    candidate_sizes = sorted(
-        (
-            (candidate_width, candidate_height)
-            for candidate_width in dimensions(width, min(image_width, width + width_growth))
-            for candidate_height in dimensions(height, min(image_height, height + height_growth))
-        ),
-        key=lambda size: (size[0] - width + size[1] - height, size[0] * size[1]),
-    )
-
-    best = None
-    best_growth = None
-    for candidate_width, candidate_height in candidate_sizes:
-        growth = candidate_width - width + candidate_height - height
-        if best_growth is not None and growth > best_growth:
-            break
-        layout = fit_box(candidate_width, candidate_height)
-        if layout[3] < minimum_font_size:
-            continue
-
-        left = max(0, min(image_width - candidate_width, int(round((x1 + x2) / 2 - candidate_width / 2))))
-        top = max(0, min(image_height - candidate_height, int(round((y1 + y2) / 2 - candidate_height / 2))))
-        right, bottom = left + candidate_width, top + candidate_height
-
-        overlap_area = sum(
-            max(0, min(right, other.x2) - max(left, other.x1))
-            * max(0, min(bottom, other.y2) - max(top, other.y1))
-            for other in neighbors
-        )
-        score = (overlap_area, candidate_width * candidate_height)
-        if best is None or score < best[0]:
-            best_growth = growth
-            best = (score, [left, top, right, bottom], layout)
-
-    return None if best is None else (best[1], best[2])

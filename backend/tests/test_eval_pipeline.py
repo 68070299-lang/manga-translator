@@ -227,7 +227,7 @@ class SyntheticCorpusTests(unittest.TestCase):
         self.assertEqual(
             masks_module.contour_safe_mask_for_block.__qualname__, "contour_safe_mask_for_block"
         )
-        self.assertEqual(rendering_module.auto_fit_font_size.__qualname__, "auto_fit_font_size")
+        self.assertEqual(rendering_module.fit_text_in_room.__qualname__, "fit_text_in_room")
 
 
 class HarnessModeTests(unittest.TestCase):

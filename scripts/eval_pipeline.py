@@ -699,7 +699,6 @@ class PageProbe:
     inpaint_input: np.ndarray | None = None
     inpaint_output: np.ndarray | None = None
     in_render: bool = False
-    in_overflow: bool = False
     preferred_font_size: int = int(API_RENDER_DEFAULTS["preferred_font_size"])
     render_regions: list[dict[str, Any]] = field(default_factory=list)
     verified_blocks: list[TextBlock] | None = None
@@ -821,8 +820,7 @@ class Instrumentation:
         original_render = orchestrator_module.render_text
         original_contour = masks_module.contour_safe_mask_for_block
         original_rectangle = masks_module.rectangular_mask_for_block
-        original_fit = rendering_module.auto_fit_font_size
-        original_overflow = rendering_module.find_overflow_region
+        original_fit = rendering_module.fit_text_in_room
 
         async def get_detector(detector_type: str) -> Any:
             if self.detector == TRUTH_DETECTOR:
@@ -927,26 +925,20 @@ class Instrumentation:
             finally:
                 self.probe.in_render = False
 
-        def auto_fit(*args: Any, **kwargs: Any) -> int:
-            size = original_fit(*args, **kwargs)
-            # render_text fits each region once; find_overflow_region then
-            # refits candidate boxes, which are attributed to that region.
-            if self.probe.in_render and not self.probe.in_overflow:
-                self.probe.render_regions.append({"fit": int(size), "overflow": None})
-            return size
-
-        def find_overflow(*args: Any, **kwargs: Any) -> Any:
-            self.probe.in_overflow = True
-            try:
-                found = original_overflow(*args, **kwargs)
-            finally:
-                self.probe.in_overflow = False
-            if self.probe.in_render and self.probe.render_regions:
-                region = self.probe.render_regions[-1]
-                region["overflow"] = found is not None
-                if found is not None:
-                    region["overflow_fit"] = int(found[1][3])
-            return found
+        def auto_fit(*args: Any, **kwargs: Any) -> Any:
+            result = original_fit(*args, **kwargs)
+            # render_text fits each region once, into its room; the anchored
+            # target and the room kind are what the shrink metric reads.
+            if self.probe.in_render:
+                self.probe.render_regions.append(
+                    {
+                        "fit": int(result.size),
+                        "target": int(result.target),
+                        "kind": str(result.kind),
+                        "overflow": bool(result.overflow),
+                    }
+                )
+            return result
 
         async def verify(ocr_engine: Any, rendered: np.ndarray, blocks: list[TextBlock]) -> None:
             with self.probe.timed("verify"):
@@ -964,8 +956,7 @@ class Instrumentation:
             stack.enter_context(_swap(orchestrator_module, "render_text", render_text))
             stack.enter_context(_swap(masks_module, "contour_safe_mask_for_block", contour_mask))
             stack.enter_context(_swap(masks_module, "rectangular_mask_for_block", rectangle_mask))
-            stack.enter_context(_swap(rendering_module, "auto_fit_font_size", auto_fit))
-            stack.enter_context(_swap(rendering_module, "find_overflow_region", find_overflow))
+            stack.enter_context(_swap(rendering_module, "fit_text_in_room", auto_fit))
             yield
 
 
@@ -1079,21 +1070,33 @@ def _inpaint_metrics(probe: PageProbe, erase: np.ndarray, requested: str, result
 
 
 def _render_metrics(probe: PageProbe) -> dict[str, Any]:
+    """Render rows for one page.
+
+    ``shrink_events`` is measured against the region's *anchored target* (the
+    size the source lettering anchors, after page harmonisation), not against
+    the old fixed 16 px preference: with the ceiling gone, "shrank" has to mean
+    "could not be set at the size the source asks for". ``overflow_events``
+    counts regions whose fitted layout does not fit its room; the ad-hoc
+    overflow rescue that used to define it was replaced by free-space rooms.
+    """
     preferred = probe.preferred_font_size
     sizes: list[int] = []
-    shrink = below_min = unfit = attempts = overflows = 0
+    dialogue_sizes: list[int] = []
+    targets: list[int] = []
+    shrink = below_min = unfit = overflows = 0
     for region in probe.render_regions:
         size = int(region["fit"])
-        if region["overflow"] is not None:
-            attempts += 1
-        if region["overflow"]:
+        target = int(region.get("target") or preferred)
+        if region.get("overflow"):
             overflows += 1
-            size = int(region.get("overflow_fit", size))
         if size <= 0:
             unfit += 1
             continue
         sizes.append(size)
-        if size < preferred:
+        targets.append(target)
+        if region.get("kind") == "dialogue":
+            dialogue_sizes.append(size)
+        if size < target:
             shrink += 1
         if size < MIN_READABLE_FONT_SIZE:
             below_min += 1
@@ -1101,11 +1104,17 @@ def _render_metrics(probe: PageProbe) -> dict[str, Any]:
         "regions": len(probe.render_regions),
         "preferred_font_size": preferred,
         "font_sizes": sizes,
-        # Per-page spread of the final dialogue font sizes (max - min).
+        "anchor_targets": targets,
+        # Per-page spread of the final font sizes (max - min), all regions.
         "font_size_spread": (max(sizes) - min(sizes)) if sizes else None,
+        # The same spread over dialogue regions only, which is what the page
+        # harmonisation is meant to control.
+        "dialogue_font_size_spread": (
+            (max(dialogue_sizes) - min(dialogue_sizes)) if dialogue_sizes else None
+        ),
         "shrink_events": shrink,
         "below_min_readable": below_min,
-        "overflow_attempts": attempts,
+        "overflow_attempts": overflows,
         "overflow_events": overflows,
         "unfit_skipped": unfit,
     }
@@ -1641,6 +1650,9 @@ def summarize(records: Sequence[dict[str, Any]], *, by_tag: bool = True) -> dict
             "font_size_spread": _mean(
                 [record["render"].get("font_size_spread") for record in scored]
             ),
+            "dialogue_font_size_spread": _mean(
+                [record["render"].get("dialogue_font_size_spread") for record in scored]
+            ),
         },
         "truth": {
             "pages": len(truths),
@@ -1707,12 +1719,13 @@ METRICS: tuple[tuple[str, str, str | None], ...] = (
     ("mask.reason_codes.coverage_below_35", "Mask reason: coverage below 35%", None),
     ("mask.reason_codes.clipped_ink_empty", "Mask reason: interior found, clipped ink empty", None),
     ("render.regions", "Render regions", None),
-    ("render.shrink_events", "Shrink events (< preferred size)", "lower"),
+    ("render.shrink_events", "Shrink events (< anchored target)", "lower"),
     ("render.below_min_readable", "Below min readable size", "lower"),
     ("render.overflow_events", "Overflow events", None),
     ("render.unfit_skipped", "Unfit regions skipped", "lower"),
     ("render.font_size_median", "Median font size", "higher"),
     ("render.font_size_spread", "Font size spread per page (mean)", "lower"),
+    ("render.dialogue_font_size_spread", "Dialogue font size spread per page (mean)", "lower"),
     ("truth.recall", "Synthetic: detection recall", "higher"),
     ("truth.text_mae", "Synthetic: text-region MAE", "lower"),
     ("truth.residual_ink_ratio", "Synthetic: residual ink ratio", "lower"),

@@ -1,9 +1,23 @@
-"""Translated-text rendering: wrapping, auto-fit and drawing onto the page."""
+"""Translated-text rendering: rooms, anchored sizes, line breaking and drawing.
+
+Text is no longer fitted to a rectangle: each render region gets a *room* (the
+bubble interior eroded by an air inset, or for free text the blank area left
+after the fill), the size is anchored to the source lettering and harmonised
+per page, and lines are broken by dynamic programming over per-line band
+widths. The ideas are koharu's rooms, bands, line breaker and fitter
+(``crates/koharu-*``: ``rooms.rs``, ``fit.rs``, ``lines.rs``, ``measure.rs``,
+MIT OR Apache-2.0); the implementation here is original, written against
+OpenCV, numpy and Pillow, not ported.
+
+The old overflow rescue is gone: free text gets a free-space room instead of a
+grown rectangle, so a region is never lettered outside the blank area its fill
+left behind.
+"""
 
 from __future__ import annotations
 
 import logging
-import re
+from dataclasses import replace
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -12,18 +26,38 @@ from manga_backend.pipeline.bubbles import (
     infer_bubble_render_bounds,
     infer_bubble_text_centers,
 )
+from manga_backend.pipeline.fit import FitResult, fit_text_in_room
 from manga_backend.pipeline.fonts import FontObject, get_cached_font, get_font_object
 from manga_backend.pipeline.layout import (
     build_render_regions,
     expand_short_standalone_regions,
-    find_overflow_region,
+)
+from manga_backend.pipeline.masks import bubble_interior_details
+from manga_backend.pipeline.measure import (
+    anchor_target,
+    harmonize_targets,
+    measure_block_colours,
+    source_glyph_size,
+)
+from manga_backend.pipeline.regions import clamp_xyxy, int_box
+from manga_backend.pipeline.rooms import (
+    Room,
+    box_room,
+    bubble_room,
+    free_space_room,
+    split_conjoined_room,
 )
 from manga_backend.pipeline.text import has_cjk
-from manga_backend.utils.textblock import TextBlock
+from manga_backend.utils.textblock import Box, TextBlock
 
 logger = logging.getLogger(__name__)
 
 MIN_READABLE_FONT_SIZE = 10
+# Dialogue regions whose bubbles are this close share one room candidate: a
+# conjoined outline is one shape with two lobes.
+CONJOINED_GAP_PX = 12
+# A split room must keep at least this share of the joined room for each lobe.
+CONJOINED_MIN_SHARE = 0.15
 
 RGB = tuple[int, int, int]
 
@@ -37,6 +71,225 @@ def hex_to_rgb(hex_color: str) -> RGB:
         int(hex_color[2:4], 16),
         int(hex_color[4:6], 16),
     )
+
+
+def _dialogue_interiors(
+    image: np.ndarray, blocks: list[TextBlock]
+) -> dict[Box, tuple[np.ndarray, Box]]:
+    """Flood-fill interior per detected bubble, keyed by the bubble box."""
+    interiors: dict[Box, tuple[np.ndarray, Box]] = {}
+    for block in blocks:
+        if block.block_type != "text" or block.bubble_xyxy is None:
+            continue
+        key = int_box(block.bubble_xyxy)
+        if key in interiors:
+            continue
+        result = bubble_interior_details(image, block)
+        if result.found:
+            interiors[key] = (result.interior, result.bounds)
+    return interiors
+
+
+def _nearest_interior(
+    key: Box, interiors: dict[Box, tuple[np.ndarray, Box]]
+) -> tuple[np.ndarray, Box] | None:
+    if key in interiors:
+        return interiors[key]
+    best: tuple[float, tuple[np.ndarray, Box]] | None = None
+    for candidate, value in interiors.items():
+        overlap_x = max(0, min(key[2], candidate[2]) - max(key[0], candidate[0]))
+        overlap_y = max(0, min(key[3], candidate[3]) - max(key[1], candidate[1]))
+        if overlap_x <= 0 or overlap_y <= 0:
+            continue
+        overlap = overlap_x * overlap_y
+        area = (key[2] - key[0]) * (key[3] - key[1])
+        score = overlap / max(1, area)
+        if score >= 0.5 and (best is None or score > best[0]):
+            best = (score, value)
+    return None if best is None else best[1]
+
+
+def _boxes_touch(first: Box, second: Box, gap: int) -> bool:
+    return not (
+        first[2] + gap < second[0]
+        or second[2] + gap < first[0]
+        or first[3] + gap < second[1]
+        or second[3] + gap < first[1]
+    )
+
+
+def _conjoined_rooms(
+    image: np.ndarray, regions: list[TextBlock], unresolved: list[int]
+) -> dict[int, Room]:
+    """Split a joined outline into one room per text group.
+
+    Only regions whose own bubble had no usable interior are considered: their
+    window cuts the shared outline, so the flood leaks. The union window of the
+    group contains the whole outline, and the resulting interior is split per
+    text group by a hull-defect chord (seeded watershed as the fallback).
+    """
+    rooms: dict[int, Room] = {}
+    remaining = list(unresolved)
+    while remaining:
+        first = remaining.pop(0)
+        first_box = int_box(regions[first].bubble_xyxy or regions[first].xyxy)
+        group = [first]
+        for other in list(remaining):
+            other_box = int_box(regions[other].bubble_xyxy or regions[other].xyxy)
+            if _boxes_touch(first_box, other_box, CONJOINED_GAP_PX):
+                group.append(other)
+                remaining.remove(other)
+        if len(group) < 2:
+            continue
+
+        boxes = [int_box(regions[index].xyxy) for index in group]
+        bubbles = [int_box(regions[index].bubble_xyxy or regions[index].xyxy) for index in group]
+        union_text = (
+            min(box[0] for box in boxes),
+            min(box[1] for box in boxes),
+            max(box[2] for box in boxes),
+            max(box[3] for box in boxes),
+        )
+        union_bubble = (
+            min(box[0] for box in bubbles),
+            min(box[1] for box in bubbles),
+            max(box[2] for box in bubbles),
+            max(box[3] for box in bubbles),
+        )
+        probe = TextBlock(union_text, block_type="text")
+        probe.bubble_xyxy = list(union_bubble)
+        result = bubble_interior_details(image, probe)
+        if not result.found:
+            continue
+        joined = bubble_room(result.interior, result.bounds)
+        if joined is None:
+            continue
+        seeds: list[tuple[float, float]] = []
+        for index in group:
+            centre = regions[index].bubble_text_center
+            if centre is None:
+                seeds.append((float(regions[index].center[0]), float(regions[index].center[1])))
+            else:
+                seeds.append((float(centre[0]), float(centre[1])))
+        lobes = split_conjoined_room(joined, seeds)
+        if len(lobes) != len(group):
+            continue
+        if any(
+            lobe.area < joined.area * CONJOINED_MIN_SHARE for lobe in lobes
+        ):
+            continue
+        for index, lobe in zip(group, lobes):
+            rooms[index] = lobe
+    return rooms
+
+
+def build_rooms(
+    image: np.ndarray,
+    regions: list[TextBlock],
+    blocks: list[TextBlock] | None = None,
+) -> list[Room]:
+    """One room per render region: bubble interior, free space, or the box."""
+    height, width = image.shape[:2]
+    interiors = _dialogue_interiors(image, blocks if blocks is not None else regions)
+    obstacles: list[Box] = [
+        (int(region.x1), int(region.y1), int(region.x2), int(region.y2))
+        for region in regions
+    ]
+
+    rooms: list[Room | None] = []
+    unresolved: list[int] = []
+    claimed = np.zeros((height, width), dtype=bool)
+    for index, region in enumerate(regions):
+        room: Room | None = None
+        if region.render_from_bubble and region.bubble_xyxy is not None:
+            key = int_box(region.bubble_xyxy)
+            found = _nearest_interior(key, interiors)
+            if found is not None:
+                room = bubble_room(
+                    found[0],
+                    found[1],
+                    center=(
+                        tuple(region.bubble_text_center)  # type: ignore[arg-type]
+                        if region.bubble_text_center is not None
+                        else None
+                    ),
+                )
+            if room is None:
+                unresolved.append(index)
+        else:
+            room = free_space_room(
+                image,
+                region,
+                obstacles=[box for other, box in enumerate(obstacles) if other != index],
+                claimed=claimed,
+            )
+            if room is not None:
+                cx1, cy1, cx2, cy2 = room.bounds
+                claimed[cy1:cy2, cx1:cx2] |= room.mask > 0
+        rooms.append(room)
+
+    conjoined = _conjoined_rooms(image, regions, unresolved)
+    resolved: list[Room] = []
+    for index, region in enumerate(regions):
+        room = rooms[index] or conjoined.get(index)
+        if room is None:
+            room = box_room(region)
+            if region.bubble_text_center is not None:
+                centre = region.bubble_text_center
+                room = replace(room, center=(float(centre[0]), float(centre[1])))
+        clamped = clamp_xyxy(room.bounds, width, height)
+        if clamped != list(room.bounds):
+            room = _clamp_room(room, clamped)
+        resolved.append(room)
+    return resolved
+
+
+def _clamp_room(room: Room, bounds: list[int]) -> Room:
+    x1, y1, x2, y2 = bounds
+    ox, oy = room.bounds[0], room.bounds[1]
+    left = max(0, x1 - ox)
+    top = max(0, y1 - oy)
+    right = min(room.mask.shape[1], x2 - ox)
+    bottom = min(room.mask.shape[0], y2 - oy)
+    if right <= left or bottom <= top:
+        return room
+    mask = np.zeros((bottom - top, right - left), dtype=np.uint8)
+    mask[:, :] = room.mask[top:bottom, left:right]
+    center = (
+        min(max(room.center[0], x1), x2),
+        min(max(room.center[1], y1), y2),
+    )
+    return Room(mask, (x1, y1, x2, y2), center, room.kind, room.air)
+
+
+def anchor_targets(
+    image: np.ndarray,
+    regions: list[TextBlock],
+    preferred_font_size: int,
+) -> list[int]:
+    """Anchored size per region, harmonised across the page's dialogue.
+
+    Dialogue is anchored to the source lettering's em (projection profile) and
+    snapped to the page median when it is close, which is what keeps one
+    balloon's lettering the same size as its neighbours'. Free text keeps the
+    user's preferred size as its target: it is not speech, so the balloon
+    scale does not apply. Both are floored at the minimum readable size so an
+    anchor can never make a region unreadable on its own.
+    """
+    targets = [
+        anchor_target(
+            source_glyph_size(image, region) if region.render_from_bubble else None,
+            preferred_font_size,
+        )
+        for region in regions
+    ]
+    dialogue = [
+        index for index, region in enumerate(regions) if region.render_from_bubble
+    ]
+    snapped = harmonize_targets([targets[index] for index in dialogue])
+    for position, index in enumerate(dialogue):
+        targets[index] = snapped[position]
+    return [max(MIN_READABLE_FONT_SIZE, target) for target in targets]
 
 
 def render_text(
@@ -54,7 +307,7 @@ def render_text(
     auto_scale: bool = True,
     preferred_font_size: int = 16,
 ) -> np.ndarray:
-    """Render translated text onto the image with wrapping and styling."""
+    """Render translated text onto the image with rooms and anchored sizes."""
     img = Image.fromarray(image).convert("RGBA")
     infer_bubble_render_bounds(image, blocks)
     infer_bubble_text_centers(image, blocks)
@@ -70,249 +323,146 @@ def render_text(
     user_bg_color = hex_to_rgb(bg_color)
     bg_alpha = int(bg_opacity * 255)
     pil_align = text_alignment if text_alignment in ("left", "right") else "center"
+    base_stroke_width = max(0, int(border_size))
 
-    for block in render_regions:
-        text = block.translated_text
+    rooms = build_rooms(image, render_regions, blocks)
+    targets = anchor_targets(image, render_regions, preferred_font_size)
+    page_height, page_width = image.shape[:2]
+
+    for region, room, target in zip(render_regions, rooms, targets):
+        text = region.translated_text
         if not text:
             continue
-
         if uppercase:
             text = text.upper()
-
-        x1, y1, x2, y2 = (int(v) for v in block.xyxy)
-        original_box = (x1, y1, x2, y2)
-        width = x2 - x1
-        height = y2 - y1
-
-        if width <= 0 or height <= 0:
-            continue
 
         font_path = (
             cjk_font_path if has_cjk(text) else english_font_path or cjk_font_path
         ) or fallback_font_path
-
-        base_stroke_width = max(0, int(border_size))
+        width = region.width
+        height = region.height
         is_vertical = text_direction == "vertical" or (
             text_direction == "auto" and has_cjk(text) and height > width * 1.5
         )
-        group = block.composite_render_group
 
-        def inner_area(box_width: int, box_height: int) -> tuple[int, int, int]:
-            padding_limit = 1 if group is not None else max(2, base_stroke_width + 1)
-            box_padding = min(padding_limit, max(0, (min(box_width, box_height) - 1) // 4))
-            return (
-                box_padding,
-                max(1, box_width - box_padding * 2),
-                max(1, box_height - box_padding * 2),
-            )
-
-        def fit_box(box_width: int, box_height: int) -> tuple[int, int, int, int]:
-            box_padding, inner_width, inner_height = inner_area(box_width, box_height)
-            fitted_size = auto_fit_font_size(
-                font_path,
-                text,
-                inner_width,
-                inner_height,
-                line_spacing,
-                pil_align,
-                stroke_width=base_stroke_width,
-                preferred_font_size=preferred_font_size,
-                vertical=is_vertical,
-            )
-            return box_padding, inner_width, inner_height, fitted_size
-
-        if auto_scale:
-            padding, available_width, available_height, font_size = fit_box(width, height)
-            minimum_font_size = min(
-                8 if group is not None else MIN_READABLE_FONT_SIZE,
-                max(1, int(preferred_font_size)),
-            )
-            compact_text = re.sub(r"\s+", "", str(text))
-            can_overflow = not has_cjk(compact_text) and (
-                block.render_from_bubble or len(compact_text) <= 12
-            )
-            if can_overflow and font_size < minimum_font_size:
-                overflow = find_overflow_region(
-                    block, render_regions, image.shape, fit_box, minimum_font_size
-                )
-                if overflow is not None:
-                    box, (padding, available_width, available_height, font_size) = overflow
-                    x1, y1, x2, y2 = box
-                    width, height = x2 - x1, y2 - y1
-                    block.xyxy = box
-
-            if font_size <= 0:
-                logger.warning(
-                    "Skipping translated text that cannot fit render region %s",
-                    [x1, y1, x2, y2],
-                )
-                continue
-        else:
-            font_size = preferred_font_size
-            padding, available_width, available_height = inner_area(width, height)
-
-        layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(layer, "RGBA")
-        if bg_opacity > 0:
-            background_box = [
-                max(0, original_box[0] - x1),
-                max(0, original_box[1] - y1),
-                min(width - 1, original_box[2] - x1 - 1),
-                min(height - 1, original_box[3] - y1 - 1),
-            ]
-            if (
-                background_box[2] >= background_box[0]
-                and background_box[3] >= background_box[1]
-            ):
-                draw.rectangle(background_box, fill=(*user_bg_color, bg_alpha))
-
-        stroke_width = min(base_stroke_width, max(0, int(round(font_size * 0.15))))
-        font = get_font_object(font_path, font_size)
-        text_spacing = max(0, int((line_spacing - 1.0) * font_size))
-        wrapped_text = "\n".join(
-            wrap_text_to_lines(text, font, available_width, stroke_width=stroke_width)
+        fit = fit_text_in_room(
+            room,
+            text,
+            font_path,
+            target=target,
+            line_spacing=line_spacing,
+            base_stroke_width=base_stroke_width,
+            vertical=is_vertical,
+            fixed_size=not auto_scale,
+            kind="dialogue" if region.render_from_bubble else "free",
         )
+        if fit.size <= 0:
+            logger.warning(
+                "Skipping translated text that cannot fit room %s",
+                list(room.bounds),
+            )
+            continue
 
-        body_center = block.bubble_text_center
-        body_center_x = (
-            float(body_center[0]) - x1
-            if body_center is not None
-            else padding + available_width / 2
+        text_rgb, border_rgb, background_rgb = measure_block_colours(
+            image, room, user_text_color, user_border_color, user_bg_color
         )
-        body_center_y = (
-            float(body_center[1]) - y1
-            if body_center is not None
-            else padding + available_height / 2
+        _draw_region(
+            img,
+            region,
+            room,
+            fit,
+            font_path,
+            text_rgb,
+            border_rgb,
+            background_rgb,
+            bg_alpha,
+            pil_align,
+            is_vertical,
+            page_width,
+            page_height,
         )
-
-        if is_vertical:
-            text_x = (
-                body_center_x
-                if text_alignment == "center"
-                else (padding if text_alignment == "left" else width - padding)
-            )
-            draw_vertical_text(
-                draw,
-                text,
-                (text_x, padding),
-                font,
-                user_text_color,
-                stroke_width=stroke_width,
-                stroke_fill=user_border_color,
-                spacing=text_spacing,
-            )
-        else:
-            bbox = draw.multiline_textbbox(
-                (0, 0),
-                wrapped_text,
-                font=font,
-                align=pil_align,
-                stroke_width=stroke_width,
-                spacing=text_spacing,
-            )
-            rendered_width = bbox[2] - bbox[0]
-            rendered_height = bbox[3] - bbox[1]
-            if text_alignment == "left":
-                painted_x = padding
-            elif text_alignment == "right":
-                painted_x = width - padding - rendered_width
-            else:
-                painted_x = max(
-                    padding,
-                    min(width - padding - rendered_width, body_center_x - rendered_width / 2),
-                )
-            painted_y = max(
-                padding,
-                min(height - padding - rendered_height, body_center_y - rendered_height / 2),
-            )
-            draw.multiline_text(
-                (painted_x - bbox[0], painted_y - bbox[1]),
-                wrapped_text,
-                font=font,
-                fill=user_text_color,
-                align=pil_align,
-                stroke_width=stroke_width,
-                stroke_fill=user_border_color,
-                spacing=text_spacing,
-            )
-
-        img.alpha_composite(layer, dest=(x1, y1))
 
     return np.array(img.convert("RGB"))
 
 
-def wrap_text_to_lines(
-    text: str, font: FontObject, width: int, stroke_width: int = 0
-) -> list[str]:
-    """Wrap using the same pixel measurements used by font fitting."""
-    max_width = max(1, int(width))
+def _draw_region(
+    img: Image.Image,
+    region: TextBlock,
+    room: Room,
+    fit: FitResult,
+    font_path: str | None,
+    text_rgb: RGB,
+    border_rgb: RGB,
+    background_rgb: RGB,
+    bg_alpha: int,
+    align: str,
+    vertical: bool,
+    page_width: int,
+    page_height: int,
+) -> None:
+    """Draw one region's fitted lines inside its room's bounds."""
+    pad = max(2, fit.stroke_width + 1)
+    left = max(0, room.bounds[0] - pad)
+    top = max(0, room.bounds[1] - pad)
+    right = min(page_width, room.bounds[2] + pad)
+    bottom = min(page_height, room.bounds[3] + pad)
+    width, height = right - left, bottom - top
+    if width <= 0 or height <= 0:
+        return
 
-    def measured_width(value: str) -> float:
-        bbox = font.getbbox(value)
-        if not bbox:
-            return 0
-        return bbox[2] - bbox[0] + stroke_width * 2
+    layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer, "RGBA")
+    if bg_alpha > 0:
+        background_box = [
+            max(0, region.x1 - left),
+            max(0, region.y1 - top),
+            min(width - 1, region.x2 - left - 1),
+            min(height - 1, region.y2 - top - 1),
+        ]
+        if background_box[2] >= background_box[0] and background_box[3] >= background_box[1]:
+            draw.rectangle(background_box, fill=(*background_rgb, bg_alpha))
 
-    def split_oversized_unit(unit: str) -> list[str]:
-        if measured_width(unit) <= max_width:
-            return [unit]
-
-        chunks: list[str] = []
-        current = ""
-        for char in unit:
-            candidate = current + char
-            if current and measured_width(candidate) > max_width:
-                chunks.append(current)
-                current = char
-            else:
-                current = candidate
-        if current:
-            chunks.append(current)
-        return chunks or [unit]
-
-    lines: list[str] = []
-    for paragraph in str(text).split("\n"):
-        if paragraph == "":
-            lines.append("")
-            continue
-
-        character_wrap = has_cjk(paragraph) and not any(
-            char.isspace() for char in paragraph
+    font = get_font_object(font_path, fit.size)
+    if vertical:
+        draw_vertical_text(
+            draw,
+            "".join(fit.lines),
+            (room.center[0] - left, fit.bands[0].top - top if fit.bands else 0),
+            font,
+            text_rgb,
+            stroke_width=fit.stroke_width,
+            stroke_fill=border_rgb,
+            spacing=max(0, int(round(fit.size * 0.08))),
         )
-        if character_wrap:
-            units = list(paragraph)
-        else:
-            units = []
-            for token in paragraph.split():
-                units.extend(re.findall(r".+?[—–](?=.)|.+", token))
-        if not units:
-            lines.append("")
+        img.alpha_composite(layer, dest=(left, top))
+        return
+
+    anchors = {"center": "mm", "left": "lm", "right": "rm"}
+    anchor = anchors.get(align, "mm")
+    for index, (line, band) in enumerate(zip(fit.lines, fit.bands)):
+        if not line:
             continue
-
-        current = ""
-        for unit in units:
-            chunks = split_oversized_unit(unit)
-            if len(chunks) > 1:
-                if current:
-                    lines.append(current)
-                lines.extend(chunks[:-1])
-                current = chunks[-1]
-                continue
-
-            unit = chunks[0]
-            if not current:
-                current = unit
-                continue
-            separator = "" if character_wrap or current.endswith(("—", "–")) else " "
-            candidate = current + separator + unit
-            if measured_width(candidate) <= max_width:
-                current = candidate
-            else:
-                lines.append(current)
-                current = unit
-        lines.append(current)
-
-    return lines or [""]
+        line_width = fit.line_widths[index] if index < len(fit.line_widths) else 0.0
+        if align == "left":
+            x = band.left
+        elif align == "right":
+            x = band.right
+        else:
+            # Centre on the room's body axis, but never past the band.
+            x = min(
+                max(band.axis, band.left + line_width / 2.0),
+                band.right - line_width / 2.0,
+            )
+        draw.text(
+            (x - left, band.center_y - top),
+            line,
+            font=font,
+            fill=text_rgb,
+            anchor=anchor,
+            stroke_width=fit.stroke_width,
+            stroke_fill=border_rgb,
+        )
+    img.alpha_composite(layer, dest=(left, top))
 
 
 def draw_vertical_text(
@@ -338,73 +488,3 @@ def draw_vertical_text(
             stroke_width=stroke_width,
             stroke_fill=stroke_fill,
         )
-
-
-def auto_fit_font_size(
-    font_path: str | None,
-    text: str,
-    width: int,
-    height: int,
-    line_spacing: float,
-    align: str,
-    stroke_width: int = 0,
-    preferred_font_size: int = 16,
-    vertical: bool = False,
-) -> int:
-    """Binary-search the largest font size whose wrapped text fits the box."""
-    if not text:
-        return 12
-
-    low = 1
-    high = max(low, min(96, int(preferred_font_size)))
-    best = 0
-    probe = Image.new("L", (1, 1), 0)
-    draw = ImageDraw.Draw(probe)
-
-    for _ in range(12):  # ~12 iterations gives sub-pixel precision
-        if low > high:
-            break
-        mid = (low + high) // 2
-
-        font = get_font_object(font_path, mid)
-        spacing = max(0, int((line_spacing - 1.0) * mid))
-        candidate_stroke_width = min(stroke_width, max(0, int(round(mid * 0.15))))
-        words_fit = True
-        if vertical:
-            characters = list(str(text).replace("\n", ""))
-            glyph_boxes = [
-                draw.textbbox((0, 0), char, font=font, stroke_width=candidate_stroke_width)
-                for char in characters
-            ]
-            rendered_width = max((box[2] - box[0] for box in glyph_boxes), default=0)
-            rendered_height = len(characters) * max(mid + spacing, 1)
-        else:
-            if not has_cjk(text):
-                word_boxes = (
-                    font.getbbox(word) for word in str(text).replace("\n", " ").split()
-                )
-                words_fit = all(
-                    (box[2] - box[0]) + candidate_stroke_width * 2 <= width
-                    for box in word_boxes
-                )
-            wrapped = "\n".join(
-                wrap_text_to_lines(text, font, width, stroke_width=candidate_stroke_width)
-            )
-            bbox = draw.multiline_textbbox(
-                (0, 0),
-                wrapped,
-                font=font,
-                spacing=spacing,
-                align=align,
-                stroke_width=candidate_stroke_width,
-            )
-            rendered_width = bbox[2] - bbox[0]
-            rendered_height = bbox[3] - bbox[1]
-
-        if rendered_height <= height and rendered_width <= width and words_fit:
-            best = mid
-            low = mid + 1
-        else:
-            high = mid - 1
-
-    return best

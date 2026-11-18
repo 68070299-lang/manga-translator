@@ -26,6 +26,7 @@ from manga_backend.pipeline import (
 )
 from manga_backend.pipeline.bubbles import bubble_body_center, infer_bubble_render_bounds
 from manga_backend.pipeline.detection import normalize_detector_type, text_block_to_dict
+from manga_backend.pipeline.linebreak import break_lines
 from manga_backend.pipeline.layout import (
     build_render_regions,
     expand_short_standalone_regions,
@@ -37,11 +38,9 @@ from manga_backend.pipeline.masks import (
     prepare_flux_inpainting,
 )
 from manga_backend.pipeline.ocr import GOOGLE_OCR_CONCURRENCY, google_ocr
-from manga_backend.pipeline.rendering import (
-    auto_fit_font_size,
-    render_text,
-    wrap_text_to_lines,
-)
+from manga_backend.pipeline.fit import fit_text_in_room
+from manga_backend.pipeline.rendering import build_rooms, render_text
+from manga_backend.pipeline.rooms import box_room
 from manga_backend.pipeline.text import has_cjk, has_cjk_letters
 from manga_backend.utils.textblock import TextBlock
 
@@ -974,48 +973,49 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertFalse(np.array_equal(horizontal, vertical))
         self.assertFalse(np.array_equal(vertical, image))
 
-    def test_latin_wrapping_keeps_words_that_fit_intact(self):
-        from PIL import ImageFont
-
+    def test_line_breaking_keeps_words_that_fit_intact(self):
         TranslationPipeline(device="cpu")
 
-        lines = wrap_text_to_lines(
-            "A SENSE OF FAMILIARITY", ImageFont.load_default(), width=90
+        broken = break_lines(
+            ["A", "SENSE", "OF", "FAMILIARITY"],
+            [140.0],
+            lambda value: float(len(value) * 5),
+            joiner=lambda parts: " ".join(parts),
         )
 
-        self.assertIn("FAMILIARITY", lines)
-        self.assertNotIn("F", lines)
+        self.assertIsNotNone(broken)
+        assert broken is not None
+        self.assertEqual(broken.lines, ["A SENSE OF FAMILIARITY"])
 
-    def test_latin_wrapping_splits_only_oversized_tokens(self):
-        from PIL import ImageFont
-
+    def test_line_breaking_splits_only_oversized_tokens(self):
         TranslationPipeline(device="cpu")
-        font = ImageFont.load_default()
 
-        lines = wrap_text_to_lines(
-            "UNBREAKABLYLONGWORD", font, width=30, stroke_width=1
+        broken = break_lines(
+            ["UNBREAKABLYLONGWORD"],
+            [80.0, 80.0, 80.0],
+            lambda value: float(len(value) * 10),
+            joiner=lambda parts: " ".join(parts),
         )
 
-        self.assertGreater(len(lines), 1)
-        for line in lines:
-            bbox = font.getbbox(line)
-            self.assertLessEqual(bbox[2] - bbox[0] + 2, 30)
+        self.assertIsNotNone(broken)
+        assert broken is not None
+        self.assertGreater(len(broken.lines), 1)
+        for line in broken.lines:
+            self.assertLessEqual(len(line) * 10, 80)
 
-    def test_latin_wrapping_can_break_at_em_dash_without_adding_space(self):
-        from PIL import ImageFont
-
+    def test_line_breaking_can_break_at_em_dash_without_adding_space(self):
         TranslationPipeline(device="cpu")
-        font = ImageFont.load_default(size=12)
-        word_width = max(
-            font.getbbox("NICE—")[2] - font.getbbox("NICE—")[0],
-            font.getbbox("LIVING")[2] - font.getbbox("LIVING")[0],
+
+        broken = break_lines(
+            ["NICE—", "LIVING"],
+            [50.0, 50.0],
+            lambda value: float(len(value) * 5),
+            joiner=lambda parts: "".join(parts),
         )
 
-        lines = wrap_text_to_lines(
-            "NICE—LIVING", font, width=word_width
-        )
-
-        self.assertEqual(lines, ["NICE—", "LIVING"])
+        self.assertIsNotNone(broken)
+        assert broken is not None
+        self.assertEqual(broken.lines, ["NICE—", "LIVING"])
 
     def test_rtdetr_blocks_sharing_a_bubble_render_as_one_region(self):
         TranslationPipeline(device="cpu")
@@ -1031,7 +1031,7 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertEqual(first.xyxy.tolist(), [40, 20, 60, 50])
         self.assertEqual(second.xyxy.tolist(), [42, 55, 62, 80])
 
-    def test_yolo_regions_are_clipped_and_cannot_draw_into_neighbors(self):
+    def test_free_space_rooms_do_not_overlap_and_bound_the_drawing(self):
         TranslationPipeline(device="cpu")
         image = np.full((80, 140, 3), 255, dtype=np.uint8)
         left = TextBlock([5, 10, 40, 70], translated_text="UNBREAKABLYLONGWORD")
@@ -1045,13 +1045,21 @@ class PipelineRenderTests(unittest.TestCase):
             auto_scale=False,
         )
 
+        rooms = build_rooms(image, [left, right], [left, right])
+        allowed = np.zeros(image.shape[:2], dtype=bool)
+        for room in rooms:
+            x1, y1, x2, y2 = room.bounds
+            allowed[y1:y2, x1:x2] |= room.mask > 0
+        left_room, right_room = rooms[0], rooms[1]
+        overlap = np.zeros(image.shape[:2], dtype=np.uint8)
+        ox1, oy1, ox2, oy2 = left_room.bounds
+        overlap[oy1:oy2, ox1:ox2] = left_room.mask > 0
+        rx1, ry1, rx2, ry2 = right_room.bounds
+        self.assertFalse((overlap[ry1:ry2, rx1:rx2] > 0).any() and (right_room.mask > 0).any())
+
         changed = np.any(rendered != image, axis=2)
-        allowed = np.zeros(changed.shape, dtype=bool)
-        allowed[10:70, 5:40] = True
-        allowed[10:70, 100:135] = True
         self.assertTrue(changed.any())
-        self.assertFalse(changed[~allowed].any())
-        self.assertFalse(changed[:, 40:100].any())
+        self.assertFalse((changed & ~allowed).any())
 
     def test_tiny_short_label_expands_without_overlapping_neighbor(self):
         TranslationPipeline(device="cpu")
@@ -1068,9 +1076,10 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertEqual(short.xyxy.tolist(), [120, 691, 150, 724])
         self.assertEqual(short.y2, neighbor.y1)
 
-    def test_small_bubble_text_can_overflow_to_reach_readable_font(self):
+    def test_small_bubble_text_is_set_inside_its_room(self):
         TranslationPipeline(device="cpu")
         image = np.full((120, 120, 3), 255, dtype=np.uint8)
+        cv2.ellipse(image, (60, 60), (20, 40), 0, 0, 360, (0, 0, 0), 2)
         block = TextBlock(
             [45, 35, 75, 85],
             text="COSMETICS",
@@ -1089,9 +1098,12 @@ class PipelineRenderTests(unittest.TestCase):
         changed = np.any(rendered != image, axis=2)
         _ys, xs = np.where(changed)
         self.assertTrue(len(xs))
-        self.assertTrue(xs.min() < 42 or xs.max() >= 78)
+        # The room is the bubble interior; the old overflow rescue grew the
+        # box past the outline instead.
+        self.assertGreaterEqual(int(xs.min()), 40)
+        self.assertLessEqual(int(xs.max()), 79)
 
-    def test_narrow_text_is_fitted_without_touching_clip_boundary(self):
+    def test_free_text_stays_inside_its_free_space_room(self):
         TranslationPipeline(device="cpu")
         image = np.full((90, 60, 3), 255, dtype=np.uint8)
         block = TextBlock(
@@ -1106,12 +1118,16 @@ class PipelineRenderTests(unittest.TestCase):
             border_size=1,
         )
 
+        rooms = build_rooms(image, [block], [block])
+        room = rooms[0]
+        x1, y1, x2, y2 = room.bounds
+        allowed = np.zeros(image.shape[:2], dtype=bool)
+        allowed[y1:y2, x1:x2] = room.mask > 0
         changed = np.any(rendered != image, axis=2)
         self.assertTrue(changed.any())
-        self.assertFalse(changed[10, 10:45].any())
-        self.assertFalse(changed[79, 10:45].any())
-        self.assertFalse(changed[10:80, 10].any())
-        self.assertFalse(changed[10:80, 44].any())
+        self.assertFalse((changed & ~allowed).any())
+        self.assertFalse(changed[0, :].any())
+        self.assertFalse(changed[-1, :].any())
 
     def test_distinct_bubbles_are_not_merged(self):
         TranslationPipeline(device="cpu")
@@ -1221,49 +1237,41 @@ class PipelineRenderTests(unittest.TestCase):
 
         self.assertEqual(forward, reversed_regions)
 
-    def test_explicit_white_background_is_rendered(self):
+    def test_explicit_background_colour_is_rendered_on_light_paper(self):
         TranslationPipeline(device="cpu")
-        image = np.zeros((80, 120, 3), dtype=np.uint8)
+        image = np.full((80, 120, 3), 200, dtype=np.uint8)
         block = TextBlock([10, 10, 110, 70], translated_text="HELLO")
 
         rendered = render_text(
             image.copy(),
             [block],
             text_direction="horizontal",
-            bg_color="#ffffff",
-            bg_opacity=0.9,
+            bg_color="#ff0000",
+            bg_opacity=1.0,
         )
 
-        self.assertGreater(float(rendered[12, 12].mean()), 200)
+        red, green, blue = (int(value) for value in rendered[12, 12])
+        self.assertGreater(red, 200)
+        self.assertLess(green, 60)
+        self.assertLess(blue, 60)
 
-    def test_short_latin_text_does_not_scale_to_title_size(self):
+    def test_fit_never_exceeds_its_anchored_target(self):
         TranslationPipeline(device="cpu")
 
-        font_size = auto_fit_font_size(
-            font_path=None,
-            text="THAT.",
-            width=360,
-            height=120,
-            line_spacing=1.2,
-            align="center",
+        fit = fit_text_in_room(
+            box_room(TextBlock([0, 0, 360, 120])), "THAT.", None, target=16
         )
 
-        self.assertLessEqual(font_size, 28)
+        self.assertEqual(fit.size, 16)
 
-    def test_auto_fit_uses_preferred_size_when_it_fits(self):
+    def test_fit_uses_the_target_when_it_fits(self):
         TranslationPipeline(device="cpu")
 
-        font_size = auto_fit_font_size(
-            font_path=None,
-            text="HELLO",
-            width=240,
-            height=100,
-            line_spacing=1.2,
-            align="center",
-            preferred_font_size=16,
+        fit = fit_text_in_room(
+            box_room(TextBlock([0, 0, 240, 100])), "HELLO", None, target=16
         )
 
-        self.assertEqual(font_size, 16)
+        self.assertEqual(fit.size, 16)
 
     def test_english_font_resolves_to_bundled_font_regardless_of_cwd(self):
         import os
@@ -1286,98 +1294,96 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertIsNotNone(font_path)
         self.assertEqual(Path(font_path).resolve(), bundled)
 
-    def test_auto_fit_reduces_from_preferred_size_to_largest_fit(self):
+    def test_fit_reduces_from_the_target_to_the_largest_size_that_fits(self):
         from manga_backend.pipeline import fonts as fonts_module
 
         TranslationPipeline(device="cpu")
         font_path = fonts_module.get_cached_font("english")
 
-        font_size = auto_fit_font_size(
-            font_path=font_path,
-            text="A translation that needs several wrapped lines",
-            width=70,
-            height=48,
-            line_spacing=1.2,
-            align="center",
-            stroke_width=1,
-            preferred_font_size=16,
+        fit = fit_text_in_room(
+            box_room(TextBlock([0, 0, 70, 48])),
+            "A translation that needs several wrapped lines",
+            font_path,
+            target=16,
+            base_stroke_width=1,
         )
 
-        self.assertGreaterEqual(font_size, 6)
-        self.assertLess(font_size, 16)
+        self.assertGreaterEqual(fit.size, 4)
+        self.assertLess(fit.size, 16)
 
-    def test_auto_fit_reduces_size_instead_of_splitting_short_words(self):
+    def test_fit_keeps_short_words_whole(self):
         from manga_backend.pipeline import fonts as fonts_module
 
         TranslationPipeline(device="cpu")
         font_path = fonts_module.get_cached_font("english")
 
-        font_size = auto_fit_font_size(
-            font_path=font_path,
-            text="Hurry up!",
-            width=56,
-            height=120,
-            line_spacing=1.2,
-            align="center",
-            stroke_width=2,
-            preferred_font_size=16,
+        fit = fit_text_in_room(
+            box_room(TextBlock([0, 0, 56, 120])),
+            "Hurry up!",
+            font_path,
+            target=16,
+            base_stroke_width=2,
         )
 
-        self.assertGreater(font_size, 0)
-        self.assertLess(font_size, 16)
+        self.assertGreater(fit.size, 0)
+        self.assertEqual(sorted(word for line in fit.lines for word in line.split()), ["Hurry", "up!"])
+        for line in fit.lines:
+            self.assertIn(line, ("Hurry", "up!"))
 
-    def test_font_fit_scales_stroke_and_preserves_words(self):
+    def test_fit_scales_the_stroke_and_preserves_words(self):
         from manga_backend.pipeline import fonts as fonts_module
 
         TranslationPipeline(device="cpu")
         font_path = fonts_module.get_cached_font("english")
 
-        font_size = auto_fit_font_size(
-            font_path=font_path,
-            text="Must be nice—living so close.",
-            width=34,
-            height=57,
-            line_spacing=1.2,
-            align="center",
-            stroke_width=2,
+        fit = fit_text_in_room(
+            box_room(TextBlock([0, 0, 34, 57])),
+            "Must be nice—living so close.",
+            font_path,
+            target=16,
+            base_stroke_width=2,
         )
 
-        self.assertEqual(font_size, 5)
+        self.assertGreater(fit.size, 0)
+        self.assertLessEqual(fit.stroke_width, 2)
+        self.assertLessEqual(fit.stroke_width, max(0, round(fit.size * 0.15)))
+        joined = " ".join(fit.lines)
+        self.assertIn("nice—", joined)
+        # A dash break carries no space: the next line starts with the word.
+        for first, second in zip(fit.lines, fit.lines[1:]):
+            if first.endswith("—"):
+                self.assertFalse(second.startswith(" "))
 
-    def test_impossible_region_still_reports_no_font_fit(self):
+    def test_impossible_region_reports_an_overflow_instead_of_dropping(self):
         TranslationPipeline(device="cpu")
 
-        font_size = auto_fit_font_size(
-            font_path=None,
-            text="TOO LARGE",
-            width=3,
-            height=3,
-            line_spacing=1.2,
-            align="center",
-            stroke_width=2,
+        fit = fit_text_in_room(
+            box_room(TextBlock([0, 0, 3, 3])),
+            "TOO LARGE",
+            None,
+            target=16,
+            base_stroke_width=2,
         )
 
-        self.assertEqual(font_size, 0)
+        self.assertGreater(fit.size, 0)
+        self.assertTrue(fit.overflow)
 
-    def test_auto_fit_can_use_a_tiny_readable_fallback_in_narrow_regions(self):
+    def test_fit_still_letters_a_narrow_region(self):
         from manga_backend.pipeline import fonts as fonts_module
 
         TranslationPipeline(device="cpu")
         font_path = fonts_module.get_cached_font("english")
 
-        font_size = auto_fit_font_size(
-            font_path=font_path,
-            text="My husband's an engineer. Not much to look at, though.",
-            width=20,
-            height=33,
-            line_spacing=1.2,
-            align="center",
-            stroke_width=2,
-            preferred_font_size=16,
+        fit = fit_text_in_room(
+            box_room(TextBlock([0, 0, 20, 33])),
+            "My husband's an engineer. Not much to look at, though.",
+            font_path,
+            target=16,
+            base_stroke_width=2,
         )
 
-        self.assertGreater(font_size, 0)
-        self.assertLess(font_size, 6)
+        self.assertGreater(fit.size, 0)
+        self.assertLess(fit.size, 6)
 
     def test_create_mask_follows_rtdetr_bubble_contour_not_its_rectangle(self):
         TranslationPipeline(device="cpu")
