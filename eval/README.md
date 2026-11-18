@@ -136,8 +136,8 @@ Per page, summed in `summary`, and summed again per tag in `summary.by_tag`:
   Japanese that was actually left behind.
 - **The kana/kanji rate has a noise floor.** manga-ocr sometimes reads short
   rendered English as kana; for example, "We." came back as それは、. On the
-  synthetic pages, 2 of 11 rendered blocks were counted this way although no
-  ink was left (residual ink 0%). Read a change of one or two blocks as noise.
+  synthetic white-bubble pages, 2 of 10 rendered blocks were counted this way
+  although no ink was left (residual ink 0%). Read a change of one or two blocks as noise.
   On synthetic pages, `truth.residual_ink_ratio` is the exact measure.
 - **The stub translator.** It returns deterministic English-like text, about
   2.7 Latin letters per Japanese character. This keeps typesetting metrics
@@ -150,8 +150,8 @@ Per page, summed in `summary`, and summed again per tag in `summary.by_tag`:
   the FLUX route always builds contour-safe masks, and `rectangular` changes
   only how its white fill is sampled and grown.
 - **Timings** are wall-clock on one machine. Compare them only between runs on
-  the same machine and device. Even then, identical stages varied by up to
-  about 40% between back-to-back baseline runs on a shared CPU.
+  the same machine and device. Even then, the same configuration varied by
+  up to about 45% between two baseline runs on a shared CPU.
 - **Different page sets.** When two runs scored different pages (for example,
   a machine without the private pages compared with a committed baseline),
   `--compare` computes the overall table over the pages scored in both runs.

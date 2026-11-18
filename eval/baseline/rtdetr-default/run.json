@@ -1,0 +1,1645 @@
+{
+  "schema_version": 1,
+  "label": "rtdetr-default",
+  "created_utc": "2026-11-18T03:34:49Z",
+  "config": {
+    "label": "rtdetr-default",
+    "detector": "rtdetr",
+    "mask_mode": "auto",
+    "inpainter": "flux2_klein_lanpaint",
+    "ocr": "manga-ocr",
+    "translator": "stub",
+    "target_lang": "English",
+    "device": "cpu",
+    "verify": true,
+    "warmup": true,
+    "render_options": {
+      "line_spacing": 1.2,
+      "border_size": 2.0,
+      "text_color": "#000000",
+      "border_color": "#ffffff",
+      "bg_color": "#ffffff",
+      "bg_opacity": 0.0,
+      "text_alignment": "center",
+      "text_direction": "auto",
+      "uppercase": false,
+      "auto_scale": true,
+      "preferred_font_size": 16
+    }
+  },
+  "pages": [
+    {
+      "id": "syn-white-bubbles",
+      "tags": [
+        "white-bubble",
+        "vertical-text"
+      ],
+      "source": "synthetic:white-bubbles",
+      "sha256": "01748dcd42c20adb",
+      "size": [
+        720,
+        1000
+      ],
+      "status": "ok",
+      "blocks": {
+        "detected": 4,
+        "ocr_nonempty": 4,
+        "to_erase": 4
+      },
+      "mask": {
+        "path": "flux",
+        "strategies": {
+          "bubble-clipped-glyph": 1,
+          "glyph": 3
+        },
+        "kinds": {
+          "contour_safe_glyph": 4,
+          "bubble_interior": 0,
+          "rectangular": 0,
+          "other": 0,
+          "skipped": 0
+        },
+        "white_fill_blocks": 4,
+        "model_blocks": 0,
+        "mask_px": 8479,
+        "white_fill_px": 6406,
+        "mask_fraction": 0.011776,
+        "suppressed_composites": 0
+      },
+      "inpaint": {
+        "requested": "flux2_klein_lanpaint",
+        "used": "flux2_klein_lanpaint",
+        "fallback": false,
+        "strategy": "white_glyph_fill",
+        "changed_outside_mask_px": 0,
+        "changed_inside_mask_px": 6406,
+        "model_changed_outside_mask_px": 0
+      },
+      "render": {
+        "regions": 4,
+        "preferred_font_size": 16,
+        "font_sizes": [
+          16,
+          16,
+          16,
+          16
+        ],
+        "shrink_events": 0,
+        "below_min_readable": 0,
+        "overflow_attempts": 0,
+        "overflow_events": 0,
+        "unfit_skipped": 0
+      },
+      "verify": {
+        "ran": true,
+        "checked": 4,
+        "step6_flagged": 4,
+        "rendered_checked": 4,
+        "kana_kanji": 1
+      },
+      "truth": {
+        "boxes": 4,
+        "recall": 1.0,
+        "text_mae": 0.0,
+        "residual_ink_ratio": 0.0,
+        "over_erased_px": 252,
+        "touched_away_px": 252,
+        "glyph_source": "msgothic.ttc"
+      },
+      "timings": {
+        "detect": 0.8957,
+        "ocr": 0.9155,
+        "translate": 0.0001,
+        "mask": 0.0216,
+        "inpaint_model": 0.0,
+        "render": 0.0406,
+        "verify": 1.017,
+        "total": 2.8957,
+        "other": 0.0052
+      }
+    },
+    {
+      "id": "syn-conjoined-bubbles",
+      "tags": [
+        "conjoined-bubbles",
+        "white-bubble",
+        "vertical-text"
+      ],
+      "source": "synthetic:conjoined-bubbles",
+      "sha256": "235ddeee7e0c5c80",
+      "size": [
+        720,
+        720
+      ],
+      "status": "ok",
+      "blocks": {
+        "detected": 2,
+        "ocr_nonempty": 2,
+        "to_erase": 2
+      },
+      "mask": {
+        "path": "flux",
+        "strategies": {
+          "glyph": 2
+        },
+        "kinds": {
+          "contour_safe_glyph": 2,
+          "bubble_interior": 0,
+          "rectangular": 0,
+          "other": 0,
+          "skipped": 0
+        },
+        "white_fill_blocks": 2,
+        "model_blocks": 0,
+        "mask_px": 4711,
+        "white_fill_px": 3514,
+        "mask_fraction": 0.009088,
+        "suppressed_composites": 0
+      },
+      "inpaint": {
+        "requested": "flux2_klein_lanpaint",
+        "used": "flux2_klein_lanpaint",
+        "fallback": false,
+        "strategy": "white_glyph_fill",
+        "changed_outside_mask_px": 0,
+        "changed_inside_mask_px": 3514,
+        "model_changed_outside_mask_px": 0
+      },
+      "render": {
+        "regions": 2,
+        "preferred_font_size": 16,
+        "font_sizes": [
+          16,
+          16
+        ],
+        "shrink_events": 0,
+        "below_min_readable": 0,
+        "overflow_attempts": 0,
+        "overflow_events": 0,
+        "unfit_skipped": 0
+      },
+      "verify": {
+        "ran": true,
+        "checked": 2,
+        "step6_flagged": 2,
+        "rendered_checked": 2,
+        "kana_kanji": 0
+      },
+      "truth": {
+        "boxes": 2,
+        "recall": 1.0,
+        "text_mae": 0.0,
+        "residual_ink_ratio": 0.0,
+        "over_erased_px": 84,
+        "touched_away_px": 84,
+        "glyph_source": "msgothic.ttc"
+      },
+      "timings": {
+        "detect": 0.6692,
+        "ocr": 0.6216,
+        "translate": 0.0001,
+        "mask": 0.0157,
+        "inpaint_model": 0.0,
+        "render": 0.0254,
+        "verify": 0.5203,
+        "total": 1.8571,
+        "other": 0.0048
+      }
+    },
+    {
+      "id": "syn-textured-narration",
+      "tags": [
+        "textured-background",
+        "vertical-text",
+        "narration",
+        "light-on-dark",
+        "horizontal-text"
+      ],
+      "source": "synthetic:textured-narration",
+      "sha256": "fb26415e45a9b65a",
+      "size": [
+        720,
+        1000
+      ],
+      "status": "ok",
+      "blocks": {
+        "detected": 3,
+        "ocr_nonempty": 3,
+        "to_erase": 3
+      },
+      "mask": {
+        "path": "flux",
+        "strategies": {
+          "bubble-clipped-glyph": 1,
+          "glyph": 2
+        },
+        "kinds": {
+          "contour_safe_glyph": 3,
+          "bubble_interior": 0,
+          "rectangular": 0,
+          "other": 0,
+          "skipped": 0
+        },
+        "white_fill_blocks": 2,
+        "model_blocks": 1,
+        "mask_px": 23352,
+        "white_fill_px": 10001,
+        "mask_fraction": 0.032433,
+        "suppressed_composites": 0
+      },
+      "inpaint": {
+        "requested": "flux2_klein_lanpaint",
+        "used": "lama_large",
+        "fallback": true,
+        "strategy": "model",
+        "changed_outside_mask_px": 0,
+        "changed_inside_mask_px": 12656,
+        "model_changed_outside_mask_px": 0
+      },
+      "render": {
+        "regions": 3,
+        "preferred_font_size": 16,
+        "font_sizes": [
+          16,
+          16,
+          16
+        ],
+        "shrink_events": 0,
+        "below_min_readable": 0,
+        "overflow_attempts": 0,
+        "overflow_events": 0,
+        "unfit_skipped": 0
+      },
+      "verify": {
+        "ran": true,
+        "checked": 3,
+        "step6_flagged": 3,
+        "rendered_checked": 3,
+        "kana_kanji": 0
+      },
+      "truth": {
+        "boxes": 3,
+        "recall": 1.0,
+        "text_mae": 21.716,
+        "residual_ink_ratio": 0.1198,
+        "over_erased_px": 2496,
+        "touched_away_px": 2496,
+        "glyph_source": "msgothic.ttc"
+      },
+      "timings": {
+        "detect": 0.8654,
+        "ocr": 0.7761,
+        "translate": 0.0003,
+        "mask": 0.0134,
+        "inpaint_model": 8.1584,
+        "render": 0.0399,
+        "verify": 1.305,
+        "total": 11.1629,
+        "other": 0.0044
+      }
+    },
+    {
+      "id": "syn-sfx",
+      "tags": [
+        "sfx",
+        "textured-background"
+      ],
+      "source": "synthetic:sfx",
+      "sha256": "5b55106b0f97affd",
+      "size": [
+        720,
+        720
+      ],
+      "status": "ok",
+      "blocks": {
+        "detected": 2,
+        "ocr_nonempty": 2,
+        "to_erase": 2
+      },
+      "mask": {
+        "path": "flux",
+        "strategies": {
+          "glyph": 2
+        },
+        "kinds": {
+          "contour_safe_glyph": 2,
+          "bubble_interior": 0,
+          "rectangular": 0,
+          "other": 0,
+          "skipped": 0
+        },
+        "white_fill_blocks": 0,
+        "model_blocks": 2,
+        "mask_px": 7544,
+        "white_fill_px": 0,
+        "mask_fraction": 0.014552,
+        "suppressed_composites": 0
+      },
+      "inpaint": {
+        "requested": "flux2_klein_lanpaint",
+        "used": "lama_large",
+        "fallback": true,
+        "strategy": "model",
+        "changed_outside_mask_px": 0,
+        "changed_inside_mask_px": 7517,
+        "model_changed_outside_mask_px": 0
+      },
+      "render": {
+        "regions": 2,
+        "preferred_font_size": 16,
+        "font_sizes": [
+          16,
+          16
+        ],
+        "shrink_events": 0,
+        "below_min_readable": 0,
+        "overflow_attempts": 0,
+        "overflow_events": 0,
+        "unfit_skipped": 0
+      },
+      "verify": {
+        "ran": true,
+        "checked": 2,
+        "step6_flagged": 2,
+        "rendered_checked": 2,
+        "kana_kanji": 0
+      },
+      "truth": {
+        "boxes": 2,
+        "recall": 1.0,
+        "text_mae": 18.153,
+        "residual_ink_ratio": 0.2013,
+        "over_erased_px": 0,
+        "touched_away_px": 0,
+        "glyph_source": "msgothic.ttc"
+      },
+      "timings": {
+        "detect": 0.8613,
+        "ocr": 0.6057,
+        "translate": 0.0006,
+        "mask": 0.0149,
+        "inpaint_model": 5.4928,
+        "render": 0.0172,
+        "verify": 0.7969,
+        "total": 7.7943,
+        "other": 0.0049
+      }
+    },
+    {
+      "id": "syn-webtoon-strip",
+      "tags": [
+        "webtoon-strip",
+        "white-bubble",
+        "horizontal-text"
+      ],
+      "source": "synthetic:webtoon-strip",
+      "sha256": "754ff08157df7a1f",
+      "size": [
+        640,
+        2400
+      ],
+      "status": "ok",
+      "blocks": {
+        "detected": 4,
+        "ocr_nonempty": 4,
+        "to_erase": 4
+      },
+      "mask": {
+        "path": "flux",
+        "strategies": {
+          "bubble-clipped-glyph": 4
+        },
+        "kinds": {
+          "contour_safe_glyph": 4,
+          "bubble_interior": 0,
+          "rectangular": 0,
+          "other": 0,
+          "skipped": 0
+        },
+        "white_fill_blocks": 4,
+        "model_blocks": 0,
+        "mask_px": 7503,
+        "white_fill_px": 5800,
+        "mask_fraction": 0.004885,
+        "suppressed_composites": 0
+      },
+      "inpaint": {
+        "requested": "flux2_klein_lanpaint",
+        "used": "flux2_klein_lanpaint",
+        "fallback": false,
+        "strategy": "white_glyph_fill",
+        "changed_outside_mask_px": 0,
+        "changed_inside_mask_px": 5800,
+        "model_changed_outside_mask_px": 0
+      },
+      "render": {
+        "regions": 4,
+        "preferred_font_size": 16,
+        "font_sizes": [
+          16,
+          16,
+          16,
+          16
+        ],
+        "shrink_events": 0,
+        "below_min_readable": 0,
+        "overflow_attempts": 0,
+        "overflow_events": 0,
+        "unfit_skipped": 0
+      },
+      "verify": {
+        "ran": true,
+        "checked": 4,
+        "step6_flagged": 4,
+        "rendered_checked": 4,
+        "kana_kanji": 1
+      },
+      "truth": {
+        "boxes": 4,
+        "recall": 1.0,
+        "text_mae": 0.0,
+        "residual_ink_ratio": 0.0,
+        "over_erased_px": 0,
+        "touched_away_px": 0,
+        "glyph_source": "msgothic.ttc"
+      },
+      "timings": {
+        "detect": 0.9822,
+        "ocr": 0.9761,
+        "translate": 0.0002,
+        "mask": 0.111,
+        "inpaint_model": 0.0,
+        "render": 0.145,
+        "verify": 0.9361,
+        "total": 3.1615,
+        "other": 0.0109
+      }
+    },
+    {
+      "id": "real-single-page-01",
+      "tags": [
+        "white-bubble",
+        "vertical-text",
+        "sfx",
+        "textured-background",
+        "narration"
+      ],
+      "source": "file:pages/real-single-page-01.png",
+      "sha256": "5c4109c61234320e",
+      "size": [
+        587,
+        902
+      ],
+      "status": "ok",
+      "blocks": {
+        "detected": 14,
+        "ocr_nonempty": 14,
+        "to_erase": 14
+      },
+      "mask": {
+        "path": "flux",
+        "strategies": {
+          "bubble-clipped-glyph": 4,
+          "glyph": 9
+        },
+        "kinds": {
+          "contour_safe_glyph": 13,
+          "bubble_interior": 0,
+          "rectangular": 0,
+          "other": 0,
+          "skipped": 0
+        },
+        "white_fill_blocks": 11,
+        "model_blocks": 2,
+        "mask_px": 21022,
+        "white_fill_px": 17935,
+        "mask_fraction": 0.039704,
+        "suppressed_composites": 1
+      },
+      "inpaint": {
+        "requested": "flux2_klein_lanpaint",
+        "used": "lama_large",
+        "fallback": true,
+        "strategy": "model",
+        "changed_outside_mask_px": 0,
+        "changed_inside_mask_px": 20815,
+        "model_changed_outside_mask_px": 0
+      },
+      "render": {
+        "regions": 13,
+        "preferred_font_size": 16,
+        "font_sizes": [
+          16,
+          16,
+          15,
+          16,
+          16,
+          13,
+          9,
+          16,
+          10,
+          15,
+          14,
+          12,
+          11
+        ],
+        "shrink_events": 8,
+        "below_min_readable": 1,
+        "overflow_attempts": 1,
+        "overflow_events": 1,
+        "unfit_skipped": 0
+      },
+      "verify": {
+        "ran": true,
+        "checked": 14,
+        "step6_flagged": 14,
+        "rendered_checked": 14,
+        "kana_kanji": 1
+      },
+      "truth": null,
+      "timings": {
+        "detect": 0.8491,
+        "ocr": 3.5401,
+        "translate": 0.0006,
+        "mask": 0.0373,
+        "inpaint_model": 5.8399,
+        "render": 0.1216,
+        "verify": 5.961,
+        "total": 16.3549,
+        "other": 0.0053
+      }
+    },
+    {
+      "id": "real-bookwalker-spread-01",
+      "tags": [
+        "bookwalker",
+        "white-bubble",
+        "vertical-text",
+        "conjoined-bubbles",
+        "sfx",
+        "textured-background"
+      ],
+      "source": "file:pages/real-bookwalker-spread-01.png",
+      "sha256": "7c94d1293fd2551a",
+      "size": [
+        1240,
+        902
+      ],
+      "status": "ok",
+      "blocks": {
+        "detected": 25,
+        "ocr_nonempty": 25,
+        "to_erase": 23
+      },
+      "mask": {
+        "path": "flux",
+        "strategies": {
+          "bubble-clipped-glyph": 5,
+          "glyph": 17
+        },
+        "kinds": {
+          "contour_safe_glyph": 22,
+          "bubble_interior": 0,
+          "rectangular": 0,
+          "other": 0,
+          "skipped": 0
+        },
+        "white_fill_blocks": 21,
+        "model_blocks": 1,
+        "mask_px": 22433,
+        "white_fill_px": 21047,
+        "mask_fraction": 0.020057,
+        "suppressed_composites": 1
+      },
+      "inpaint": {
+        "requested": "flux2_klein_lanpaint",
+        "used": "lama_large",
+        "fallback": true,
+        "strategy": "model",
+        "changed_outside_mask_px": 0,
+        "changed_inside_mask_px": 21792,
+        "model_changed_outside_mask_px": 0
+      },
+      "render": {
+        "regions": 22,
+        "preferred_font_size": 16,
+        "font_sizes": [
+          16,
+          10,
+          16,
+          16,
+          10,
+          15,
+          4,
+          15,
+          4,
+          11,
+          16,
+          16,
+          11,
+          9,
+          12,
+          6,
+          16,
+          10,
+          15,
+          15,
+          16,
+          16
+        ],
+        "shrink_events": 14,
+        "below_min_readable": 4,
+        "overflow_attempts": 2,
+        "overflow_events": 2,
+        "unfit_skipped": 0
+      },
+      "verify": {
+        "ran": true,
+        "checked": 25,
+        "step6_flagged": 24,
+        "rendered_checked": 23,
+        "kana_kanji": 7
+      },
+      "truth": null,
+      "timings": {
+        "detect": 0.9556,
+        "ocr": 7.2346,
+        "translate": 0.0007,
+        "mask": 0.0509,
+        "inpaint_model": 13.4598,
+        "render": 0.1934,
+        "verify": 8.4375,
+        "total": 30.3437,
+        "other": 0.0112
+      }
+    },
+    {
+      "id": "real-bookwalker-spread-02",
+      "tags": [
+        "bookwalker",
+        "white-bubble",
+        "vertical-text",
+        "conjoined-bubbles",
+        "sfx",
+        "textured-background"
+      ],
+      "source": "file:pages/real-bookwalker-spread-02.png",
+      "sha256": "cd4713ad99095c23",
+      "size": [
+        1245,
+        883
+      ],
+      "status": "ok",
+      "blocks": {
+        "detected": 25,
+        "ocr_nonempty": 25,
+        "to_erase": 25
+      },
+      "mask": {
+        "path": "flux",
+        "strategies": {
+          "bubble-clipped-glyph": 3,
+          "glyph": 22
+        },
+        "kinds": {
+          "contour_safe_glyph": 25,
+          "bubble_interior": 0,
+          "rectangular": 0,
+          "other": 0,
+          "skipped": 0
+        },
+        "white_fill_blocks": 24,
+        "model_blocks": 1,
+        "mask_px": 29677,
+        "white_fill_px": 27734,
+        "mask_fraction": 0.026995,
+        "suppressed_composites": 0
+      },
+      "inpaint": {
+        "requested": "flux2_klein_lanpaint",
+        "used": "lama_large",
+        "fallback": true,
+        "strategy": "model",
+        "changed_outside_mask_px": 0,
+        "changed_inside_mask_px": 28601,
+        "model_changed_outside_mask_px": 0
+      },
+      "render": {
+        "regions": 25,
+        "preferred_font_size": 16,
+        "font_sizes": [
+          16,
+          16,
+          16,
+          11,
+          16,
+          16,
+          15,
+          11,
+          13,
+          10,
+          14,
+          13,
+          16,
+          16,
+          10,
+          16,
+          16,
+          16,
+          7,
+          11,
+          16,
+          16,
+          16,
+          16,
+          16
+        ],
+        "shrink_events": 10,
+        "below_min_readable": 1,
+        "overflow_attempts": 1,
+        "overflow_events": 1,
+        "unfit_skipped": 0
+      },
+      "verify": {
+        "ran": true,
+        "checked": 25,
+        "step6_flagged": 25,
+        "rendered_checked": 25,
+        "kana_kanji": 1
+      },
+      "truth": null,
+      "timings": {
+        "detect": 1.3081,
+        "ocr": 7.2441,
+        "translate": 0.0002,
+        "mask": 0.0763,
+        "inpaint_model": 14.0337,
+        "render": 0.1838,
+        "verify": 9.7702,
+        "total": 32.6268,
+        "other": 0.0104
+      }
+    }
+  ],
+  "summary": {
+    "pages": {
+      "total": 8,
+      "scored": 8
+    },
+    "blocks": {
+      "detected": 79,
+      "to_erase": 77
+    },
+    "cjk_residue": {
+      "step6_checked": 79,
+      "step6_flagged": 78,
+      "step6_rate": 0.9873,
+      "rendered_checked": 77,
+      "kana_kanji": 11,
+      "kana_kanji_rate": 0.1429
+    },
+    "inpaint": {
+      "changed_outside_mask_px": 0,
+      "pages_changed_outside_mask": 0,
+      "model_changed_outside_mask_px": 0,
+      "fallback_pages": 5,
+      "used": {
+        "flux2_klein_lanpaint": 3,
+        "lama_large": 5
+      }
+    },
+    "mask": {
+      "kinds": {
+        "contour_safe_glyph": 75,
+        "bubble_interior": 0,
+        "rectangular": 0,
+        "other": 0,
+        "skipped": 0
+      },
+      "strategies": {
+        "bubble-clipped-glyph": 18,
+        "glyph": 57
+      },
+      "white_fill_blocks": 68,
+      "model_blocks": 7,
+      "suppressed_composites": 2,
+      "mask_px": 124721
+    },
+    "render": {
+      "regions": 75,
+      "shrink_events": 32,
+      "below_min_readable": 6,
+      "overflow_attempts": 4,
+      "overflow_events": 4,
+      "unfit_skipped": 0,
+      "font_size_median": 16,
+      "font_size_min": 4
+    },
+    "truth": {
+      "pages": 5,
+      "recall": 1.0,
+      "text_mae": 7.9738,
+      "residual_ink_ratio": 0.0642,
+      "over_erased_px": 2832,
+      "touched_away_px": 2832
+    },
+    "timings": {
+      "detect": 7.387,
+      "ocr": 21.914,
+      "translate": 0.003,
+      "mask": 0.341,
+      "inpaint_model": 46.985,
+      "render": 0.767,
+      "verify": 28.744,
+      "other": 0.057,
+      "total": 106.197
+    },
+    "seconds_per_page": 13.275,
+    "by_tag": {
+      "bookwalker": {
+        "pages": {
+          "total": 2,
+          "scored": 2
+        },
+        "blocks": {
+          "detected": 50,
+          "to_erase": 48
+        },
+        "cjk_residue": {
+          "step6_checked": 50,
+          "step6_flagged": 49,
+          "step6_rate": 0.98,
+          "rendered_checked": 48,
+          "kana_kanji": 8,
+          "kana_kanji_rate": 0.1667
+        },
+        "inpaint": {
+          "changed_outside_mask_px": 0,
+          "pages_changed_outside_mask": 0,
+          "model_changed_outside_mask_px": 0,
+          "fallback_pages": 2,
+          "used": {
+            "lama_large": 2
+          }
+        },
+        "mask": {
+          "kinds": {
+            "contour_safe_glyph": 47,
+            "bubble_interior": 0,
+            "rectangular": 0,
+            "other": 0,
+            "skipped": 0
+          },
+          "strategies": {
+            "bubble-clipped-glyph": 8,
+            "glyph": 39
+          },
+          "white_fill_blocks": 45,
+          "model_blocks": 2,
+          "suppressed_composites": 1,
+          "mask_px": 52110
+        },
+        "render": {
+          "regions": 47,
+          "shrink_events": 24,
+          "below_min_readable": 5,
+          "overflow_attempts": 3,
+          "overflow_events": 3,
+          "unfit_skipped": 0,
+          "font_size_median": 15,
+          "font_size_min": 4
+        },
+        "truth": {
+          "pages": 0,
+          "recall": null,
+          "text_mae": null,
+          "residual_ink_ratio": null,
+          "over_erased_px": 0,
+          "touched_away_px": 0
+        },
+        "timings": {
+          "detect": 2.264,
+          "ocr": 14.479,
+          "translate": 0.001,
+          "mask": 0.127,
+          "inpaint_model": 27.493,
+          "render": 0.377,
+          "verify": 18.208,
+          "other": 0.022,
+          "total": 62.971
+        },
+        "seconds_per_page": 31.485
+      },
+      "conjoined-bubbles": {
+        "pages": {
+          "total": 3,
+          "scored": 3
+        },
+        "blocks": {
+          "detected": 52,
+          "to_erase": 50
+        },
+        "cjk_residue": {
+          "step6_checked": 52,
+          "step6_flagged": 51,
+          "step6_rate": 0.9808,
+          "rendered_checked": 50,
+          "kana_kanji": 8,
+          "kana_kanji_rate": 0.16
+        },
+        "inpaint": {
+          "changed_outside_mask_px": 0,
+          "pages_changed_outside_mask": 0,
+          "model_changed_outside_mask_px": 0,
+          "fallback_pages": 2,
+          "used": {
+            "flux2_klein_lanpaint": 1,
+            "lama_large": 2
+          }
+        },
+        "mask": {
+          "kinds": {
+            "contour_safe_glyph": 49,
+            "bubble_interior": 0,
+            "rectangular": 0,
+            "other": 0,
+            "skipped": 0
+          },
+          "strategies": {
+            "bubble-clipped-glyph": 8,
+            "glyph": 41
+          },
+          "white_fill_blocks": 47,
+          "model_blocks": 2,
+          "suppressed_composites": 1,
+          "mask_px": 56821
+        },
+        "render": {
+          "regions": 49,
+          "shrink_events": 24,
+          "below_min_readable": 5,
+          "overflow_attempts": 3,
+          "overflow_events": 3,
+          "unfit_skipped": 0,
+          "font_size_median": 16,
+          "font_size_min": 4
+        },
+        "truth": {
+          "pages": 1,
+          "recall": 1.0,
+          "text_mae": 0.0,
+          "residual_ink_ratio": 0.0,
+          "over_erased_px": 84,
+          "touched_away_px": 84
+        },
+        "timings": {
+          "detect": 2.933,
+          "ocr": 15.1,
+          "translate": 0.001,
+          "mask": 0.143,
+          "inpaint_model": 27.493,
+          "render": 0.403,
+          "verify": 18.728,
+          "other": 0.026,
+          "total": 64.828
+        },
+        "seconds_per_page": 21.609
+      },
+      "horizontal-text": {
+        "pages": {
+          "total": 2,
+          "scored": 2
+        },
+        "blocks": {
+          "detected": 7,
+          "to_erase": 7
+        },
+        "cjk_residue": {
+          "step6_checked": 7,
+          "step6_flagged": 7,
+          "step6_rate": 1.0,
+          "rendered_checked": 7,
+          "kana_kanji": 1,
+          "kana_kanji_rate": 0.1429
+        },
+        "inpaint": {
+          "changed_outside_mask_px": 0,
+          "pages_changed_outside_mask": 0,
+          "model_changed_outside_mask_px": 0,
+          "fallback_pages": 1,
+          "used": {
+            "lama_large": 1,
+            "flux2_klein_lanpaint": 1
+          }
+        },
+        "mask": {
+          "kinds": {
+            "contour_safe_glyph": 7,
+            "bubble_interior": 0,
+            "rectangular": 0,
+            "other": 0,
+            "skipped": 0
+          },
+          "strategies": {
+            "bubble-clipped-glyph": 5,
+            "glyph": 2
+          },
+          "white_fill_blocks": 6,
+          "model_blocks": 1,
+          "suppressed_composites": 0,
+          "mask_px": 30855
+        },
+        "render": {
+          "regions": 7,
+          "shrink_events": 0,
+          "below_min_readable": 0,
+          "overflow_attempts": 0,
+          "overflow_events": 0,
+          "unfit_skipped": 0,
+          "font_size_median": 16,
+          "font_size_min": 16
+        },
+        "truth": {
+          "pages": 2,
+          "recall": 1.0,
+          "text_mae": 10.858,
+          "residual_ink_ratio": 0.0599,
+          "over_erased_px": 2496,
+          "touched_away_px": 2496
+        },
+        "timings": {
+          "detect": 1.848,
+          "ocr": 1.752,
+          "translate": 0.001,
+          "mask": 0.124,
+          "inpaint_model": 8.158,
+          "render": 0.185,
+          "verify": 2.241,
+          "other": 0.015,
+          "total": 14.324
+        },
+        "seconds_per_page": 7.162
+      },
+      "light-on-dark": {
+        "pages": {
+          "total": 1,
+          "scored": 1
+        },
+        "blocks": {
+          "detected": 3,
+          "to_erase": 3
+        },
+        "cjk_residue": {
+          "step6_checked": 3,
+          "step6_flagged": 3,
+          "step6_rate": 1.0,
+          "rendered_checked": 3,
+          "kana_kanji": 0,
+          "kana_kanji_rate": 0.0
+        },
+        "inpaint": {
+          "changed_outside_mask_px": 0,
+          "pages_changed_outside_mask": 0,
+          "model_changed_outside_mask_px": 0,
+          "fallback_pages": 1,
+          "used": {
+            "lama_large": 1
+          }
+        },
+        "mask": {
+          "kinds": {
+            "contour_safe_glyph": 3,
+            "bubble_interior": 0,
+            "rectangular": 0,
+            "other": 0,
+            "skipped": 0
+          },
+          "strategies": {
+            "bubble-clipped-glyph": 1,
+            "glyph": 2
+          },
+          "white_fill_blocks": 2,
+          "model_blocks": 1,
+          "suppressed_composites": 0,
+          "mask_px": 23352
+        },
+        "render": {
+          "regions": 3,
+          "shrink_events": 0,
+          "below_min_readable": 0,
+          "overflow_attempts": 0,
+          "overflow_events": 0,
+          "unfit_skipped": 0,
+          "font_size_median": 16,
+          "font_size_min": 16
+        },
+        "truth": {
+          "pages": 1,
+          "recall": 1.0,
+          "text_mae": 21.716,
+          "residual_ink_ratio": 0.1198,
+          "over_erased_px": 2496,
+          "touched_away_px": 2496
+        },
+        "timings": {
+          "detect": 0.865,
+          "ocr": 0.776,
+          "translate": 0.0,
+          "mask": 0.013,
+          "inpaint_model": 8.158,
+          "render": 0.04,
+          "verify": 1.305,
+          "other": 0.004,
+          "total": 11.163
+        },
+        "seconds_per_page": 11.163
+      },
+      "narration": {
+        "pages": {
+          "total": 2,
+          "scored": 2
+        },
+        "blocks": {
+          "detected": 17,
+          "to_erase": 17
+        },
+        "cjk_residue": {
+          "step6_checked": 17,
+          "step6_flagged": 17,
+          "step6_rate": 1.0,
+          "rendered_checked": 17,
+          "kana_kanji": 1,
+          "kana_kanji_rate": 0.0588
+        },
+        "inpaint": {
+          "changed_outside_mask_px": 0,
+          "pages_changed_outside_mask": 0,
+          "model_changed_outside_mask_px": 0,
+          "fallback_pages": 2,
+          "used": {
+            "lama_large": 2
+          }
+        },
+        "mask": {
+          "kinds": {
+            "contour_safe_glyph": 16,
+            "bubble_interior": 0,
+            "rectangular": 0,
+            "other": 0,
+            "skipped": 0
+          },
+          "strategies": {
+            "bubble-clipped-glyph": 5,
+            "glyph": 11
+          },
+          "white_fill_blocks": 13,
+          "model_blocks": 3,
+          "suppressed_composites": 1,
+          "mask_px": 44374
+        },
+        "render": {
+          "regions": 16,
+          "shrink_events": 8,
+          "below_min_readable": 1,
+          "overflow_attempts": 1,
+          "overflow_events": 1,
+          "unfit_skipped": 0,
+          "font_size_median": 15.5,
+          "font_size_min": 9
+        },
+        "truth": {
+          "pages": 1,
+          "recall": 1.0,
+          "text_mae": 21.716,
+          "residual_ink_ratio": 0.1198,
+          "over_erased_px": 2496,
+          "touched_away_px": 2496
+        },
+        "timings": {
+          "detect": 1.714,
+          "ocr": 4.316,
+          "translate": 0.001,
+          "mask": 0.051,
+          "inpaint_model": 13.998,
+          "render": 0.162,
+          "verify": 7.266,
+          "other": 0.01,
+          "total": 27.518
+        },
+        "seconds_per_page": 13.759
+      },
+      "sfx": {
+        "pages": {
+          "total": 4,
+          "scored": 4
+        },
+        "blocks": {
+          "detected": 66,
+          "to_erase": 64
+        },
+        "cjk_residue": {
+          "step6_checked": 66,
+          "step6_flagged": 65,
+          "step6_rate": 0.9848,
+          "rendered_checked": 64,
+          "kana_kanji": 9,
+          "kana_kanji_rate": 0.1406
+        },
+        "inpaint": {
+          "changed_outside_mask_px": 0,
+          "pages_changed_outside_mask": 0,
+          "model_changed_outside_mask_px": 0,
+          "fallback_pages": 4,
+          "used": {
+            "lama_large": 4
+          }
+        },
+        "mask": {
+          "kinds": {
+            "contour_safe_glyph": 62,
+            "bubble_interior": 0,
+            "rectangular": 0,
+            "other": 0,
+            "skipped": 0
+          },
+          "strategies": {
+            "bubble-clipped-glyph": 12,
+            "glyph": 50
+          },
+          "white_fill_blocks": 56,
+          "model_blocks": 6,
+          "suppressed_composites": 2,
+          "mask_px": 80676
+        },
+        "render": {
+          "regions": 62,
+          "shrink_events": 32,
+          "below_min_readable": 6,
+          "overflow_attempts": 4,
+          "overflow_events": 4,
+          "unfit_skipped": 0,
+          "font_size_median": 15.0,
+          "font_size_min": 4
+        },
+        "truth": {
+          "pages": 1,
+          "recall": 1.0,
+          "text_mae": 18.153,
+          "residual_ink_ratio": 0.2013,
+          "over_erased_px": 0,
+          "touched_away_px": 0
+        },
+        "timings": {
+          "detect": 3.974,
+          "ocr": 18.625,
+          "translate": 0.002,
+          "mask": 0.179,
+          "inpaint_model": 38.826,
+          "render": 0.516,
+          "verify": 24.966,
+          "other": 0.032,
+          "total": 87.12
+        },
+        "seconds_per_page": 21.78
+      },
+      "textured-background": {
+        "pages": {
+          "total": 5,
+          "scored": 5
+        },
+        "blocks": {
+          "detected": 69,
+          "to_erase": 67
+        },
+        "cjk_residue": {
+          "step6_checked": 69,
+          "step6_flagged": 68,
+          "step6_rate": 0.9855,
+          "rendered_checked": 67,
+          "kana_kanji": 9,
+          "kana_kanji_rate": 0.1343
+        },
+        "inpaint": {
+          "changed_outside_mask_px": 0,
+          "pages_changed_outside_mask": 0,
+          "model_changed_outside_mask_px": 0,
+          "fallback_pages": 5,
+          "used": {
+            "lama_large": 5
+          }
+        },
+        "mask": {
+          "kinds": {
+            "contour_safe_glyph": 65,
+            "bubble_interior": 0,
+            "rectangular": 0,
+            "other": 0,
+            "skipped": 0
+          },
+          "strategies": {
+            "bubble-clipped-glyph": 13,
+            "glyph": 52
+          },
+          "white_fill_blocks": 58,
+          "model_blocks": 7,
+          "suppressed_composites": 2,
+          "mask_px": 104028
+        },
+        "render": {
+          "regions": 65,
+          "shrink_events": 32,
+          "below_min_readable": 6,
+          "overflow_attempts": 4,
+          "overflow_events": 4,
+          "unfit_skipped": 0,
+          "font_size_median": 16,
+          "font_size_min": 4
+        },
+        "truth": {
+          "pages": 2,
+          "recall": 1.0,
+          "text_mae": 19.9345,
+          "residual_ink_ratio": 0.1605,
+          "over_erased_px": 2496,
+          "touched_away_px": 2496
+        },
+        "timings": {
+          "detect": 4.84,
+          "ocr": 19.401,
+          "translate": 0.002,
+          "mask": 0.193,
+          "inpaint_model": 46.985,
+          "render": 0.556,
+          "verify": 26.271,
+          "other": 0.036,
+          "total": 98.283
+        },
+        "seconds_per_page": 19.657
+      },
+      "vertical-text": {
+        "pages": {
+          "total": 6,
+          "scored": 6
+        },
+        "blocks": {
+          "detected": 73,
+          "to_erase": 71
+        },
+        "cjk_residue": {
+          "step6_checked": 73,
+          "step6_flagged": 72,
+          "step6_rate": 0.9863,
+          "rendered_checked": 71,
+          "kana_kanji": 10,
+          "kana_kanji_rate": 0.1408
+        },
+        "inpaint": {
+          "changed_outside_mask_px": 0,
+          "pages_changed_outside_mask": 0,
+          "model_changed_outside_mask_px": 0,
+          "fallback_pages": 4,
+          "used": {
+            "flux2_klein_lanpaint": 2,
+            "lama_large": 4
+          }
+        },
+        "mask": {
+          "kinds": {
+            "contour_safe_glyph": 69,
+            "bubble_interior": 0,
+            "rectangular": 0,
+            "other": 0,
+            "skipped": 0
+          },
+          "strategies": {
+            "bubble-clipped-glyph": 14,
+            "glyph": 55
+          },
+          "white_fill_blocks": 64,
+          "model_blocks": 5,
+          "suppressed_composites": 2,
+          "mask_px": 109674
+        },
+        "render": {
+          "regions": 69,
+          "shrink_events": 32,
+          "below_min_readable": 6,
+          "overflow_attempts": 4,
+          "overflow_events": 4,
+          "unfit_skipped": 0,
+          "font_size_median": 16,
+          "font_size_min": 4
+        },
+        "truth": {
+          "pages": 3,
+          "recall": 1.0,
+          "text_mae": 7.2387,
+          "residual_ink_ratio": 0.0399,
+          "over_erased_px": 2832,
+          "touched_away_px": 2832
+        },
+        "timings": {
+          "detect": 5.543,
+          "ocr": 20.332,
+          "translate": 0.002,
+          "mask": 0.215,
+          "inpaint_model": 41.492,
+          "render": 0.605,
+          "verify": 27.011,
+          "other": 0.041,
+          "total": 95.241
+        },
+        "seconds_per_page": 15.873
+      },
+      "webtoon-strip": {
+        "pages": {
+          "total": 1,
+          "scored": 1
+        },
+        "blocks": {
+          "detected": 4,
+          "to_erase": 4
+        },
+        "cjk_residue": {
+          "step6_checked": 4,
+          "step6_flagged": 4,
+          "step6_rate": 1.0,
+          "rendered_checked": 4,
+          "kana_kanji": 1,
+          "kana_kanji_rate": 0.25
+        },
+        "inpaint": {
+          "changed_outside_mask_px": 0,
+          "pages_changed_outside_mask": 0,
+          "model_changed_outside_mask_px": 0,
+          "fallback_pages": 0,
+          "used": {
+            "flux2_klein_lanpaint": 1
+          }
+        },
+        "mask": {
+          "kinds": {
+            "contour_safe_glyph": 4,
+            "bubble_interior": 0,
+            "rectangular": 0,
+            "other": 0,
+            "skipped": 0
+          },
+          "strategies": {
+            "bubble-clipped-glyph": 4
+          },
+          "white_fill_blocks": 4,
+          "model_blocks": 0,
+          "suppressed_composites": 0,
+          "mask_px": 7503
+        },
+        "render": {
+          "regions": 4,
+          "shrink_events": 0,
+          "below_min_readable": 0,
+          "overflow_attempts": 0,
+          "overflow_events": 0,
+          "unfit_skipped": 0,
+          "font_size_median": 16.0,
+          "font_size_min": 16
+        },
+        "truth": {
+          "pages": 1,
+          "recall": 1.0,
+          "text_mae": 0.0,
+          "residual_ink_ratio": 0.0,
+          "over_erased_px": 0,
+          "touched_away_px": 0
+        },
+        "timings": {
+          "detect": 0.982,
+          "ocr": 0.976,
+          "translate": 0.0,
+          "mask": 0.111,
+          "inpaint_model": 0.0,
+          "render": 0.145,
+          "verify": 0.936,
+          "other": 0.011,
+          "total": 3.162
+        },
+        "seconds_per_page": 3.162
+      },
+      "white-bubble": {
+        "pages": {
+          "total": 6,
+          "scored": 6
+        },
+        "blocks": {
+          "detected": 74,
+          "to_erase": 72
+        },
+        "cjk_residue": {
+          "step6_checked": 74,
+          "step6_flagged": 73,
+          "step6_rate": 0.9865,
+          "rendered_checked": 72,
+          "kana_kanji": 11,
+          "kana_kanji_rate": 0.1528
+        },
+        "inpaint": {
+          "changed_outside_mask_px": 0,
+          "pages_changed_outside_mask": 0,
+          "model_changed_outside_mask_px": 0,
+          "fallback_pages": 3,
+          "used": {
+            "flux2_klein_lanpaint": 3,
+            "lama_large": 3
+          }
+        },
+        "mask": {
+          "kinds": {
+            "contour_safe_glyph": 70,
+            "bubble_interior": 0,
+            "rectangular": 0,
+            "other": 0,
+            "skipped": 0
+          },
+          "strategies": {
+            "bubble-clipped-glyph": 17,
+            "glyph": 53
+          },
+          "white_fill_blocks": 66,
+          "model_blocks": 4,
+          "suppressed_composites": 2,
+          "mask_px": 93825
+        },
+        "render": {
+          "regions": 70,
+          "shrink_events": 32,
+          "below_min_readable": 6,
+          "overflow_attempts": 4,
+          "overflow_events": 4,
+          "unfit_skipped": 0,
+          "font_size_median": 16.0,
+          "font_size_min": 4
+        },
+        "truth": {
+          "pages": 3,
+          "recall": 1.0,
+          "text_mae": 0.0,
+          "residual_ink_ratio": 0.0,
+          "over_erased_px": 336,
+          "touched_away_px": 336
+        },
+        "timings": {
+          "detect": 5.66,
+          "ocr": 20.532,
+          "translate": 0.002,
+          "mask": 0.313,
+          "inpaint_model": 33.333,
+          "render": 0.71,
+          "verify": 26.642,
+          "other": 0.048,
+          "total": 87.24
+        },
+        "seconds_per_page": 14.54
+      }
+    }
+  },
+  "environment": {
+    "git_commit": "1b0b4cfe4700",
+    "git_dirty": false,
+    "python": "3.13.5",
+    "platform": "Windows 11 AMD64",
+    "numpy": "2.5.1",
+    "opencv": "5.0.0",
+    "onnxruntime": "1.27.0",
+    "onnx_providers": [
+      "AzureExecutionProvider",
+      "CPUExecutionProvider"
+    ],
+    "comfyui_reachable": false,
+    "models": {
+      "detector": {
+        "status": "loaded",
+        "name": "rtdetr"
+      },
+      "animetext_yolo": {
+        "status": "not_loaded",
+        "name": "animetext-yolo"
+      },
+      "ocr": {
+        "status": "loaded",
+        "name": "manga-ocr"
+      },
+      "paddle_ocr": {
+        "status": "not_loaded",
+        "name": "paddle-ocr"
+      },
+      "inpainter": {
+        "status": "loaded",
+        "name": "lama_large"
+      }
+    },
+    "synthetic_glyph_source": "msgothic.ttc"
+  },
+  "corpus": {
+    "manifest": "eval/corpus.json",
+    "pages": 8
+  }
+}
