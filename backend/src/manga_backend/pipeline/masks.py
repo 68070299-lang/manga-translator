@@ -1,12 +1,21 @@
-"""Inpainting mask construction: glyph extraction, bubble interiors and FLUX masks."""
+"""Inpainting mask construction: glyph extraction, bubble interiors and the fill router."""
 
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import cv2
 import numpy as np
 
+from manga_backend.pipeline.fill_tiers import (
+    FRINGE_RADIUS,
+    RING_RADIUS,
+    TIER_MODEL,
+    TIER_SKIPPED,
+    FillDecision,
+    route_block_fill,
+)
 from manga_backend.pipeline.regions import int_box, suppress_composite_render_regions
 from manga_backend.utils.textblock import Box, TextBlock
 
@@ -14,22 +23,13 @@ logger = logging.getLogger(__name__)
 
 Slices = tuple[slice, slice]
 
-
-def uniform_white_color(pixels: np.ndarray, min_bright_ratio: float) -> np.ndarray | None:
-    """Return the median white when most pixels are bright, flat and neutral."""
-    luminance = cv2.cvtColor(pixels.reshape(-1, 1, 3), cv2.COLOR_RGB2GRAY).reshape(-1)
-    is_bright = luminance >= 235
-    if np.count_nonzero(is_bright) / pixels.shape[0] < min_bright_ratio:
-        return None
-
-    color = np.median(pixels[is_bright], axis=0)
-    if (
-        float(np.min(color)) < 242
-        or float(np.max(color) - np.min(color)) > 8
-        or float(np.std(luminance[is_bright])) > 7
-    ):
-        return None
-    return np.rint(color).astype(np.uint8)
+# How far the router's context ring reaches beyond the block mask, and how
+# far inside a detector bubble box the sampling region stays.
+ROUTER_CONTEXT = RING_RADIUS + FRINGE_RADIUS
+BUBBLE_VALID_INSET = 4
+# Mask strategies that were clipped to a verified bubble interior; their
+# sampling stays inside the bubble so the outline cannot fail every tier.
+INTERIOR_STRATEGIES = frozenset({"bubble-clipped-glyph", "contour-clipped-glyph"})
 
 
 def overlap_slices(first_bounds: Box, second_bounds: Box) -> tuple[Slices, Slices] | None:
@@ -379,115 +379,129 @@ def contour_safe_mask_for_block(
     return np.zeros_like(interior), bounds, "unsafe-sfx"
 
 
-def plain_white_fill_color(
-    roi: np.ndarray, glyph_mask: np.ndarray
+def _bubble_valid_region(
+    block: TextBlock, crop_bounds: Box, shape: tuple[int, ...]
 ) -> np.ndarray | None:
-    """Return the local white background color only for a uniform white ROI."""
-    if roi.size == 0 or glyph_mask.size == 0 or not np.any(glyph_mask):
-        return None
-    background = roi[glyph_mask == 0]
-    if background.shape[0] < max(16, roi.shape[0] * roi.shape[1] // 4):
-        return None
+    """The detector bubble box shrunk past its outline, in crop coordinates.
 
-    # Tight detector boxes around small chat bubbles include some gray UI
-    # outside the bubble. A strong two-thirds white majority is sufficient
-    # because the color and low-variance checks still reject tone.
-    return uniform_white_color(background, 0.68)
-
-
-def plain_white_interior_color(
-    roi: np.ndarray, interior_mask: np.ndarray
-) -> np.ndarray | None:
-    """Sample a uniform white bubble interior without consulting its exterior."""
-    if roi.size == 0 or interior_mask.size == 0 or not np.any(interior_mask):
-        return None
-    interior = roi[interior_mask > 0]
-    if interior.shape[0] < 16:
-        return None
-    return uniform_white_color(interior, 0.72)
-
-
-def white_fill_mask(
-    image: np.ndarray,
-    block: TextBlock,
-    glyphs: np.ndarray,
-    bounds: Box,
-    strategy: str,
-) -> np.ndarray:
-    """Grow glyphs to cover the gray antialiasing around tiny UI text.
-
-    Only uniform white regions use this, and structural components were
-    removed from the glyphs already.
+    Blocks whose mask was clipped to a verified bubble interior only sample
+    evidence inside the bubble, so the outline and the panel beyond it
+    cannot fail an otherwise clean fill. Returns None when no bubble box is
+    known or the shrunk region degenerates.
     """
-    x1, y1, x2, y2 = bounds
-    fill_mask = cv2.dilate(glyphs, np.ones((3, 3), np.uint8), iterations=1)
-    text_window = np.zeros_like(fill_mask)
-    tx1, ty1, tx2, ty2 = [int(value) for value in block.xyxy]
-    wx1, wy1 = max(0, tx1 - x1), max(0, ty1 - y1)
-    wx2, wy2 = min(x2 - x1, tx2 - x1), min(y2 - y1, ty2 - y1)
-    if wx2 > wx1 and wy2 > wy1:
-        text_window[wy1:wy2, wx1:wx2] = 255
-    roi_gray = cv2.cvtColor(image[y1:y2, x1:x2], cv2.COLOR_RGB2GRAY)
-    antialias = np.where(roi_gray <= 245, 255, 0).astype(np.uint8)
-    antialias = cv2.bitwise_and(antialias, text_window)
-    near_glyphs = cv2.dilate(glyphs, np.ones((7, 7), np.uint8), iterations=1)
-    fill_mask = cv2.bitwise_or(fill_mask, cv2.bitwise_and(antialias, near_glyphs))
+    bubble = block.bubble_xyxy
+    if bubble is None:
+        return None
+    try:
+        bx1, by1, bx2, by2 = int_box(bubble)
+    except (TypeError, ValueError):
+        return None
+    vx1, vy1 = bx1 + BUBBLE_VALID_INSET, by1 + BUBBLE_VALID_INSET
+    vx2, vy2 = bx2 - BUBBLE_VALID_INSET, by2 - BUBBLE_VALID_INSET
+    if vx2 <= vx1 or vy2 <= vy1:
+        return None
+    cx1, cy1 = crop_bounds[0], crop_bounds[1]
+    width, height = shape[1], shape[0]
+    lx1, ly1 = max(0, vx1 - cx1), max(0, vy1 - cy1)
+    lx2, ly2 = min(width, vx2 - cx1), min(height, vy2 - cy1)
+    if lx2 <= lx1 or ly2 <= ly1:
+        return None
+    valid = np.zeros(shape[:2], dtype=np.uint8)
+    valid[ly1:ly2, lx1:lx2] = 255
+    return valid
 
-    if strategy == "bubble-clipped-glyph":
-        interior, interior_bounds = bubble_interior_mask_for_block(image, block)
-        safety = np.zeros_like(fill_mask)
-        overlap = overlap_slices(bounds, interior_bounds)
-        if overlap:
-            safety[overlap[0]] = interior[overlap[1]]
-        fill_mask = cv2.bitwise_and(fill_mask, safety)
-    return fill_mask
+
+def _router_crop(bounds: Box, width: int, height: int) -> Box:
+    """Block bounds grown by the context ring and clipped to the page."""
+    x1, y1, x2, y2 = bounds
+    return (
+        max(0, x1 - ROUTER_CONTEXT),
+        max(0, y1 - ROUTER_CONTEXT),
+        min(width, x2 + ROUTER_CONTEXT),
+        min(height, y2 + ROUTER_CONTEXT),
+    )
 
 
 def prepare_flux_inpainting(
     image: np.ndarray,
     blocks: list[TextBlock],
     rectangular: bool = False,
-) -> tuple[np.ndarray, np.ndarray, int, int]:
-    """Build a FLUX mask, preserving RT-DETR's white-region shortcut."""
-    cleaned = image.copy()
-    flux_mask = np.zeros(image.shape[:2], dtype=np.uint8)
-    white_count = 0
-    textured_count = 0
+) -> tuple[np.ndarray, np.ndarray, int, int, list[dict[str, Any]]]:
+    """Route each block through verified fill tiers; queue the rest for a model.
 
-    for block in suppress_composite_render_regions(blocks):
-        glyphs, bounds, strategy = contour_safe_mask_for_block(image, block)
-        if glyphs.size == 0 or not np.any(glyphs):
+    ``rectangular`` selects the mask builder exactly like ``create_mask``:
+    rectangular block masks for the AnimeText YOLO route, contour-safe
+    glyph masks otherwise. Every block is then filled by the cheapest tier
+    (flat, smooth, lattice) that reproduces a held-out band of its context
+    ring; blocks no tier can verify go into the model mask instead.
+
+    Returns ``(cleaned, model_mask, filled_count, model_count, decisions)``
+    where ``cleaned`` already carries every router fill, so the model only
+    ever sees the blocks queued in ``model_mask``.
+    """
+    height, width = image.shape[:2]
+    cleaned = image.copy()
+    model_mask = np.zeros((height, width), dtype=np.uint8)
+    decisions: list[dict[str, Any]] = []
+
+    routed = suppress_composite_render_regions(blocks)
+    entries: list[tuple[TextBlock, np.ndarray, Box, str]] = []
+    ink_union = np.zeros((height, width), dtype=np.uint8)
+    for block in routed:
+        mask_builder = (
+            rectangular_mask_for_block if rectangular else contour_safe_mask_for_block
+        )
+        local, bounds, strategy = mask_builder(image, block)
+        if local.size == 0 or not np.any(local):
             logger.warning(
-                "Skipping FLUX block with no safe mask: %s (%s)",
+                "Skipping fill block with no safe mask: %s (%s)",
                 block.xyxy.tolist(),
                 strategy,
             )
+            decisions.append(
+                FillDecision(TIER_SKIPPED, None, 0, 0, 0, "no-safe-mask").as_dict(strategy)
+            )
             continue
-
         x1, y1, x2, y2 = bounds
-        roi = image[y1:y2, x1:x2]
-        if strategy == "bubble-interior" and not rectangular:
-            fill_color = plain_white_interior_color(roi, glyphs)
-        else:
-            fill_color = plain_white_fill_color(roi, glyphs)
+        target = ink_union[y1:y2, x1:x2]
+        np.maximum(target, local, out=target)
+        entries.append((block, local, bounds, strategy))
 
-        if fill_color is None:
-            local_mask = flux_mask[y1:y2, x1:x2]
-            np.maximum(local_mask, glyphs, out=local_mask)
-            textured_count += 1
-            continue
+    filled_count = 0
+    model_count = 0
+    for block, local, bounds, strategy in entries:
+        x1, y1, x2, y2 = bounds
+        cx1, cy1, cx2, cy2 = _router_crop(bounds, width, height)
+        crop = image[cy1:cy2, cx1:cx2]
 
-        fill_mask = (
-            white_fill_mask(image, block, glyphs, bounds, strategy)
-            if rectangular
-            else glyphs
+        local_mask = np.zeros(crop.shape[:2], dtype=np.uint8)
+        local_mask[y1 - cy1 : y2 - cy1, x1 - cx1 : x2 - cx1] = local
+        # Other blocks' ink is neither evidence nor a copy source: it is
+        # somebody else's job to erase it.
+        excluded = np.where(
+            local_mask > 0, 0, ink_union[cy1:cy2, cx1:cx2]
+        ).astype(np.uint8)
+
+        interior_mode = strategy == "bubble-interior"
+        valid = None
+        if not interior_mode and strategy in INTERIOR_STRATEGIES:
+            valid = _bubble_valid_region(block, (cx1, cy1, cx2, cy2), crop.shape)
+
+        decision, filled = route_block_fill(
+            crop, local_mask, excluded, interior_mode, valid
         )
-        cleaned[y1:y2, x1:x2][fill_mask > 0] = fill_color
-        white_count += 1
+        if filled is not None and decision.tier != TIER_MODEL:
+            cleaned[cy1:cy2, cx1:cx2] = filled
+            filled_count += 1
+        else:
+            local_target = model_mask[y1:y2, x1:x2]
+            np.maximum(local_target, local, out=local_target)
+            model_count += 1
+        decisions.append(decision.as_dict(strategy))
 
     logger.info(
-        "FLUX mask: direct-filled %s white regions; queued %s regions",
-        white_count,
-        textured_count,
+        "Fill router: %s blocks filled by verified tiers; %s queued for the model",
+        filled_count,
+        model_count,
     )
-    return cleaned, flux_mask, white_count, textured_count
+    return cleaned, model_mask, filled_count, model_count, decisions

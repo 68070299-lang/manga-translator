@@ -33,7 +33,7 @@ from manga_backend.pipeline.inpainting import (
     InpainterManager,
     create_inpainter,
 )
-from manga_backend.pipeline.masks import create_mask, prepare_flux_inpainting
+from manga_backend.pipeline.masks import prepare_flux_inpainting
 from manga_backend.pipeline.ocr import blocks_from_payload, run_ocr
 from manga_backend.pipeline.rendering import render_text
 from manga_backend.pipeline.text import has_cjk_letters, is_unchanged_punctuation
@@ -319,7 +319,6 @@ class TranslationPipeline:
         start_time = time.time()
         logger.info("Step 4: Inpainting using %s...", inpainter)
         async with self._inpainters.execution_lock:
-            inpaint_source = image
             inpaint_blocks = [
                 block
                 for block in blocks
@@ -327,24 +326,26 @@ class TranslationPipeline:
                 and not is_unchanged_punctuation(block.text, block.translated_text)
             ]
             rectangular_masks = detector_type == "animetext-yolo"
-            if inpainter == "flux2_klein_lanpaint":
-                inpaint_source, mask, white_count, textured_count = (
-                    await asyncio.to_thread(
-                        prepare_flux_inpainting,
-                        image,
-                        inpaint_blocks,
-                        rectangular=rectangular_masks,
-                    )
+            # Both routes run the fill router first: tiers 0-2 (flat, smooth,
+            # lattice) repaint what they can verify on a held-out band, and
+            # the model mask only receives what no cheap tier could fill. The
+            # FLUX route keeps its contour-safe glyph masks; the LaMa route
+            # keeps its detector-selected mask shape (contour or rectangular).
+            flux_route = inpainter == "flux2_klein_lanpaint"
+            inpaint_source, mask, filled_count, model_count, fill_decisions = (
+                await asyncio.to_thread(
+                    prepare_flux_inpainting,
+                    image,
+                    inpaint_blocks,
+                    rectangular=rectangular_masks and not flux_route,
                 )
-                result["white_regions_direct_filled"] = white_count
-                result["flux_regions"] = textured_count
-            else:
-                mask = await asyncio.to_thread(
-                    create_mask, image, inpaint_blocks, rectangular=rectangular_masks
-                )
+            )
+            result["fill_decisions"] = fill_decisions
+            result["router_filled_regions"] = filled_count
+            result["model_regions"] = model_count
 
             # Skip model initialization when every detected block was safely
-            # removed from a plain white background.
+            # removed by a verified fill tier.
             if np.any(mask):
                 inpainted, result["inpainter_used"] = await self._inpainters.inpaint_page(
                     inpainter, inpaint_source, mask
@@ -354,7 +355,7 @@ class TranslationPipeline:
                 # mask union, so "nothing outside the erased regions changes"
                 # no longer depends on each inpainter's own discipline. The
                 # union is the block masks handed to the model plus the pixels
-                # the white-fill shortcut already repainted.
+                # the fill router already repainted.
                 if inpainted.shape == image.shape:
                     mask_union = mask[:, :, None] > 0 if mask.ndim == 2 else mask > 0
                     if inpaint_source is not image:
@@ -374,7 +375,7 @@ class TranslationPipeline:
                 render_image = inpaint_source
                 result["inpainter_used"] = inpainter
                 result["inpainting_fallback"] = False
-                result["inpainting_strategy"] = "white_glyph_fill"
+                result["inpainting_strategy"] = "fill_tiers"
         logger.info(
             "Step 4 complete: Inpainting finished in %.2fs", time.time() - start_time
         )

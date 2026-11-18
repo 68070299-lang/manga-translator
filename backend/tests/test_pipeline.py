@@ -460,7 +460,10 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_translation_passes_contour_safe_mask_to_inpainter(self):
         pipeline = TranslationPipeline(device="cpu")
-        image = np.full((60, 100, 3), 255, dtype=np.uint8)
+        # High noise keeps every fill tier honest, so the block reaches the
+        # model and the handed-over mask can be compared.
+        rng = np.random.default_rng(4)
+        image = rng.integers(128, 255, (60, 100, 3)).astype(np.uint8)
         image[22:30, 25:45] = 0
         block = TextBlock([15, 15, 55, 40])
 
@@ -497,7 +500,9 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_translation_uses_rectangular_mask_for_animetext_yolo(self):
         pipeline = TranslationPipeline(device="cpu")
-        image = np.full((60, 100, 3), 255, dtype=np.uint8)
+        rng = np.random.default_rng(5)
+        image = rng.integers(128, 255, (60, 100, 3)).astype(np.uint8)
+        image[22:30, 25:45] = 0
         block = TextBlock([15, 15, 55, 40])
 
         class FakeDetector:
@@ -534,7 +539,8 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_inpainter_changes_outside_the_mask_union_are_discarded(self):
         pipeline = TranslationPipeline(device="cpu")
-        image = np.full((60, 100, 3), 255, dtype=np.uint8)
+        rng = np.random.default_rng(6)
+        image = rng.integers(128, 255, (60, 100, 3)).astype(np.uint8)
         image[22:30, 25:45] = 0
         block = TextBlock([15, 15, 55, 40])
 
@@ -574,10 +580,10 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
     async def test_flux_route_composite_preserves_the_white_fill(self):
         pipeline = TranslationPipeline(device="cpu")
         image = np.full((60, 200, 3), 255, dtype=np.uint8)
-        # A striped background keeps the right block out of the white-fill
-        # shortcut, so the flux mask is non-empty and the model runs.
-        stripes = np.arange(100) % 2 * 8 + 150
-        image[:, 100:, :] = stripes[None, :, None]
+        # High noise keeps the right block out of every fill tier, so the
+        # model mask is non-empty and the model runs.
+        rng = np.random.default_rng(7)
+        image[:, 100:, :] = rng.integers(128, 255, (60, 100, 3)).astype(np.uint8)
         image[22:30, 25:45] = 0
         image[22:30, 125:145] = 0
         white_block = TextBlock([15, 15, 55, 40])
@@ -621,8 +627,8 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
         rendered = result["image"]
         white_glyphs = np.zeros(image.shape[:2], dtype=bool)
         white_glyphs[22:30, 25:45] = True
-        # The white-fill shortcut repainted the glyphs before the model ran,
-        # and the composite keeps that fill inside the mask union.
+        # The fill router repainted the glyphs before the model ran, and the
+        # composite keeps that fill inside the mask union.
         self.assertTrue(np.all(inpainter.source[white_glyphs] == 255))
         self.assertTrue(np.all(rendered[white_glyphs] == 255))
         mask_union = (inpainter.mask > 0) | np.any(inpainter.source != image, axis=2)
@@ -1593,87 +1599,110 @@ class PipelineRenderTests(unittest.TestCase):
         image[25:35, 35:65] = 0
         block = TextBlock([33, 23, 67, 37], translated_text="TEXT")
 
-        cleaned, flux_mask, white_count, textured_count = (
+        cleaned, flux_mask, filled_count, model_count, decisions = (
             prepare_flux_inpainting(image, [block])
         )
 
-        self.assertEqual(white_count, 1)
-        self.assertEqual(textured_count, 0)
+        self.assertEqual((filled_count, model_count), (1, 0))
         self.assertFalse(np.any(flux_mask))
         self.assertTrue(np.all(cleaned[25:35, 35:65] == 255))
         np.testing.assert_array_equal(cleaned[0:10, 0:10], image[0:10, 0:10])
+        self.assertEqual(decisions[0]["tier"], 0)
+        self.assertEqual(decisions[0]["tier_name"], "flat")
 
-    def test_flux_yolo_white_region_direct_fills_only_glyphs(self):
+    def test_flux_rectangular_mode_flat_fills_the_detection_rect(self):
         TranslationPipeline(device="cpu")
         image = np.full((60, 100, 3), 255, dtype=np.uint8)
         image[25:35, 35:65] = 0
         block = TextBlock([30, 20, 70, 40], translated_text="TEXT")
 
-        cleaned, flux_mask, white_count, textured_count = (
-            prepare_flux_inpainting(
-                image, [block], rectangular=True
-            )
+        cleaned, flux_mask, filled_count, model_count, decisions = (
+            prepare_flux_inpainting(image, [block], rectangular=True)
         )
 
-        self.assertEqual((white_count, textured_count), (1, 0))
+        self.assertEqual((filled_count, model_count), (1, 0))
         self.assertFalse(np.any(flux_mask))
         self.assertTrue(np.all(cleaned[25:35, 35:65] == 255))
         np.testing.assert_array_equal(cleaned[0:20, :], image[0:20, :])
+        self.assertEqual(decisions[0]["tier"], 0)
 
-    def test_flux_yolo_glyph_mask_direct_fills_white_interior(self):
+    def test_flux_direct_fills_ink_on_white_box_over_dark_background(self):
+        # Light glyphs rule: the mask stays on the lettering, so the fill
+        # samples the white box around it, not the dark page behind.
         TranslationPipeline(device="cpu")
         image = np.full((80, 120, 3), 40, dtype=np.uint8)
         image[20:60, 30:90] = 255
         image[32:48, 52:68] = 0
         block = TextBlock([30, 20, 90, 60], translated_text="TEXT")
 
-        cleaned, flux_mask, white_count, textured_count = (
-            prepare_flux_inpainting(
-                image, [block], rectangular=True
-            )
+        cleaned, flux_mask, filled_count, model_count, decisions = (
+            prepare_flux_inpainting(image, [block])
         )
 
-        self.assertEqual((white_count, textured_count), (1, 0))
+        self.assertEqual((filled_count, model_count), (1, 0))
         self.assertFalse(np.any(flux_mask))
         self.assertTrue(np.all(cleaned[32:48, 52:68] == 255))
         np.testing.assert_array_equal(cleaned[0:18, :], image[0:18, :])
+        self.assertEqual(decisions[0]["tier"], 0)
 
-    def test_flux_yolo_uses_glyph_mask_within_detection_box(self):
+    def test_flux_keeps_structure_inside_detection_box(self):
         TranslationPipeline(device="cpu")
         image = np.full((80, 120, 3), 255, dtype=np.uint8)
         image[30:36, 40:50] = 0
         image[24:28, 76:84] = 180
         block = TextBlock([30, 20, 90, 60], translated_text="TEXT")
-        cleaned, flux_mask, white_count, textured_count = (
-            prepare_flux_inpainting(
-                image, [block], rectangular=True
-            )
+        cleaned, flux_mask, filled_count, model_count, decisions = (
+            prepare_flux_inpainting(image, [block])
         )
 
-        self.assertEqual((white_count, textured_count), (1, 0))
+        self.assertEqual((filled_count, model_count), (1, 0))
         self.assertFalse(np.any(flux_mask))
         self.assertTrue(np.all(cleaned[30:36, 40:50] == 255))
         self.assertTrue(np.any(cleaned[24:28, 76:84] == 180))
+        self.assertEqual(decisions[0]["tier"], 0)
 
-    def test_flux_yolo_keeps_textured_glyphs_for_flux(self):
-        TranslationPipeline(device="cpu")
-        yy, xx = np.indices((80, 120))
-        pattern = np.where((xx + yy) % 2 == 0, 160, 205).astype(np.uint8)
-        image = np.repeat(pattern[:, :, None], 3, axis=2)
+    def test_flux_rectangular_mode_lattice_fills_periodic_rect(self):
+        # Screentone passes the old white test (H2); the router now fills it
+        # with the lattice tier instead of painting it flat or calling a model.
+        # The tone extends well past the rectangle, like a real toned panel.
+        ys, xs = np.mgrid[4:76, 4:116]
+        dots = ((ys - 4) % 7 - 3) ** 2 + ((xs - 4) % 7 - 3) ** 2 <= 2.56
+        clean = np.full((80, 120, 3), 255, dtype=np.uint8)
+        clean[4:76, 4:116][dots] = 110
+        image = clean.copy()
         image[32:48, 52:68] = 0
         block = TextBlock([30, 20, 90, 60], translated_text="TEXT")
-        cleaned, flux_mask, white_count, textured_count = (
-            prepare_flux_inpainting(
-                image, [block], rectangular=True
-            )
+
+        cleaned, flux_mask, filled_count, model_count, decisions = (
+            prepare_flux_inpainting(image, [block], rectangular=True)
         )
 
-        self.assertEqual((white_count, textured_count), (0, 1))
-        self.assertTrue(np.all(flux_mask[32:48, 52:68] == 255))
-        self.assertLess(np.count_nonzero(flux_mask), 60 * 40)
-        np.testing.assert_array_equal(cleaned, image)
+        self.assertEqual((filled_count, model_count), (1, 0))
+        self.assertFalse(np.any(flux_mask))
+        np.testing.assert_array_equal(cleaned, clean)
+        self.assertEqual(decisions[0]["tier"], 2)
 
-    def test_flux_yolo_masks_light_glyphs_on_dark_ui(self):
+    def test_flux_hybrid_lattice_fills_screentone_not_model(self):
+        TranslationPipeline(device="cpu")
+        yy, xx = np.indices((60, 100))
+        ys, xs = np.mgrid[5:55, 10:90]
+        dots = ((ys - 5) % 7 - 3) ** 2 + ((xs - 10) % 7 - 3) ** 2 <= 2.56
+        clean = np.full((60, 100, 3), 255, dtype=np.uint8)
+        clean[5:55, 10:90][dots] = 110
+        image = clean.copy()
+        image[25:35, 35:65] = 0
+        block = TextBlock([33, 23, 67, 37], translated_text="TEXT")
+
+        cleaned, flux_mask, filled_count, model_count, decisions = (
+            prepare_flux_inpainting(image, [block])
+        )
+
+        self.assertEqual((filled_count, model_count), (1, 0))
+        self.assertFalse(np.any(flux_mask))
+        np.testing.assert_array_equal(cleaned, clean)
+        self.assertEqual(decisions[0]["tier"], 2)
+
+    def test_flux_masks_light_glyphs_on_dark_ui(self):
         TranslationPipeline(device="cpu")
         image = np.full((60, 120, 3), 110, dtype=np.uint8)
         cv2.putText(
@@ -1688,17 +1717,19 @@ class PipelineRenderTests(unittest.TestCase):
         )
         block = TextBlock([28, 17, 86, 43], translated_text="TEXT")
 
-        _cleaned, flux_mask, white_count, textured_count = (
-            prepare_flux_inpainting(
-                image, [block], rectangular=True
-            )
+        _cleaned, flux_mask, filled_count, model_count, decisions = (
+            prepare_flux_inpainting(image, [block])
         )
 
-        self.assertEqual((white_count, textured_count), (0, 1))
-        self.assertTrue(np.any(flux_mask[18:42, 30:84]))
+        self.assertEqual((filled_count, model_count), (1, 0))
+        self.assertFalse(np.any(flux_mask))
         self.assertFalse(np.any(flux_mask[0:12, :]))
+        self.assertEqual(decisions[0]["tier"], 0)
 
-    def test_flux_yolo_preserves_bubble_outline_crossing_detection_box(self):
+    def test_flux_rectangular_mode_preserves_bubble_outline_before_model(self):
+        # The bubble outline crosses the detection rectangle, so no tier can
+        # verify against the mixed ring; the block is queued for the model
+        # and the pre-model image keeps the outline untouched.
         TranslationPipeline(device="cpu")
         image = np.full((100, 120, 3), 255, dtype=np.uint8)
         cv2.ellipse(image, (70, 50), (32, 40), 0, 0, 360, (0, 0, 0), 2)
@@ -1706,33 +1737,14 @@ class PipelineRenderTests(unittest.TestCase):
         image[35:65, 55:75] = 0
         block = TextBlock([35, 10, 78, 90], translated_text="TEXT")
 
-        _cleaned, flux_mask, white_count, textured_count = (
-            prepare_flux_inpainting(
-                image, [block], rectangular=True
-            )
+        cleaned, flux_mask, filled_count, model_count, decisions = (
+            prepare_flux_inpainting(image, [block], rectangular=True)
         )
 
-        self.assertEqual((white_count, textured_count), (1, 0))
-        self.assertFalse(np.any(flux_mask))
-        self.assertFalse(np.any(np.all(_cleaned[outline] == 255, axis=1)))
-
-    def test_flux_hybrid_queues_glyph_mask_for_textured_region(self):
-        TranslationPipeline(device="cpu")
-        yy, xx = np.indices((60, 100))
-        pattern = np.where((xx + yy) % 2 == 0, 160, 205).astype(np.uint8)
-        image = np.repeat(pattern[:, :, None], 3, axis=2)
-        image[25:35, 35:65] = 0
-        block = TextBlock([33, 23, 67, 37], translated_text="TEXT")
-
-        cleaned, flux_mask, white_count, textured_count = (
-            prepare_flux_inpainting(image, [block])
-        )
-
-        self.assertEqual(white_count, 0)
-        self.assertEqual(textured_count, 1)
-        self.assertTrue(np.any(flux_mask[23:37, 33:67]))
-        self.assertLess(np.count_nonzero(flux_mask), 34 * 14)
-        np.testing.assert_array_equal(cleaned, image)
+        self.assertEqual((filled_count, model_count), (0, 1))
+        self.assertTrue(np.any(flux_mask))
+        self.assertEqual(decisions[0]["tier"], 4)
+        self.assertFalse(np.any(np.all(cleaned[outline] == 255, axis=1)))
 
     def test_flux_hybrid_preserves_white_region_line_art(self):
         TranslationPipeline(device="cpu")
@@ -1741,14 +1753,15 @@ class PipelineRenderTests(unittest.TestCase):
         image[27:33, 42:58] = 0
         block = TextBlock([20, 18, 80, 35], translated_text="TEXT")
 
-        cleaned, flux_mask, white_count, textured_count = (
+        cleaned, flux_mask, filled_count, model_count, decisions = (
             prepare_flux_inpainting(image, [block])
         )
 
-        self.assertEqual((white_count, textured_count), (1, 0))
+        self.assertEqual((filled_count, model_count), (1, 0))
         self.assertFalse(np.any(flux_mask))
         self.assertTrue(np.all(cleaned[20, 20:80] == 0))
         self.assertTrue(np.all(cleaned[27:33, 42:58] == 255))
+        self.assertEqual(decisions[0]["tier"], 0)
 
     def test_unchanged_punctuation_is_not_rendered_again(self):
         TranslationPipeline(device="cpu")
@@ -1908,7 +1921,8 @@ class InpainterFallbackTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_translate_reports_the_inpainter_that_actually_ran(self):
         pipeline, _attempts = self.make_pipeline()
-        image = np.full((80, 120, 3), 128, dtype=np.uint8)
+        rng = np.random.default_rng(8)
+        image = rng.integers(128, 255, (80, 120, 3)).astype(np.uint8)
         image[30:38, 40:70] = 0
         block = TextBlock([30, 22, 80, 46])
 
@@ -2012,7 +2026,8 @@ class LostInpainterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         self.enterContext(patch("manga_backend.pipeline.inpainting.Inpainter", FakeLama))
 
-        self.image = np.full((80, 120, 3), 128, dtype=np.uint8)
+        rng = np.random.default_rng(9)
+        self.image = rng.integers(128, 255, (80, 120, 3)).astype(np.uint8)
         self.image[30:38, 40:70] = 0
         block = TextBlock([30, 22, 80, 46])
 
@@ -2199,7 +2214,13 @@ class PipelineEventLoopTests(unittest.TestCase):
 
         # An empty mask skips inpainter initialization entirely.
         outputs = {
-            "create_mask": np.zeros(image.shape[:2], dtype=np.uint8),
+            "prepare_flux_inpainting": (
+                np.full((60, 100, 3), 255, dtype=np.uint8),
+                np.zeros(image.shape[:2], dtype=np.uint8),
+                0,
+                0,
+                [],
+            ),
             "render_text": image,
         }
 
@@ -2252,7 +2273,7 @@ class PipelineEventLoopTests(unittest.TestCase):
             watchdog.join()
 
     def test_mask_building_does_not_block_the_event_loop(self):
-        responsive, health = self.run_translate_with_blocked_step("create_mask")
+        responsive, health = self.run_translate_with_blocked_step("prepare_flux_inpainting")
 
         self.assertTrue(responsive)
         self.assertEqual(health, "ok")

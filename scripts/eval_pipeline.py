@@ -692,7 +692,8 @@ class PageProbe:
     # The block each mask record belongs to, index-aligned with mask_records.
     # Oracle-mask records (no real block) hold None.
     mask_blocks: list[TextBlock | None] = field(default_factory=list)
-    white_fill_records: list[tuple[np.ndarray, Box]] = field(default_factory=list)
+    # Per-block fill-router decisions (tier, band error, sizes, reason).
+    fill_decisions: list[dict[str, Any]] = field(default_factory=list)
     flux_counts: tuple[int, int] | None = None
     white_filled_source: np.ndarray | None = None
     model_calls: list[tuple[np.ndarray, np.ndarray, np.ndarray, str]] = field(default_factory=list)
@@ -794,8 +795,6 @@ class Instrumentation:
         erase = np.zeros(image.shape[:2], dtype=bool)
         for local, bounds, _strategy in self.probe.mask_records:
             _place(erase, local, bounds)
-        for fill_mask, bounds in self.probe.white_fill_records:
-            _place(erase, fill_mask, bounds)
         output = image.copy()
         output[erase] = self.synthetic.clean[erase]
         return output
@@ -819,12 +818,10 @@ class Instrumentation:
         original_inpaint_page = inpainters.inpaint_page
         original_verify = type(pipeline)._verify_rendered_text
         original_translate = orchestrator_module.translate_texts
-        original_create_mask = orchestrator_module.create_mask
         original_prepare_flux = orchestrator_module.prepare_flux_inpainting
         original_render = orchestrator_module.render_text
         original_contour = masks_module.contour_safe_mask_for_block
         original_rectangle = masks_module.rectangular_mask_for_block
-        original_white_fill = masks_module.white_fill_mask
         original_fit = rendering_module.auto_fit_font_size
         original_overflow = rendering_module.find_overflow_region
 
@@ -869,36 +866,32 @@ class Instrumentation:
             self.probe.inpaint_output = output
             return output
 
-        def create_mask(image: np.ndarray, blocks: list[TextBlock], rectangular: bool = False) -> np.ndarray:
-            with self.probe.timed("mask"), self.mask_phase():
-                oracle = self.oracle_ink_mask(image.shape) if self.mask_mode == "oracle" else None
-                if oracle is not None:
-                    self._record_oracle_blocks(oracle)
-                    mask = oracle
-                else:
-                    mask = original_create_mask(image, blocks, rectangular=rectangular)
-            self.probe.mask_path = "oracle" if oracle is not None else ("rectangular" if rectangular else "contour")
-            return mask
-
         def prepare_flux(
             image: np.ndarray, blocks: list[TextBlock], rectangular: bool = False
-        ) -> tuple[np.ndarray, np.ndarray, int, int]:
+        ) -> tuple[np.ndarray, np.ndarray, int, int, list[dict[str, Any]]]:
             with self.probe.timed("mask"), self.mask_phase():
                 oracle = self.oracle_ink_mask(image.shape) if self.mask_mode == "oracle" else None
                 if oracle is not None:
-                    # No white-fill fast path: the model must fill every
-                    # block through the perfect mask, so the oracle run
-                    # measures the fill alone.
+                    # No fill tiers: the model must fill every block through
+                    # the perfect mask, so the oracle run measures the fill
+                    # alone.
                     self._record_oracle_blocks(oracle)
-                    cleaned, flux_mask, white, textured = image.copy(), oracle, 0, len(blocks)
+                    cleaned, flux_mask, white, textured, decisions = (
+                        image.copy(),
+                        oracle,
+                        0,
+                        len(blocks),
+                        [],
+                    )
                 else:
-                    cleaned, flux_mask, white, textured = original_prepare_flux(
+                    cleaned, flux_mask, white, textured, decisions = original_prepare_flux(
                         image, blocks, rectangular=rectangular
                     )
+                self.probe.fill_decisions = decisions
             self.probe.mask_path = "oracle" if oracle is not None else ("flux-rectangular" if rectangular else "flux")
             self.probe.flux_counts = (int(white), int(textured))
             self.probe.white_filled_source = cleaned
-            return cleaned, flux_mask, white, textured
+            return cleaned, flux_mask, white, textured, decisions
 
         def contour_mask(image: np.ndarray, block: TextBlock) -> tuple[np.ndarray, Box, str]:
             local, bounds, strategy = original_contour(image, block)
@@ -913,12 +906,6 @@ class Instrumentation:
                 self.probe.mask_records.append((local, bounds, strategy))
                 self.probe.mask_blocks.append(block)
             return local, bounds, strategy
-
-        def white_fill(image: np.ndarray, block: TextBlock, glyphs: np.ndarray, bounds: Box, strategy: str) -> np.ndarray:
-            fill_mask = original_white_fill(image, block, glyphs, bounds, strategy)
-            if self.probe.in_mask_phase:
-                self.probe.white_fill_records.append((fill_mask, bounds))
-            return fill_mask
 
         async def inpaint_page(inpainter_type: str, image: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, str]:
             if self.fill == "oracle" and self.synthetic is not None:
@@ -974,12 +961,10 @@ class Instrumentation:
             stack.enter_context(_swap(pipeline, "_verify_rendered_text", verify))
             stack.enter_context(_swap(inpainters, "inpaint_page", inpaint_page))
             stack.enter_context(_swap(orchestrator_module, "translate_texts", translate_texts))
-            stack.enter_context(_swap(orchestrator_module, "create_mask", create_mask))
             stack.enter_context(_swap(orchestrator_module, "prepare_flux_inpainting", prepare_flux))
             stack.enter_context(_swap(orchestrator_module, "render_text", render_text))
             stack.enter_context(_swap(masks_module, "contour_safe_mask_for_block", contour_mask))
             stack.enter_context(_swap(masks_module, "rectangular_mask_for_block", rectangle_mask))
-            stack.enter_context(_swap(masks_module, "white_fill_mask", white_fill))
             stack.enter_context(_swap(rendering_module, "auto_fit_font_size", auto_fit))
             stack.enter_context(_swap(rendering_module, "find_overflow_region", find_overflow))
             yield
@@ -1044,26 +1029,30 @@ def _mask_metrics(probe: PageProbe, shape: tuple[int, ...]) -> tuple[dict[str, A
         kinds[mask_kind(strategy, empty)] += 1
         if not empty:
             _place(erase, local, bounds)
-    for fill_mask, bounds in probe.white_fill_records:
-        _place(erase, fill_mask, bounds)
 
-    white_fill_px = 0
+    tier_counts: Counter[str] = Counter()
+    for decision in probe.fill_decisions:
+        tier_counts[str(decision.get("tier_name") or "unknown")] += 1
+
+    router_fill_px = 0
     if probe.white_filled_source is not None and probe.inpaint_input is not None:
         filled = _changed(probe.inpaint_input, probe.white_filled_source)
-        white_fill_px = int(np.count_nonzero(filled))
+        router_fill_px = int(np.count_nonzero(filled))
     if probe.flux_counts is not None:
-        white_blocks, model_blocks = probe.flux_counts
+        filled_blocks, model_blocks = probe.flux_counts
     else:
-        white_blocks = 0
+        filled_blocks = 0
         model_blocks = sum(kinds[kind] for kind in MASK_KINDS if kind != "skipped")
     metrics = {
         "path": probe.mask_path,
         "strategies": dict(sorted(strategies.items())),
         "kinds": dict(kinds),
-        "white_fill_blocks": int(white_blocks),
+        "white_fill_blocks": int(filled_blocks),
         "model_blocks": int(model_blocks),
+        "tier_counts": dict(sorted(tier_counts.items())),
+        "fill_decisions": probe.fill_decisions,
         "mask_px": int(np.count_nonzero(erase)),
-        "white_fill_px": white_fill_px,
+        "white_fill_px": router_fill_px,
         "mask_fraction": round(float(np.count_nonzero(erase)) / erase.size, 6),
     }
     return metrics, erase
@@ -1564,8 +1553,6 @@ def _save_page_images(directory: Path, probe: PageProbe, result: dict[str, Any],
     erase = np.zeros(erase_shape[:2], dtype=bool)
     for local, bounds, _strategy in probe.mask_records:
         _place(erase, local, bounds)
-    for fill_mask, bounds in probe.white_fill_records:
-        _place(erase, fill_mask, bounds)
     Image.fromarray(erase.astype(np.uint8) * 255).save(directory / "mask.png")
     if probe.inpaint_output is not None:
         Image.fromarray(np.asarray(probe.inpaint_output)).save(directory / "inpainted.png")
@@ -1692,10 +1679,12 @@ def summarize(records: Sequence[dict[str, Any]], *, by_tag: bool = True) -> dict
     kinds = Counter({kind: 0 for kind in MASK_KINDS})
     strategies: Counter[str] = Counter()
     reason_codes: Counter[str] = Counter()
+    tiers: Counter[str] = Counter()
     for record in scored:
         kinds.update(record["mask"]["kinds"])
         strategies.update(record["mask"]["strategies"])
         reason_codes.update(record["mask"].get("reason_codes") or {})
+        tiers.update(record["mask"].get("tier_counts") or {})
     sizes = [size for record in scored for size in record["render"]["font_sizes"]]
     truths = [record["truth"] for record in scored if record.get("truth")]
 
@@ -1740,6 +1729,7 @@ def summarize(records: Sequence[dict[str, Any]], *, by_tag: bool = True) -> dict
             "strategies": dict(sorted(strategies.items())),
             "white_fill_blocks": total("mask", "white_fill_blocks"),
             "model_blocks": total("mask", "model_blocks"),
+            "tier_counts": dict(sorted(tiers.items())),
             "suppressed_composites": total("mask", "suppressed_composites"),
             "mask_px": total("mask", "mask_px"),
             "reason_codes": dict(sorted(reason_codes.items())),
@@ -1804,7 +1794,11 @@ METRICS: tuple[tuple[str, str, str | None], ...] = (
     ("mask.kinds.rectangular", "Masks: rectangular", None),
     ("mask.kinds.skipped", "Masks: skipped (no safe mask)", "lower"),
     ("mask.kinds.other", "Masks: other (incl. oracle ink)", None),
-    ("mask.white_fill_blocks", "White-fill blocks", None),
+    ("mask.white_fill_blocks", "Router-filled blocks (no model)", None),
+    ("mask.model_blocks", "Blocks queued to the model", "lower"),
+    ("mask.tier_counts.flat", "Fill tier: flat blocks", None),
+    ("mask.tier_counts.smooth", "Fill tier: smooth blocks", None),
+    ("mask.tier_counts.lattice", "Fill tier: lattice blocks", None),
     ("mask.suppressed_composites", "Composite duplicates not masked", None),
     ("mask.mask_px", "Masked px", None),
     ("mask.reason_codes.text_free", "Mask reason: text_free block", None),
@@ -1938,7 +1932,7 @@ def render_summary_markdown(run: dict[str, Any]) -> str:
                 f" ({record['verify']['step6_flagged']}/{record['verify']['checked']})",
                 str(record["inpaint"]["changed_outside_mask_px"]),
                 "/".join(str(kinds[kind]) for kind in ("contour_safe_glyph", "bubble_interior", "rectangular", "skipped"))
-                + f" +{record['mask']['white_fill_blocks']}w",
+                + f" +{record['mask']['white_fill_blocks']}r",
                 f"{record['render']['shrink_events']}/{record['render']['overflow_events']}"
                 f"/{record['render']['unfit_skipped']}",
                 str(record["inpaint"]["used"]) + (" (fallback)" if record["inpaint"]["fallback"] else ""),
@@ -1952,7 +1946,7 @@ def render_summary_markdown(run: dict[str, Any]) -> str:
             "Blocks",
             "Residue kana/kanji (Step 6)",
             "Px outside mask",
-            "Masks glyph/interior/rect/skip +white",
+            "Masks glyph/interior/rect/skip +router",
             "Shrink/overflow/unfit",
             "Inpainter",
             "Seconds",

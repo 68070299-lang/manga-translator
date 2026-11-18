@@ -159,7 +159,12 @@ class SyntheticCorpusTests(unittest.TestCase):
             sum(kinds.values()),
             sum(page["blocks"]["to_erase"] for page in self.result["pages"]),
         )
-        self.assertEqual(self.result["summary"]["mask"]["white_fill_blocks"], 0)
+        # The fill router now serves the LaMa route too, so white-bubble
+        # blocks are tier-filled instead of being handed to the model.
+        self.assertGreater(self.result["summary"]["mask"]["white_fill_blocks"], 0)
+        self.assertGreater(
+            self.result["summary"]["mask"]["model_blocks"], 0
+        )
 
     def test_residue_counts_only_blocks_that_still_read_as_japanese(self):
         residue = self.result["summary"]["cjk_residue"]
@@ -210,7 +215,9 @@ class SyntheticCorpusTests(unittest.TestCase):
         self.assertIn("syn-webtoon-strip", markdown)
 
     def test_instrumentation_is_removed_after_the_run(self):
-        self.assertEqual(orchestrator_module.create_mask.__module__, masks_module.__name__)
+        self.assertEqual(
+            orchestrator_module.prepare_flux_inpainting.__module__, masks_module.__name__
+        )
         self.assertEqual(orchestrator_module.render_text.__module__, rendering_module.__name__)
         self.assertEqual(
             masks_module.contour_safe_mask_for_block.__qualname__, "contour_safe_mask_for_block"
@@ -226,7 +233,7 @@ class HarnessModeTests(unittest.TestCase):
         kinds = rectangular["summary"]["mask"]["kinds"]
         self.assertEqual(kinds["contour_safe_glyph"], 0)
         self.assertGreater(kinds["rectangular"], 0)
-        self.assertEqual(rectangular["pages"][0]["mask"]["path"], "rectangular")
+        self.assertEqual(rectangular["pages"][0]["mask"]["path"], "flux-rectangular")
         self.assertGreater(
             rectangular["summary"]["mask"]["mask_px"], contour["summary"]["mask"]["mask_px"]
         )
@@ -254,7 +261,10 @@ class HarnessModeTests(unittest.TestCase):
             result = asyncio.run(
                 eval_pipeline.run_corpus(
                     pipeline,
-                    synthetic_pages("syn-white-bubbles", "syn-textured-narration"),
+                    # Tone and hatching are now lattice-filled without a model,
+                    # so the fallback leg needs a page whose band no tier can
+                    # verify: lettering that crosses the bubble outline.
+                    synthetic_pages("syn-white-bubbles", "syn-text-touching-outline"),
                     CORPUS.parent,
                     eval_pipeline.RunConfig(
                         label="flux",
@@ -268,7 +278,7 @@ class HarnessModeTests(unittest.TestCase):
         self.assertEqual(white["mask"]["path"], "flux")
         self.assertEqual(white["mask"]["white_fill_blocks"], 4)
         self.assertGreater(white["mask"]["white_fill_px"], 0)
-        self.assertEqual(white["inpaint"]["strategy"], "white_glyph_fill")
+        self.assertEqual(white["inpaint"]["strategy"], "fill_tiers")
         self.assertGreater(textured["mask"]["model_blocks"], 0)
         self.assertTrue(textured["inpaint"]["fallback"])
         self.assertEqual(textured["inpaint"]["used"], "lama_large")
@@ -279,11 +289,18 @@ class HarnessModeTests(unittest.TestCase):
     def test_leaky_inpainter_yields_no_changed_pixels_outside_the_mask(self):
         """The pipeline's mask-union composite clamps a leaky inpainter.
 
-        The harness still observes the model's own leak (so a regression in
-        the composite would be caught), but no pixel outside the erased
-        regions reaches the rendered page.
+        The oracle mask routes every block through the model (the router
+        would otherwise flat-fill this page and never call it), so the
+        harness still observes the model's own leak and a regression in the
+        composite would be caught; no pixel outside the erased regions
+        reaches the rendered page.
         """
-        result = run(synthetic_pages("syn-white-bubbles"), inpainter=LeakyInpainter(), name="fake-leaky")
+        result = run(
+            synthetic_pages("syn-white-bubbles"),
+            inpainter=LeakyInpainter(),
+            name="fake-leaky",
+            mask_mode="oracle",
+        )
         page = result["pages"][0]
         self.assertGreater(page["inpaint"]["model_changed_outside_mask_px"], 0)
         self.assertEqual(page["inpaint"]["changed_outside_mask_px"], 0)
