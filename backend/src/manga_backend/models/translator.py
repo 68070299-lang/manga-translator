@@ -246,6 +246,7 @@ class Translator:
         return f"""Translate the following manga dialogue from Japanese to {target_lang}.
 Keep translations concise to fit speech bubbles.
 Preserve character voice and tone.
+The numbered items follow the page's reading order, and one item may be a whole speech bubble.
 Return ONLY the translations, numbered to match input.
 
 Input:

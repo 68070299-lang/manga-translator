@@ -44,7 +44,11 @@ async def translate_texts(
     local_llm_base_url: str | None,
     local_llm_api_key: str | None,
 ) -> list[str]:
-    """Translate OCR text with one provider call, one string per input.
+    """Translate one string per translation unit with one provider call.
+
+    A unit is one block, or all the blocks of one bubble joined in reading
+    order, so the provider receives whole utterances instead of confidence
+    ordered fragments.
 
     Raises RuntimeError when the provider echoed CJK text back unchanged.
     """
@@ -64,7 +68,7 @@ async def translate_texts(
         await translator_client.close()
     translated_texts = align_texts(translated, len(original_texts), "translation")
     logger.info(
-        "Step 3 complete: Translated %s blocks in %.2fs",
+        "Step 3 complete: Translated %s units in %.2fs",
         len(original_texts),
         time.time() - start_time,
     )

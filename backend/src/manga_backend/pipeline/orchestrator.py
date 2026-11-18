@@ -33,6 +33,11 @@ from manga_backend.pipeline.inpainting import (
     InpainterManager,
     create_inpainter,
 )
+from manga_backend.pipeline.layout import (
+    group_translation_units,
+    sort_reading_order,
+    unit_source_text,
+)
 from manga_backend.pipeline.masks import prepare_flux_inpainting
 from manga_backend.pipeline.ocr import blocks_from_payload, run_ocr
 from manga_backend.pipeline.rendering import render_text
@@ -44,6 +49,24 @@ if TYPE_CHECKING:
     from manga_backend.models.paddle_ocr_onnx import PaddleOCROnnxEngine
 
 logger = logging.getLogger(__name__)
+
+_READING_DIRECTIONS = frozenset({"auto", "rtl", "ltr"})
+
+
+def _pop_reading_direction(render_options: dict[str, Any]) -> str:
+    """Take the reading-direction option out of the render call.
+
+    "auto" reads right to left like a manga page unless the page is a tall
+    strip (height >= 1.6 x width), which reads left to right like a webtoon.
+    An unknown value warns and falls back to "auto" instead of failing the
+    translation.
+    """
+    direction = str(render_options.pop("reading_direction", "auto") or "auto")
+    normalized = direction.strip().lower()
+    if normalized not in _READING_DIRECTIONS:
+        logger.warning("Unknown reading_direction %r; using auto", direction)
+        return "auto"
+    return normalized
 
 
 class TranslationPipeline:
@@ -210,6 +233,7 @@ class TranslationPipeline:
         **render_options: Any,
     ) -> dict[str, Any]:
         """Full translation pipeline; render_options are passed to render_text."""
+        reading_direction = _pop_reading_direction(render_options)
         result: dict[str, Any] = {
             "blocks": [],
             "original_texts": [],
@@ -228,6 +252,10 @@ class TranslationPipeline:
             len(blocks),
             time.time() - start_time,
         )
+        # The detector emits blocks by confidence; the reader (and so the
+        # translator) wants them in reading order: panels first, then the
+        # lettering inside each panel.
+        blocks = sort_reading_order(image, blocks, reading_direction)
 
         result["blocks"] = [text_block_to_dict(block) for block in blocks]
 
@@ -248,11 +276,17 @@ class TranslationPipeline:
         for block, text in zip(blocks, original_texts):
             block.text = text
 
-        # Step 3: Translation (if translator specified)
+        # Step 3: Translation (if translator specified). The blocks of one
+        # bubble are one translation unit, so a sentence split across two
+        # detected blocks is translated as a whole; every member block then
+        # carries the unit's translation, and the render path (which merges
+        # bubble-mates into one region) draws it once.
         translating = bool(translator) and translator != "none"
+        units = group_translation_units(blocks)
+        unit_texts = [unit_source_text(unit) for unit in units]
         if translating:
-            translated_texts = await translate_texts(
-                original_texts,
+            translated_units = await translate_texts(
+                unit_texts,
                 target_lang,
                 translator=translator,
                 api_key=api_key,
@@ -261,11 +295,12 @@ class TranslationPipeline:
                 local_llm_api_key=local_llm_api_key,
             )
         else:
-            translated_texts = list(original_texts)
+            translated_units = list(unit_texts)
+        for unit, unit_translation in zip(units, translated_units):
+            for block in unit:
+                block.translated_text = unit_translation
 
-        result["translated_texts"] = translated_texts
-        for block, text in zip(blocks, translated_texts):
-            block.translated_text = text
+        result["translated_texts"] = [block.translated_text for block in blocks]
 
         # Step 4: Inpainting
         render_image = image.copy()

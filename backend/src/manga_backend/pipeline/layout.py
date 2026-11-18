@@ -1,8 +1,11 @@
-"""Render-region layout: merge detected blocks into regions and make them disjoint."""
+"""Render-region layout: reading order, translation units and disjoint render regions."""
 
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
+from typing import Any
+
 import numpy as np
 
 from manga_backend.pipeline.regions import (
@@ -16,6 +19,410 @@ from manga_backend.pipeline.text import (
     normalize_render_source,
 )
 from manga_backend.utils.textblock import Box, TextBlock
+
+# ---------------------------------------------------------------------------
+# Reading order
+# ---------------------------------------------------------------------------
+#
+# Blocks reach the translator in detector output order, which is effectively
+# confidence order. This section orders them the way a reader would: panels
+# first (found as the regions between paper-colored gutters, split
+# recursively by whole rows and columns), then the lettering inside each panel
+# by recursive row/column splits. Manga reads right to left; tall webtoon
+# strips read left to right (see ``resolve_reading_direction``). The method
+# follows koharu's ``order.rs`` (MIT OR Apache-2.0) and Kovanen and Aizawa,
+# "A layered method for determining manga text bubble reading order",
+# ICIP 2015.
+
+# A pixel within this many levels (per channel) of the page's paper color
+# counts as paper when looking for gutters.
+_PAPER_TOLERANCE = 12
+# Share of a row/column that must be paper before it can be a gutter.
+_PAPER_SPAN_FRACTION = 0.995
+# Cuts must leave at least this much page on each side, so margins and thin
+# slivers of art cannot shred a panel.
+_MIN_PANEL_PX = 16
+_MIN_PANEL_FRACTION = 0.06
+_MAX_PANEL_DEPTH = 8
+# Pages at least this tall relative to their width read left to right.
+_WEBTOON_MIN_ASPECT = 1.6
+
+
+def resolve_reading_direction(direction: str, image_shape: Sequence[int]) -> str:
+    """Return "rtl" or "ltr" for one page.
+
+    The accepted values are "rtl", "ltr" and "auto" (the default). "auto"
+    reads the page as a manga (right to left) unless it is a tall strip —
+    height >= 1.6 x width — which is read as a webtoon, left to right.
+    """
+    normalized = str(direction or "auto").strip().lower()
+    if normalized in ("rtl", "ltr"):
+        return normalized
+    if normalized not in ("", "auto"):
+        raise ValueError(f"Unsupported reading direction: {direction!r}")
+    height, width = int(image_shape[0]), int(image_shape[1])
+    return "ltr" if height >= _WEBTOON_MIN_ASPECT * max(1, width) else "rtl"
+
+
+def _page_paper_mask(image: np.ndarray) -> np.ndarray:
+    """Mask the pixels that carry the page's paper color.
+
+    The paper color is the median of a thin ring around the page edge, where
+    manga pages are blank even when the panels are full of art.
+    """
+    height, width = image.shape[:2]
+    margin = max(4, int(round(min(height, width) * 0.02)))
+    ring = np.concatenate(
+        [
+            image[:margin].reshape(-1, image.shape[2]),
+            image[height - margin :].reshape(-1, image.shape[2]),
+            image[:, :margin].reshape(-1, image.shape[2]),
+            image[:, width - margin :].reshape(-1, image.shape[2]),
+        ]
+    )
+    paper = np.median(ring, axis=0)
+    difference = np.abs(image.astype(np.int16) - paper).max(axis=2)
+    return difference <= _PAPER_TOLERANCE
+
+
+def _gutter_bands(region_mask: np.ndarray, axis: int) -> list[tuple[int, int]]:
+    """Maximal runs of rows (axis 0) or columns (axis 1) that are all paper."""
+    spanning = region_mask.mean(axis=1 - axis) >= _PAPER_SPAN_FRACTION
+    bands: list[tuple[int, int]] = []
+    start: int | None = None
+    for index, flag in enumerate(spanning):
+        if flag and start is None:
+            start = index
+        elif not flag and start is not None:
+            bands.append((start, index))
+            start = None
+    if start is not None:
+        bands.append((start, len(spanning)))
+    return bands
+
+
+def _cut_pieces(
+    bounds: list[int], paper: np.ndarray, axis: int, min_piece: int
+) -> list[list[int]] | None:
+    """Split a region along one axis at its valid gutters, or None if it has none.
+
+    A gutter band is a valid cut when the page left between the previous cut
+    and this one, and the page left after this cut, both still reach
+    ``min_piece`` along the axis. Checking against the region end (not the
+    next band) matters: the interior of a sparse panel is paper too, and must
+    not stop a real gutter next to it from cutting.
+    """
+    x1, y1, x2, y2 = bounds
+    region = paper[y1:y2, x1:x2]
+    if region.size == 0:
+        return None
+    axis_length = region.shape[axis]
+    bands = _gutter_bands(region, axis)
+
+    cuts: list[tuple[int, int]] = []
+    for start, end in bands:
+        left = start - (cuts[-1][1] if cuts else 0)
+        right = axis_length - end
+        if left >= min_piece and right >= min_piece:
+            cuts.append((start, end))
+    if not cuts:
+        return None
+
+    # Piece boundaries along the axis: region start, then each accepted cut's
+    # (start, end), then the region end. The bands themselves are dropped.
+    boundaries = [0]
+    boundaries.extend(value for cut in cuts for value in cut)
+    boundaries.append(axis_length)
+
+    pieces: list[list[int]] = []
+    for inside_start, inside_end in zip(boundaries[0::2], boundaries[1::2]):
+        if inside_end <= inside_start:
+            continue
+        if axis == 0:
+            pieces.append([x1, y1 + inside_start, x2, y1 + inside_end])
+        else:
+            pieces.append([x1 + inside_start, y1, x1 + inside_end, y2])
+    return pieces or None
+
+
+def _split_panels(
+    bounds: list[int],
+    paper: np.ndarray,
+    direction: str,
+    axis: int,
+    min_piece: int,
+    depth: int,
+    tried_other_axis: bool = False,
+) -> list[list[int]]:
+    """Recursively split a region into panels, returned in reading order."""
+    if depth >= _MAX_PANEL_DEPTH:
+        return [bounds]
+    pieces = _cut_pieces(bounds, paper, axis, min_piece)
+    if pieces is None:
+        if tried_other_axis:
+            return [bounds]
+        return _split_panels(
+            bounds, paper, direction, 1 - axis, min_piece, depth, True
+        )
+    if axis == 1 and direction == "rtl":
+        pieces.reverse()
+    panels: list[list[int]] = []
+    for piece in pieces:
+        panels += _split_panels(
+            piece, paper, direction, 1 - axis, min_piece, depth + 1
+        )
+    return panels
+
+
+def detect_panels(image: np.ndarray, direction: str = "auto") -> list[list[int]]:
+    """Find the page's panels (xyxy boxes) in reading order.
+
+    Panels are the regions that remain after cutting the page along its
+    paper-colored gutters, rows first and then columns, recursively. A page
+    with no detectable gutters (a webtoon strip, a full-bleed spread) stays
+    one panel.
+    """
+    height, width = image.shape[:2]
+    resolved = resolve_reading_direction(direction, image.shape)
+    paper = _page_paper_mask(image)
+    min_piece = max(
+        _MIN_PANEL_PX, int(round(_MIN_PANEL_FRACTION * max(height, width)))
+    )
+    return _split_panels([0, 0, int(width), int(height)], paper, resolved, 0, min_piece, 0)
+
+
+def _interval_groups(
+    blocks: Sequence[TextBlock], axis: int
+) -> list[list[TextBlock]]:
+    """Group blocks whose spans on one axis overlap into connected chains.
+
+    Axis 0 means rows, so the blocks are chained by their y spans (xyxy[1],
+    xyxy[3]); axis 1 means columns, chained by x spans.
+    """
+    span_start, span_end = 1 - axis, 3 - axis
+    ordered = sorted(
+        blocks,
+        key=lambda block: (
+            int(block.xyxy[span_start]),
+            int(block.xyxy[span_end]),
+            int(block.xyxy[axis]),
+            int(block.xyxy[axis + 2]),
+        ),
+    )
+    groups: list[list[TextBlock]] = []
+    current: list[TextBlock] = []
+    group_end: int | None = None
+    for block in ordered:
+        start, end = int(block.xyxy[span_start]), int(block.xyxy[span_end])
+        if current and (group_end is None or start >= group_end):
+            groups.append(current)
+            current = []
+        current.append(block)
+        group_end = end if group_end is None else max(group_end, end)
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _leaf_key(block: TextBlock, direction: str) -> tuple[float, ...]:
+    center_x = (int(block.x1) + int(block.x2)) / 2.0
+    center_y = (int(block.y1) + int(block.y2)) / 2.0
+    if direction == "rtl":
+        return (-center_x, center_y, -int(block.x2), int(block.y1), int(block.x1))
+    return (center_x, center_y, int(block.x1), int(block.y1), int(block.x2))
+
+
+def _order_within_region(
+    blocks: Sequence[TextBlock], direction: str, axis: int
+) -> list[TextBlock]:
+    """Order blocks by recursive row/column splits; ties keep input order."""
+    if len(blocks) <= 1:
+        return list(blocks)
+    groups = _interval_groups(blocks, axis)
+    if len(groups) == 1:
+        if axis == 0:
+            return _order_within_region(blocks, direction, 1)
+        return sorted(blocks, key=lambda block: _leaf_key(block, direction))
+    if axis == 1 and direction == "rtl":
+        groups.reverse()
+    ordered: list[TextBlock] = []
+    for group in groups:
+        ordered += _order_within_region(group, direction, 1 - axis)
+    return ordered
+
+
+def sort_reading_order(
+    image: np.ndarray,
+    blocks: Sequence[TextBlock],
+    direction: str = "auto",
+) -> list[TextBlock]:
+    """Return the blocks in reading order: panels first, lettering inside each.
+
+    The returned list reuses the caller's block objects without mutating them;
+    ties (identical geometry, e.g. duplicate detections) keep detector order.
+    """
+    ordered = list(blocks)
+    if len(ordered) <= 1:
+        return ordered
+    resolved = resolve_reading_direction(direction, image.shape)
+    panels = detect_panels(image, resolved)
+
+    def panel_of(block: TextBlock) -> int:
+        center_x, center_y = (int(block.x1) + int(block.x2)) / 2.0, (
+            int(block.y1) + int(block.y2)
+        ) / 2.0
+        for index, (x1, y1, x2, y2) in enumerate(panels):
+            if x1 <= center_x < x2 and y1 <= center_y < y2:
+                return index
+        return min(
+            range(len(panels)),
+            key=lambda index: (
+                ((panels[index][0] + panels[index][2]) / 2.0 - center_x) ** 2
+                + ((panels[index][1] + panels[index][3]) / 2.0 - center_y) ** 2
+            ),
+        )
+
+    result: list[TextBlock] = []
+    assignments = [panel_of(block) for block in ordered]
+    for panel_index in range(len(panels)):
+        members = [
+            block
+            for block, assigned in zip(ordered, assignments)
+            if assigned == panel_index
+        ]
+        if members:
+            result += _order_within_region(members, resolved, 0)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Translation units
+# ---------------------------------------------------------------------------
+
+
+def group_translation_units(blocks: Sequence[TextBlock]) -> list[list[TextBlock]]:
+    """Group bubble-mates into one translation unit each, in reading order.
+
+    A unit is one block, except that every "text" block whose detected bubble
+    box is the same becomes one unit, so a sentence split across two detected
+    blocks is translated as one item. Blocks without a bubble (SFX, captions
+    without a box) stay single. The input is expected in reading order; each
+    unit takes the position of its first member.
+    """
+    units: list[list[TextBlock]] = []
+    by_bubble: dict[tuple[int, int, int, int], list[TextBlock]] = {}
+    for block in blocks:
+        bubble = block.bubble_xyxy if block.block_type == "text" else None
+        if bubble is None:
+            units.append([block])
+            continue
+        key = int_box(bubble)
+        members = by_bubble.get(key)
+        if members is None:
+            by_bubble[key] = [block]
+            units.append(by_bubble[key])
+        else:
+            members.append(block)
+    return units
+
+
+def bubble_reading_order(blocks: Sequence[TextBlock]) -> list[TextBlock]:
+    """Sort the blocks of one bubble the way their text is read."""
+    vertical = sum(block.height > block.width * 1.25 for block in blocks) > len(
+        blocks
+    ) / 2
+    if vertical:
+        return sorted(blocks, key=lambda block: (-block.x2, block.y1))
+    return sorted(blocks, key=lambda block: (block.y1, block.x1))
+
+
+def _composite_whole_text(texts: Sequence[str]) -> str | None:
+    """Return the member text that is exactly the join of the others', if any.
+
+    A detector sometimes emits a whole-bubble block whose OCR text is the
+    reading-order join of its parts; translating that unit should not repeat
+    the parts' text.
+    """
+    normalized = [normalize_render_source(text) for text in texts]
+    for index, text in enumerate(normalized):
+        if not text:
+            continue
+        others = [value for other, value in enumerate(normalized) if other != index]
+        if others and text == "".join(others):
+            return str(texts[index])
+    return None
+
+
+def unit_source_text(members: Sequence[TextBlock]) -> str:
+    """One source string for a translation unit.
+
+    Bubble-mates are joined in their reading order. CJK parts are glued
+    without a separator; a unit that holds Latin text joins with spaces. A
+    single-block unit returns that block's text unchanged.
+    """
+    if len(members) == 1:
+        return str(members[0].text or "")
+    grouped = bubble_reading_order(members)
+    texts = [str(block.text or "") for block in grouped]
+    whole = _composite_whole_text(texts)
+    if whole is not None:
+        return whole
+    parts = [text.strip() for text in texts if text.strip()]
+    if not parts:
+        return ""
+    if len(parts) == 1:
+        return parts[0]
+    separator = " " if any(re.search(r"[A-Za-z0-9]", part) for part in parts) else ""
+    return separator.join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Order agreement
+# ---------------------------------------------------------------------------
+
+
+def reading_order_agreement(
+    expected: Sequence[str], actual: Sequence[str]
+) -> dict[str, Any]:
+    """Kendall's tau between two reading orders over their shared labels.
+
+    ``expected`` and ``actual`` are sequences of labels (one per block) in
+    their reading order. Labels missing from either side are ignored, so a
+    detector miss does not penalize the order of the blocks it did find. The
+    result reports the matched label count, concordant and discordant pairs,
+    the tau in [-1, 1] (None when fewer than two labels matched) and whether
+    both orders agree exactly over the same label set.
+    """
+    expected_ranks = {label: index for index, label in enumerate(expected) if label}
+    actual_ranks = {label: index for index, label in enumerate(actual) if label}
+    shared = [label for label in expected_ranks if label in actual_ranks]
+
+    concordant = discordant = 0
+    for first in range(len(shared)):
+        for second in range(first + 1, len(shared)):
+            first_label, second_label = shared[first], shared[second]
+            agrees = (
+                expected_ranks[first_label] < expected_ranks[second_label]
+            ) == (actual_ranks[first_label] < actual_ranks[second_label])
+            if agrees:
+                concordant += 1
+            else:
+                discordant += 1
+    pairs = concordant + discordant
+    tau = round((concordant - discordant) / pairs, 4) if pairs else None
+    exact = (
+        pairs > 0
+        and discordant == 0
+        and len(shared) == len(expected_ranks) == len(actual_ranks)
+    )
+    return {
+        "matched": len(shared),
+        "concordant": concordant,
+        "discordant": discordant,
+        "kendall_tau": tau,
+        "exact": exact,
+    }
+
 
 def build_render_regions(
     blocks: list[TextBlock], image_shape: tuple[int, ...]
@@ -82,24 +489,17 @@ def standalone_region(source: TextBlock, width: int, height: int) -> TextBlock |
 
 def bubble_region(bubble_key: Box, blocks: list[TextBlock]) -> TextBlock:
     """Merge the blocks sharing a bubble into one region inset from its edge."""
-    deduplicated: dict[tuple[str, str], TextBlock] = {}
+    # Pre-translation unit merging gives every bubble-mate the same translated
+    # text, so collapse members by translation and keep the most confident
+    # member of each group as the source representative; the unit then renders
+    # once instead of once per detected block.
+    deduplicated: dict[str, TextBlock] = {}
     for block in blocks:
-        key = (
-            normalize_render_source(block.text),
-            normalize_render_source(block.translated_text),
-        )
+        key = normalize_render_source(block.translated_text)
         existing = deduplicated.get(key)
         if existing is None or block.confidence > existing.confidence:
             deduplicated[key] = block
-    grouped = list(deduplicated.values())
-
-    vertical_source = sum(
-        block.height > block.width * 1.25 for block in grouped
-    ) > len(grouped) / 2
-    if vertical_source:
-        grouped.sort(key=lambda block: (-block.x2, block.y1))
-    else:
-        grouped.sort(key=lambda block: (block.y1, block.x1))
+    grouped = bubble_reading_order(list(deduplicated.values()))
 
     composite_groups = {
         block.composite_render_group
