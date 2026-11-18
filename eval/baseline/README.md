@@ -313,3 +313,36 @@ The four files are new and live in `backend/src/manga_backend/pipeline/`:
   on `syn-tone-rotated`).
 - Rectangular mask semantics are still undefined (rect routes equal the
   contour routes except for `rect-masks-lama`).
+
+## The WP6a merge line (2026-11-18)
+
+The WP6a reading-order and bubble-level-unit work (`wp6a/reading-order`
+`6f8b033`, based on the pre-WP4 `6e37fca`) was merged into this line by the
+Team Lead at `c3f8679` (manual resolution of `layout.py` and
+`orchestrator.py`): the reading-order sort, the translation-unit grouping,
+`resolve_reading_direction` and the reading-order agreement script are now
+on the WP7 typesetting line; `layout.py` keeps the merge's new machinery
+but drops the `FitLayout`/`FitBox` aliases whose overflow rescue WP7 removed
+(free-space rooms replace it). The merged suite is 539 tests + 198
+subtests, all green, and `rect-masks-default` remains identical to
+`rtdetr-default`.
+
+These four baselines were regenerated at the merge line (11 pages, clean
+trees, quiet window ~2-13% load). **Every deterministic quality and render
+row is identical to the WP7 baselines** (residual 1.8%, in-mask 0.5%,
+out-of-mask 1.4%, recall 98.0%, MAE 1.358, hole-in-tone 684, over-erase 364,
+masked px 169,214, model blocks 3, tiers 44/1/37/3, shrink 27, below-min 6,
+overflow 0, spread 2.182 / dialogue 1.8, px outside mask 0). The only mover
+is the CJK re-OCR row: 14.6% -> 16.9% (kana/kanji 14.9% -> 17.2%), entirely
+one real page (`real-bookwalker-spread-02`, 1 -> 3 flagged blocks).
+Inferred mechanism (not image-verified): reading-order region claiming
+shifts free-room lettering positions on the real pages, and the Step-6
+manga-ocr re-read is position/background-sensitive (the documented noise
+floor). That row is a diagnostic on pages with no truth; production Step 6
+itself is WP3's to remove on its own branch.
+
+Stamp disclosure: the three promotion commits are docs-only, so the code
+state is identical across all four baselines — `rtdetr-default` records the
+merge commit `c3f8679` (it IS the clean identity run), `rtdetr-lama`
+records `f365082`, and the two rect routes record `0039533`. Labels inside
+the run files still read `merge-identity` / `base-<route>`.

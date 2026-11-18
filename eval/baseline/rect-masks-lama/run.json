@@ -1,9 +1,9 @@
 {
   "schema_version": 2,
-  "label": "wp7-base-rect-lama",
-  "created_utc": "2026-11-18T14:15:58Z",
+  "label": "base-rect-masks-lama",
+  "created_utc": "2026-11-18T14:57:11Z",
   "config": {
-    "label": "wp7-base-rect-lama",
+    "label": "base-rect-masks-lama",
     "detector": "rtdetr",
     "mask_mode": "rectangular",
     "inpainter": "lama_large",
@@ -71,9 +71,9 @@
             "tier": 4,
             "tier_name": "model",
             "band_error": null,
-            "mask_px": 25025,
-            "band_px": 1992,
-            "ring_px": 6408,
+            "mask_px": 37062,
+            "band_px": 2406,
+            "ring_px": 7650,
             "reason": "band-error"
           },
           {
@@ -81,9 +81,9 @@
             "tier": 4,
             "tier_name": "model",
             "band_error": null,
-            "mask_px": 37062,
-            "band_px": 2406,
-            "ring_px": 7650,
+            "mask_px": 25025,
+            "band_px": 1992,
+            "ring_px": 6408,
             "reason": "band-error"
           },
           {
@@ -170,15 +170,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.9149,
-        "ocr": 0.6378,
+        "detect": 0.9034,
+        "ocr": 0.657,
         "translate": 0.0001,
-        "mask": 0.0143,
-        "inpaint_model": 4.9969,
-        "render": 0.2624,
-        "verify": 0.8139,
-        "total": 7.6606,
-        "other": 0.0203
+        "mask": 0.014,
+        "inpaint_model": 4.9318,
+        "render": 0.2415,
+        "verify": 0.7823,
+        "total": 7.591,
+        "other": 0.0609
       }
     },
     {
@@ -298,15 +298,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.8363,
-        "ocr": 0.5126,
-        "translate": 0.0,
-        "mask": 0.0147,
+        "detect": 0.7414,
+        "ocr": 0.4949,
+        "translate": 0.0001,
+        "mask": 0.0207,
         "inpaint_model": 0.0,
-        "render": 0.306,
-        "verify": 0.4767,
-        "total": 2.1501,
-        "other": 0.0038
+        "render": 0.2682,
+        "verify": 0.4832,
+        "total": 2.0537,
+        "other": 0.0452
       }
     },
     {
@@ -352,16 +352,6 @@
         "fill_decisions": [
           {
             "strategy": "rectangle",
-            "tier": 1,
-            "tier_name": "smooth",
-            "band_error": 4.6887,
-            "mask_px": 16380,
-            "band_px": 1650,
-            "ring_px": 5382,
-            "reason": "smooth"
-          },
-          {
-            "strategy": "rectangle",
             "tier": 2,
             "tier_name": "lattice",
             "band_error": 0.0,
@@ -379,6 +369,16 @@
             "band_px": 1038,
             "ring_px": 3546,
             "reason": "flat"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 1,
+            "tier_name": "smooth",
+            "band_error": 4.6887,
+            "mask_px": 16380,
+            "band_px": 1650,
+            "ring_px": 5382,
+            "reason": "smooth"
           }
         ],
         "mask_px": 47792,
@@ -442,15 +442,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.8493,
-        "ocr": 0.563,
+        "detect": 0.8755,
+        "ocr": 0.5371,
         "translate": 0.0001,
-        "mask": 0.0479,
+        "mask": 0.074,
         "inpaint_model": 0.0,
-        "render": 0.0418,
-        "verify": 0.6008,
-        "total": 2.1081,
-        "other": 0.0052
+        "render": 0.0361,
+        "verify": 0.5816,
+        "total": 2.1629,
+        "other": 0.0585
       }
     },
     {
@@ -569,15 +569,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.6679,
-        "ocr": 0.3514,
+        "detect": 0.8831,
+        "ocr": 0.3458,
         "translate": 0.0001,
-        "mask": 0.2105,
+        "mask": 0.2561,
         "inpaint_model": 0.0,
-        "render": 0.0273,
-        "verify": 0.3454,
-        "total": 1.6066,
-        "other": 0.004
+        "render": 0.0275,
+        "verify": 0.3494,
+        "total": 1.8988,
+        "other": 0.0368
       }
     },
     {
@@ -622,26 +622,6 @@
             "tier": 0,
             "tier_name": "flat",
             "band_error": 0.0,
-            "mask_px": 21280,
-            "band_px": 1998,
-            "ring_px": 6426,
-            "reason": "flat"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 0,
-            "tier_name": "flat",
-            "band_error": 0.0,
-            "mask_px": 13774,
-            "band_px": 1518,
-            "ring_px": 4986,
-            "reason": "flat"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 0,
-            "tier_name": "flat",
-            "band_error": 0.0,
             "mask_px": 9853,
             "band_px": 1440,
             "ring_px": 4752,
@@ -652,9 +632,29 @@
             "tier": 0,
             "tier_name": "flat",
             "band_error": 0.0,
+            "mask_px": 21280,
+            "band_px": 1998,
+            "ring_px": 6426,
+            "reason": "flat"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 0,
+            "tier_name": "flat",
+            "band_error": 0.0,
             "mask_px": 6669,
             "band_px": 1128,
             "ring_px": 3816,
+            "reason": "flat"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 0,
+            "tier_name": "flat",
+            "band_error": 0.0,
+            "mask_px": 13774,
+            "band_px": 1518,
+            "ring_px": 4986,
             "reason": "flat"
           }
         ],
@@ -721,15 +721,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.978,
-        "ocr": 0.6796,
+        "detect": 1.0004,
+        "ocr": 0.6409,
         "translate": 0.0001,
-        "mask": 0.0114,
+        "mask": 0.0117,
         "inpaint_model": 0.0,
-        "render": 0.3034,
-        "verify": 0.6948,
-        "total": 2.6763,
-        "other": 0.009
+        "render": 0.2785,
+        "verify": 0.7024,
+        "total": 2.7605,
+        "other": 0.1265
       }
     },
     {
@@ -788,16 +788,6 @@
             "tier": 2,
             "tier_name": "lattice",
             "band_error": 0.0,
-            "mask_px": 11040,
-            "band_px": 1350,
-            "ring_px": 4482,
-            "reason": "lattice"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 0.0,
             "mask_px": 28737,
             "band_px": 2496,
             "ring_px": 7920,
@@ -812,6 +802,16 @@
             "band_px": 1014,
             "ring_px": 3474,
             "reason": "flat"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 2,
+            "tier_name": "lattice",
+            "band_error": 0.0,
+            "mask_px": 11040,
+            "band_px": 1350,
+            "ring_px": 4482,
+            "reason": "lattice"
           }
         ],
         "mask_px": 71533,
@@ -877,15 +877,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.6879,
-        "ocr": 0.6131,
+        "detect": 0.8311,
+        "ocr": 0.6383,
         "translate": 0.0001,
-        "mask": 0.2187,
+        "mask": 0.1943,
         "inpaint_model": 0.0,
-        "render": 0.0371,
-        "verify": 0.8844,
-        "total": 2.4477,
-        "other": 0.0064
+        "render": 0.0582,
+        "verify": 0.8283,
+        "total": 2.6328,
+        "other": 0.0825
       }
     },
     {
@@ -933,9 +933,9 @@
             "tier": 0,
             "tier_name": "flat",
             "band_error": 0.0,
-            "mask_px": 9750,
-            "band_px": 1314,
-            "ring_px": 4374,
+            "mask_px": 12496,
+            "band_px": 1464,
+            "ring_px": 4824,
             "reason": "flat"
           },
           {
@@ -943,9 +943,9 @@
             "tier": 0,
             "tier_name": "flat",
             "band_error": 0.0,
-            "mask_px": 12496,
-            "band_px": 1464,
-            "ring_px": 4824,
+            "mask_px": 9750,
+            "band_px": 1314,
+            "ring_px": 4374,
             "reason": "flat"
           },
           {
@@ -1020,15 +1020,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.8567,
-        "ocr": 0.5871,
-        "translate": 0.0001,
-        "mask": 0.1139,
+        "detect": 0.8326,
+        "ocr": 0.5452,
+        "translate": 0.0,
+        "mask": 0.0785,
         "inpaint_model": 0.0,
-        "render": 0.3091,
-        "verify": 0.7333,
-        "total": 2.6045,
-        "other": 0.0043
+        "render": 0.2699,
+        "verify": 0.6869,
+        "total": 2.4725,
+        "other": 0.0594
       }
     },
     {
@@ -1075,9 +1075,9 @@
             "tier": 4,
             "tier_name": "model",
             "band_error": null,
-            "mask_px": 55080,
-            "band_px": 3096,
-            "ring_px": 9720,
+            "mask_px": 15900,
+            "band_px": 2034,
+            "ring_px": 6534,
             "reason": "band-error"
           },
           {
@@ -1085,9 +1085,9 @@
             "tier": 4,
             "tier_name": "model",
             "band_error": null,
-            "mask_px": 15900,
-            "band_px": 2034,
-            "ring_px": 6534,
+            "mask_px": 55080,
+            "band_px": 3096,
+            "ring_px": 9720,
             "reason": "band-error"
           },
           {
@@ -1162,15 +1162,15 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.7718,
-        "ocr": 0.6385,
+        "detect": 0.7132,
+        "ocr": 0.5912,
         "translate": 0.0001,
         "mask": 0.0107,
-        "inpaint_model": 5.7193,
-        "render": 0.267,
-        "verify": 0.6437,
-        "total": 8.0719,
-        "other": 0.0208
+        "inpaint_model": 5.9543,
+        "render": 0.2427,
+        "verify": 0.604,
+        "total": 8.184,
+        "other": 0.0678
       }
     },
     {
@@ -1216,23 +1216,23 @@
         "fill_decisions": [
           {
             "strategy": "rectangle",
-            "tier": 4,
-            "tier_name": "model",
-            "band_error": null,
-            "mask_px": 3999,
-            "band_px": 900,
-            "ring_px": 3132,
-            "reason": "band-error"
+            "tier": 2,
+            "tier_name": "lattice",
+            "band_error": 2.6202,
+            "mask_px": 9968,
+            "band_px": 1290,
+            "ring_px": 4302,
+            "reason": "lattice"
           },
           {
             "strategy": "rectangle",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 3.6667,
-            "mask_px": 17978,
-            "band_px": 1830,
-            "ring_px": 5922,
-            "reason": "lattice"
+            "tier": 4,
+            "tier_name": "model",
+            "band_error": null,
+            "mask_px": 2280,
+            "band_px": 672,
+            "ring_px": 2422,
+            "reason": "band-error"
           },
           {
             "strategy": "rectangle",
@@ -1242,26 +1242,6 @@
             "mask_px": 7370,
             "band_px": 1146,
             "ring_px": 3844,
-            "reason": "lattice"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 4.5087,
-            "mask_px": 3672,
-            "band_px": 822,
-            "ring_px": 2898,
-            "reason": "lattice"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 2.6202,
-            "mask_px": 9968,
-            "band_px": 1290,
-            "ring_px": 4302,
             "reason": "lattice"
           },
           {
@@ -1278,20 +1258,10 @@
             "strategy": "rectangle",
             "tier": 2,
             "tier_name": "lattice",
-            "band_error": 0.4674,
-            "mask_px": 9975,
-            "band_px": 1182,
-            "ring_px": 3978,
-            "reason": "lattice"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 0.49,
-            "mask_px": 12773,
-            "band_px": 1848,
-            "ring_px": 5976,
+            "band_error": 4.5087,
+            "mask_px": 3672,
+            "band_px": 822,
+            "ring_px": 2898,
             "reason": "lattice"
           },
           {
@@ -1299,9 +1269,9 @@
             "tier": 4,
             "tier_name": "model",
             "band_error": null,
-            "mask_px": 2280,
-            "band_px": 672,
-            "ring_px": 2422,
+            "mask_px": 3999,
+            "band_px": 900,
+            "ring_px": 3132,
             "reason": "band-error"
           },
           {
@@ -1313,6 +1283,26 @@
             "band_px": 1128,
             "ring_px": 3816,
             "reason": "band-error"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 2,
+            "tier_name": "lattice",
+            "band_error": 0.0,
+            "mask_px": 3600,
+            "band_px": 618,
+            "ring_px": 2115,
+            "reason": "lattice"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 2,
+            "tier_name": "lattice",
+            "band_error": 0.4674,
+            "mask_px": 9975,
+            "band_px": 1182,
+            "ring_px": 3978,
+            "reason": "lattice"
           },
           {
             "strategy": "rectangle",
@@ -1338,15 +1328,25 @@
             "strategy": "rectangle",
             "tier": 2,
             "tier_name": "lattice",
-            "band_error": 0.0,
-            "mask_px": 3600,
-            "band_px": 618,
-            "ring_px": 2115,
+            "band_error": 0.49,
+            "mask_px": 12773,
+            "band_px": 1848,
+            "ring_px": 5976,
+            "reason": "lattice"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 2,
+            "tier_name": "lattice",
+            "band_error": 3.6667,
+            "mask_px": 17978,
+            "band_px": 1830,
+            "ring_px": 5922,
             "reason": "lattice"
           }
         ],
         "mask_px": 95836,
-        "white_fill_px": 50296,
+        "white_fill_px": 51079,
         "mask_fraction": 0.181002,
         "suppressed_composites": 1,
         "reason_codes": {}
@@ -1357,7 +1357,7 @@
         "fallback": false,
         "strategy": "model",
         "changed_outside_mask_px": 0,
-        "changed_inside_mask_px": 62789,
+        "changed_inside_mask_px": 63559,
         "model_changed_outside_mask_px": 0
       },
       "render": {
@@ -1404,21 +1404,21 @@
       "verify": {
         "ran": true,
         "checked": 14,
-        "step6_flagged": 6,
+        "step6_flagged": 7,
         "rendered_checked": 14,
-        "kana_kanji": 6
+        "kana_kanji": 7
       },
       "truth": null,
       "timings": {
-        "detect": 0.8154,
-        "ocr": 2.7698,
-        "translate": 0.0002,
-        "mask": 0.5223,
-        "inpaint_model": 3.2031,
-        "render": 0.4475,
-        "verify": 3.5658,
-        "total": 11.3426,
-        "other": 0.0185
+        "detect": 0.8173,
+        "ocr": 2.6656,
+        "translate": 0.0001,
+        "mask": 0.6874,
+        "inpaint_model": 3.2483,
+        "render": 0.3818,
+        "verify": 3.5612,
+        "total": 11.4286,
+        "other": 0.0669
       }
     },
     {
@@ -1467,6 +1467,66 @@
             "strategy": "rectangle",
             "tier": 2,
             "tier_name": "lattice",
+            "band_error": 1.6318,
+            "mask_px": 12282,
+            "band_px": 1446,
+            "ring_px": 4770,
+            "reason": "lattice"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 4,
+            "tier_name": "model",
+            "band_error": null,
+            "mask_px": 1764,
+            "band_px": 321,
+            "ring_px": 1061,
+            "reason": "band-error"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 4,
+            "tier_name": "model",
+            "band_error": null,
+            "mask_px": 3192,
+            "band_px": 564,
+            "ring_px": 1596,
+            "reason": "band-error"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 4,
+            "tier_name": "model",
+            "band_error": null,
+            "mask_px": 1890,
+            "band_px": 417,
+            "ring_px": 1467,
+            "reason": "band-error"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 4,
+            "tier_name": "model",
+            "band_error": null,
+            "mask_px": 5304,
+            "band_px": 1014,
+            "ring_px": 3144,
+            "reason": "band-error"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 2,
+            "tier_name": "lattice",
+            "band_error": 3.7398,
+            "mask_px": 3149,
+            "band_px": 768,
+            "ring_px": 2736,
+            "reason": "lattice"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 2,
+            "tier_name": "lattice",
             "band_error": 1.8211,
             "mask_px": 9472,
             "band_px": 1356,
@@ -1475,13 +1535,33 @@
           },
           {
             "strategy": "rectangle",
+            "tier": 4,
+            "tier_name": "model",
+            "band_error": null,
+            "mask_px": 1702,
+            "band_px": 582,
+            "ring_px": 2178,
+            "reason": "band-error"
+          },
+          {
+            "strategy": "rectangle",
             "tier": 2,
             "tier_name": "lattice",
-            "band_error": 1.6318,
-            "mask_px": 12282,
-            "band_px": 1446,
-            "ring_px": 4770,
+            "band_error": 6.3274,
+            "mask_px": 3150,
+            "band_px": 636,
+            "ring_px": 2232,
             "reason": "lattice"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 4,
+            "tier_name": "model",
+            "band_error": null,
+            "mask_px": 2774,
+            "band_px": 600,
+            "ring_px": 2124,
+            "reason": "band-error"
           },
           {
             "strategy": "rectangle",
@@ -1497,10 +1577,10 @@
             "strategy": "rectangle",
             "tier": 2,
             "tier_name": "lattice",
-            "band_error": 0.3144,
-            "mask_px": 5253,
-            "band_px": 1008,
-            "ring_px": 3456,
+            "band_error": 1.9437,
+            "mask_px": 4048,
+            "band_px": 888,
+            "ring_px": 3096,
             "reason": "lattice"
           },
           {
@@ -1518,20 +1598,10 @@
             "tier": 4,
             "tier_name": "model",
             "band_error": null,
-            "mask_px": 5304,
-            "band_px": 1014,
-            "ring_px": 3144,
+            "mask_px": 2736,
+            "band_px": 756,
+            "ring_px": 2607,
             "reason": "band-error"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 4.8212,
-            "mask_px": 4872,
-            "band_px": 942,
-            "ring_px": 3258,
-            "reason": "lattice"
           },
           {
             "strategy": "rectangle",
@@ -1547,61 +1617,31 @@
             "strategy": "rectangle",
             "tier": 2,
             "tier_name": "lattice",
-            "band_error": 1.9551,
-            "mask_px": 5883,
-            "band_px": 987,
-            "ring_px": 3285,
+            "band_error": 4.8212,
+            "mask_px": 4872,
+            "band_px": 942,
+            "ring_px": 3258,
             "reason": "lattice"
           },
           {
             "strategy": "rectangle",
             "tier": 2,
             "tier_name": "lattice",
-            "band_error": 3.7398,
-            "mask_px": 3149,
-            "band_px": 768,
-            "ring_px": 2736,
+            "band_error": 0.8146,
+            "mask_px": 3102,
+            "band_px": 762,
+            "ring_px": 2718,
             "reason": "lattice"
           },
           {
             "strategy": "rectangle",
             "tier": 2,
             "tier_name": "lattice",
-            "band_error": 6.3274,
-            "mask_px": 3150,
-            "band_px": 636,
-            "ring_px": 2232,
+            "band_error": 0.3144,
+            "mask_px": 5253,
+            "band_px": 1008,
+            "ring_px": 3456,
             "reason": "lattice"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 1.9437,
-            "mask_px": 4048,
-            "band_px": 888,
-            "ring_px": 3096,
-            "reason": "lattice"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 4,
-            "tier_name": "model",
-            "band_error": null,
-            "mask_px": 2774,
-            "band_px": 600,
-            "ring_px": 2124,
-            "reason": "band-error"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 4,
-            "tier_name": "model",
-            "band_error": null,
-            "mask_px": 1702,
-            "band_px": 582,
-            "ring_px": 2178,
-            "reason": "band-error"
           },
           {
             "strategy": "rectangle",
@@ -1618,50 +1658,20 @@
             "tier": 4,
             "tier_name": "model",
             "band_error": null,
-            "mask_px": 2736,
-            "band_px": 756,
-            "ring_px": 2607,
-            "reason": "band-error"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 4,
-            "tier_name": "model",
-            "band_error": null,
-            "mask_px": 1764,
-            "band_px": 321,
-            "ring_px": 1061,
+            "mask_px": 864,
+            "band_px": 363,
+            "ring_px": 1413,
             "reason": "band-error"
           },
           {
             "strategy": "rectangle",
             "tier": 2,
             "tier_name": "lattice",
-            "band_error": 0.8146,
-            "mask_px": 3102,
-            "band_px": 762,
-            "ring_px": 2718,
+            "band_error": 1.9551,
+            "mask_px": 5883,
+            "band_px": 987,
+            "ring_px": 3285,
             "reason": "lattice"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 4,
-            "tier_name": "model",
-            "band_error": null,
-            "mask_px": 1890,
-            "band_px": 417,
-            "ring_px": 1467,
-            "reason": "band-error"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 4,
-            "tier_name": "model",
-            "band_error": null,
-            "mask_px": 864,
-            "band_px": 363,
-            "ring_px": 1413,
-            "reason": "band-error"
           },
           {
             "strategy": "rectangle",
@@ -1672,16 +1682,6 @@
             "band_px": 690,
             "ring_px": 2502,
             "reason": "flat"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 4,
-            "tier_name": "model",
-            "band_error": null,
-            "mask_px": 3192,
-            "band_px": 564,
-            "ring_px": 1596,
-            "reason": "band-error"
           }
         ],
         "mask_px": 90474,
@@ -1767,15 +1767,15 @@
       },
       "truth": null,
       "timings": {
-        "detect": 0.7125,
-        "ocr": 4.5393,
+        "detect": 0.95,
+        "ocr": 4.5389,
         "translate": 0.0002,
-        "mask": 0.6082,
-        "inpaint_model": 5.6911,
-        "render": 0.8374,
-        "verify": 5.5365,
-        "total": 17.9537,
-        "other": 0.0285
+        "mask": 0.4952,
+        "inpaint_model": 5.7885,
+        "render": 0.8543,
+        "verify": 5.3945,
+        "total": 18.1444,
+        "other": 0.1228
       }
     },
     {
@@ -1822,53 +1822,33 @@
         "fill_decisions": [
           {
             "strategy": "rectangle",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 0.8072,
-            "mask_px": 12768,
-            "band_px": 1548,
-            "ring_px": 4878,
-            "reason": "lattice"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 0.0823,
-            "mask_px": 8442,
-            "band_px": 1266,
-            "ring_px": 4230,
-            "reason": "lattice"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 0.2,
-            "mask_px": 10374,
-            "band_px": 1314,
-            "ring_px": 4374,
-            "reason": "lattice"
+            "tier": 4,
+            "tier_name": "model",
+            "band_error": null,
+            "mask_px": 4998,
+            "band_px": 978,
+            "ring_px": 3366,
+            "reason": "band-error"
           },
           {
             "strategy": "rectangle",
             "tier": 4,
             "tier_name": "model",
             "band_error": null,
-            "mask_px": 5586,
-            "band_px": 1062,
-            "ring_px": 3618,
+            "mask_px": 1904,
+            "band_px": 660,
+            "ring_px": 2412,
             "reason": "band-error"
           },
           {
             "strategy": "rectangle",
-            "tier": 0,
-            "tier_name": "flat",
-            "band_error": 3.6499,
-            "mask_px": 11328,
-            "band_px": 1368,
-            "ring_px": 4536,
-            "reason": "flat"
+            "tier": 2,
+            "tier_name": "lattice",
+            "band_error": 3.515,
+            "mask_px": 6156,
+            "band_px": 1092,
+            "ring_px": 3708,
+            "reason": "lattice"
           },
           {
             "strategy": "rectangle",
@@ -1885,49 +1865,19 @@
             "tier": 4,
             "tier_name": "model",
             "band_error": null,
-            "mask_px": 4998,
-            "band_px": 978,
-            "ring_px": 3366,
+            "mask_px": 961,
+            "band_px": 390,
+            "ring_px": 1494,
             "reason": "band-error"
           },
           {
             "strategy": "rectangle",
             "tier": 2,
             "tier_name": "lattice",
-            "band_error": 0.1689,
-            "mask_px": 5369,
-            "band_px": 938,
-            "ring_px": 3111,
-            "reason": "lattice"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 0.2976,
-            "mask_px": 5782,
-            "band_px": 1026,
-            "ring_px": 3510,
-            "reason": "lattice"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 3.515,
-            "mask_px": 6156,
-            "band_px": 1092,
-            "ring_px": 3708,
-            "reason": "lattice"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 0.5034,
-            "mask_px": 5775,
-            "band_px": 1044,
-            "ring_px": 3564,
+            "band_error": 2.871,
+            "mask_px": 3838,
+            "band_px": 852,
+            "ring_px": 2880,
             "reason": "lattice"
           },
           {
@@ -1944,80 +1894,20 @@
             "strategy": "rectangle",
             "tier": 2,
             "tier_name": "lattice",
-            "band_error": 4.0091,
-            "mask_px": 4650,
-            "band_px": 942,
-            "ring_px": 3258,
+            "band_error": 1.0426,
+            "mask_px": 754,
+            "band_px": 368,
+            "ring_px": 1368,
             "reason": "lattice"
           },
           {
             "strategy": "rectangle",
             "tier": 2,
             "tier_name": "lattice",
-            "band_error": 2.871,
-            "mask_px": 3838,
-            "band_px": 852,
-            "ring_px": 2880,
-            "reason": "lattice"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 4,
-            "tier_name": "model",
-            "band_error": null,
-            "mask_px": 4815,
-            "band_px": 996,
-            "ring_px": 2644,
-            "reason": "band-error"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 1.9314,
-            "mask_px": 4080,
-            "band_px": 936,
-            "ring_px": 2464,
-            "reason": "lattice"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 4,
-            "tier_name": "model",
-            "band_error": null,
-            "mask_px": 1904,
-            "band_px": 660,
-            "ring_px": 2412,
-            "reason": "band-error"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 4,
-            "tier_name": "model",
-            "band_error": null,
-            "mask_px": 1705,
-            "band_px": 600,
-            "ring_px": 2232,
-            "reason": "band-error"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 0.6799,
-            "mask_px": 1224,
-            "band_px": 504,
-            "ring_px": 1744,
-            "reason": "lattice"
-          },
-          {
-            "strategy": "rectangle",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 7.3624,
-            "mask_px": 1275,
-            "band_px": 540,
-            "ring_px": 1828,
+            "band_error": 0.1689,
+            "mask_px": 5369,
+            "band_px": 938,
+            "ring_px": 3111,
             "reason": "lattice"
           },
           {
@@ -2035,19 +1925,69 @@
             "tier": 4,
             "tier_name": "model",
             "band_error": null,
-            "mask_px": 961,
-            "band_px": 390,
-            "ring_px": 1494,
+            "mask_px": 6560,
+            "band_px": 1308,
+            "ring_px": 4356,
+            "reason": "band-error"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 4,
+            "tier_name": "model",
+            "band_error": null,
+            "mask_px": 5586,
+            "band_px": 1062,
+            "ring_px": 3618,
             "reason": "band-error"
           },
           {
             "strategy": "rectangle",
             "tier": 2,
             "tier_name": "lattice",
-            "band_error": 1.0426,
-            "mask_px": 754,
-            "band_px": 368,
-            "ring_px": 1368,
+            "band_error": 0.0823,
+            "mask_px": 8442,
+            "band_px": 1266,
+            "ring_px": 4230,
+            "reason": "lattice"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 2,
+            "tier_name": "lattice",
+            "band_error": 1.9314,
+            "mask_px": 4080,
+            "band_px": 936,
+            "ring_px": 2464,
+            "reason": "lattice"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 4,
+            "tier_name": "model",
+            "band_error": null,
+            "mask_px": 4815,
+            "band_px": 996,
+            "ring_px": 2644,
+            "reason": "band-error"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 2,
+            "tier_name": "lattice",
+            "band_error": 0.2976,
+            "mask_px": 5782,
+            "band_px": 1026,
+            "ring_px": 3510,
+            "reason": "lattice"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 2,
+            "tier_name": "lattice",
+            "band_error": 0.8072,
+            "mask_px": 12768,
+            "band_px": 1548,
+            "ring_px": 4878,
             "reason": "lattice"
           },
           {
@@ -2062,17 +2002,77 @@
           },
           {
             "strategy": "rectangle",
+            "tier": 2,
+            "tier_name": "lattice",
+            "band_error": 0.5034,
+            "mask_px": 5775,
+            "band_px": 1044,
+            "ring_px": 3564,
+            "reason": "lattice"
+          },
+          {
+            "strategy": "rectangle",
             "tier": 4,
             "tier_name": "model",
             "band_error": null,
-            "mask_px": 6560,
-            "band_px": 1308,
-            "ring_px": 4356,
+            "mask_px": 1705,
+            "band_px": 600,
+            "ring_px": 2232,
             "reason": "band-error"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 2,
+            "tier_name": "lattice",
+            "band_error": 4.0091,
+            "mask_px": 4650,
+            "band_px": 942,
+            "ring_px": 3258,
+            "reason": "lattice"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 2,
+            "tier_name": "lattice",
+            "band_error": 7.3624,
+            "mask_px": 1275,
+            "band_px": 540,
+            "ring_px": 1828,
+            "reason": "lattice"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 2,
+            "tier_name": "lattice",
+            "band_error": 0.6799,
+            "mask_px": 1224,
+            "band_px": 504,
+            "ring_px": 1744,
+            "reason": "lattice"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 2,
+            "tier_name": "lattice",
+            "band_error": 0.2,
+            "mask_px": 10374,
+            "band_px": 1314,
+            "ring_px": 4374,
+            "reason": "lattice"
+          },
+          {
+            "strategy": "rectangle",
+            "tier": 0,
+            "tier_name": "flat",
+            "band_error": 3.6499,
+            "mask_px": 11328,
+            "band_px": 1368,
+            "ring_px": 4536,
+            "reason": "flat"
           }
         ],
         "mask_px": 123662,
-        "white_fill_px": 50066,
+        "white_fill_px": 49996,
         "mask_fraction": 0.112488,
         "suppressed_composites": 0,
         "reason_codes": {}
@@ -2083,7 +2083,7 @@
         "fallback": false,
         "strategy": "model",
         "changed_outside_mask_px": 0,
-        "changed_inside_mask_px": 83177,
+        "changed_inside_mask_px": 83107,
         "model_changed_outside_mask_px": 0
       },
       "render": {
@@ -2160,15 +2160,15 @@
       },
       "truth": null,
       "timings": {
-        "detect": 1.1444,
-        "ocr": 4.3624,
-        "translate": 0.0003,
-        "mask": 0.7019,
-        "inpaint_model": 12.938,
-        "render": 1.2443,
-        "verify": 5.3743,
-        "total": 25.8115,
-        "other": 0.0459
+        "detect": 1.1497,
+        "ocr": 4.5637,
+        "translate": 0.0001,
+        "mask": 0.8883,
+        "inpaint_model": 12.7787,
+        "render": 1.2517,
+        "verify": 5.2692,
+        "total": 26.0796,
+        "other": 0.1782
       }
     }
   ],
@@ -2183,11 +2183,11 @@
     },
     "cjk_residue": {
       "step6_checked": 89,
-      "step6_flagged": 22,
-      "step6_rate": 0.2472,
+      "step6_flagged": 23,
+      "step6_rate": 0.2584,
       "rendered_checked": 87,
-      "kana_kanji": 22,
-      "kana_kanji_rate": 0.2529
+      "kana_kanji": 23,
+      "kana_kanji_rate": 0.2644
     },
     "inpaint": {
       "changed_outside_mask_px": 0,
@@ -2250,17 +2250,17 @@
       "touched_away_px": 71455
     },
     "timings": {
-      "detect": 9.235,
-      "ocr": 16.255,
+      "detect": 9.698,
+      "ocr": 16.219,
       "translate": 0.001,
-      "mask": 2.474,
-      "inpaint_model": 32.548,
-      "render": 4.083,
-      "verify": 19.67,
-      "other": 0.167,
-      "total": 84.434
+      "mask": 2.731,
+      "inpaint_model": 32.702,
+      "render": 3.91,
+      "verify": 19.243,
+      "other": 0.905,
+      "total": 85.409
     },
-    "seconds_per_page": 7.676,
+    "seconds_per_page": 7.764,
     "by_tag": {
       "adversarial": {
         "pages": {
@@ -2339,17 +2339,17 @@
           "touched_away_px": 25814
         },
         "timings": {
-          "detect": 2.316,
-          "ocr": 1.839,
+          "detect": 2.377,
+          "ocr": 1.775,
           "translate": 0.0,
-          "mask": 0.343,
-          "inpaint_model": 5.719,
-          "render": 0.613,
-          "verify": 2.261,
-          "other": 0.032,
-          "total": 13.124
+          "mask": 0.283,
+          "inpaint_model": 5.954,
+          "render": 0.571,
+          "verify": 2.119,
+          "other": 0.21,
+          "total": 13.289
         },
-        "seconds_per_page": 4.375
+        "seconds_per_page": 4.43
       },
       "bookwalker": {
         "pages": {
@@ -2428,17 +2428,17 @@
           "touched_away_px": 0
         },
         "timings": {
-          "detect": 1.857,
-          "ocr": 8.902,
-          "translate": 0.001,
-          "mask": 1.31,
-          "inpaint_model": 18.629,
-          "render": 2.082,
-          "verify": 10.911,
-          "other": 0.074,
-          "total": 43.765
+          "detect": 2.1,
+          "ocr": 9.103,
+          "translate": 0.0,
+          "mask": 1.383,
+          "inpaint_model": 18.567,
+          "render": 2.106,
+          "verify": 10.664,
+          "other": 0.301,
+          "total": 44.224
         },
-        "seconds_per_page": 21.883
+        "seconds_per_page": 22.112
       },
       "conjoined-bubbles": {
         "pages": {
@@ -2517,17 +2517,17 @@
           "touched_away_px": 60
         },
         "timings": {
-          "detect": 2.693,
-          "ocr": 9.414,
-          "translate": 0.001,
-          "mask": 1.325,
-          "inpaint_model": 18.629,
-          "render": 2.388,
-          "verify": 11.387,
-          "other": 0.078,
-          "total": 45.915
+          "detect": 2.841,
+          "ocr": 9.598,
+          "translate": 0.0,
+          "mask": 1.404,
+          "inpaint_model": 18.567,
+          "render": 2.374,
+          "verify": 11.147,
+          "other": 0.346,
+          "total": 46.278
         },
-        "seconds_per_page": 15.305
+        "seconds_per_page": 15.426
       },
       "horizontal-text": {
         "pages": {
@@ -2607,17 +2607,17 @@
           "touched_away_px": 31997
         },
         "timings": {
-          "detect": 4.144,
-          "ocr": 3.081,
-          "translate": 0.001,
-          "mask": 0.403,
-          "inpaint_model": 5.719,
-          "render": 0.958,
-          "verify": 3.557,
-          "other": 0.046,
-          "total": 17.909
+          "detect": 4.253,
+          "ocr": 2.953,
+          "translate": 0.0,
+          "mask": 0.369,
+          "inpaint_model": 5.954,
+          "render": 0.885,
+          "verify": 3.403,
+          "other": 0.395,
+          "total": 18.213
         },
-        "seconds_per_page": 3.582
+        "seconds_per_page": 3.643
       },
       "light-on-dark": {
         "pages": {
@@ -2696,17 +2696,17 @@
           "touched_away_px": 6183
         },
         "timings": {
-          "detect": 0.849,
-          "ocr": 0.563,
+          "detect": 0.875,
+          "ocr": 0.537,
           "translate": 0.0,
-          "mask": 0.048,
+          "mask": 0.074,
           "inpaint_model": 0.0,
-          "render": 0.042,
-          "verify": 0.601,
-          "other": 0.005,
-          "total": 2.108
+          "render": 0.036,
+          "verify": 0.582,
+          "other": 0.059,
+          "total": 2.163
         },
-        "seconds_per_page": 2.108
+        "seconds_per_page": 2.163
       },
       "narration": {
         "pages": {
@@ -2719,11 +2719,11 @@
         },
         "cjk_residue": {
           "step6_checked": 21,
-          "step6_flagged": 6,
-          "step6_rate": 0.2857,
+          "step6_flagged": 7,
+          "step6_rate": 0.3333,
           "rendered_checked": 21,
-          "kana_kanji": 6,
-          "kana_kanji_rate": 0.2857
+          "kana_kanji": 7,
+          "kana_kanji_rate": 0.3333
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
@@ -2786,17 +2786,17 @@
           "touched_away_px": 6628
         },
         "timings": {
-          "detect": 2.353,
-          "ocr": 3.946,
+          "detect": 2.524,
+          "ocr": 3.841,
           "translate": 0.0,
-          "mask": 0.789,
-          "inpaint_model": 3.203,
-          "render": 0.526,
-          "verify": 5.051,
-          "other": 0.03,
-          "total": 15.898
+          "mask": 0.956,
+          "inpaint_model": 3.248,
+          "render": 0.476,
+          "verify": 4.971,
+          "other": 0.208,
+          "total": 16.224
         },
-        "seconds_per_page": 5.299
+        "seconds_per_page": 5.408
       },
       "sfx": {
         "pages": {
@@ -2809,11 +2809,11 @@
         },
         "cjk_residue": {
           "step6_checked": 70,
-          "step6_flagged": 20,
-          "step6_rate": 0.2857,
+          "step6_flagged": 21,
+          "step6_rate": 0.3,
           "rendered_checked": 68,
-          "kana_kanji": 20,
-          "kana_kanji_rate": 0.2941
+          "kana_kanji": 21,
+          "kana_kanji_rate": 0.3088
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
@@ -2875,17 +2875,17 @@
           "touched_away_px": 445
         },
         "timings": {
-          "detect": 4.028,
-          "ocr": 12.636,
+          "detect": 4.631,
+          "ocr": 12.752,
           "translate": 0.001,
-          "mask": 2.262,
-          "inpaint_model": 21.832,
-          "render": 2.594,
-          "verify": 15.706,
-          "other": 0.103,
-          "total": 59.162
+          "mask": 2.521,
+          "inpaint_model": 21.816,
+          "render": 2.574,
+          "verify": 15.403,
+          "other": 0.487,
+          "total": 60.184
         },
-        "seconds_per_page": 11.832
+        "seconds_per_page": 12.037
       },
       "textured-background": {
         "pages": {
@@ -2898,11 +2898,11 @@
         },
         "cjk_residue": {
           "step6_checked": 76,
-          "step6_flagged": 22,
-          "step6_rate": 0.2895,
+          "step6_flagged": 23,
+          "step6_rate": 0.3026,
           "rendered_checked": 74,
-          "kana_kanji": 22,
-          "kana_kanji_rate": 0.2973
+          "kana_kanji": 23,
+          "kana_kanji_rate": 0.3108
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
@@ -2965,17 +2965,17 @@
           "touched_away_px": 6628
         },
         "timings": {
-          "detect": 5.734,
-          "ocr": 13.786,
+          "detect": 6.339,
+          "ocr": 13.835,
           "translate": 0.001,
-          "mask": 2.423,
-          "inpaint_model": 21.832,
-          "render": 2.945,
-          "verify": 17.041,
-          "other": 0.113,
-          "total": 63.875
+          "mask": 2.674,
+          "inpaint_model": 21.816,
+          "render": 2.879,
+          "verify": 16.671,
+          "other": 0.605,
+          "total": 64.82
         },
-        "seconds_per_page": 9.125
+        "seconds_per_page": 9.26
       },
       "vertical-text": {
         "pages": {
@@ -2988,11 +2988,11 @@
         },
         "cjk_residue": {
           "step6_checked": 83,
-          "step6_flagged": 22,
-          "step6_rate": 0.2651,
+          "step6_flagged": 23,
+          "step6_rate": 0.2771,
           "rendered_checked": 81,
-          "kana_kanji": 22,
-          "kana_kanji_rate": 0.2716
+          "kana_kanji": 23,
+          "kana_kanji_rate": 0.284
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
@@ -3055,17 +3055,17 @@
           "touched_away_px": 71455
         },
         "timings": {
-          "detect": 7.589,
-          "ocr": 15.224,
+          "detect": 7.814,
+          "ocr": 15.232,
           "translate": 0.001,
-          "mask": 2.253,
-          "inpaint_model": 32.548,
-          "render": 3.753,
-          "verify": 18.629,
-          "other": 0.154,
-          "total": 80.151
+          "mask": 2.463,
+          "inpaint_model": 32.702,
+          "render": 3.604,
+          "verify": 18.191,
+          "other": 0.742,
+          "total": 80.749
         },
-        "seconds_per_page": 8.906
+        "seconds_per_page": 8.972
       },
       "webtoon-strip": {
         "pages": {
@@ -3142,17 +3142,17 @@
           "touched_away_px": 0
         },
         "timings": {
-          "detect": 0.978,
-          "ocr": 0.68,
+          "detect": 1.0,
+          "ocr": 0.641,
           "translate": 0.0,
-          "mask": 0.011,
+          "mask": 0.012,
           "inpaint_model": 0.0,
-          "render": 0.303,
-          "verify": 0.695,
-          "other": 0.009,
-          "total": 2.676
+          "render": 0.279,
+          "verify": 0.702,
+          "other": 0.127,
+          "total": 2.76
         },
-        "seconds_per_page": 2.676
+        "seconds_per_page": 2.76
       },
       "white-bubble": {
         "pages": {
@@ -3165,11 +3165,11 @@
         },
         "cjk_residue": {
           "step6_checked": 80,
-          "step6_flagged": 22,
-          "step6_rate": 0.275,
+          "step6_flagged": 23,
+          "step6_rate": 0.2875,
           "rendered_checked": 78,
-          "kana_kanji": 22,
-          "kana_kanji_rate": 0.2821
+          "kana_kanji": 23,
+          "kana_kanji_rate": 0.2949
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
@@ -3231,22 +3231,22 @@
           "touched_away_px": 64827
         },
         "timings": {
-          "detect": 7.03,
-          "ocr": 14.727,
+          "detect": 7.108,
+          "ocr": 14.697,
           "translate": 0.001,
-          "mask": 1.997,
-          "inpaint_model": 32.548,
-          "render": 3.977,
-          "verify": 17.839,
-          "other": 0.151,
-          "total": 78.271
+          "mask": 2.207,
+          "inpaint_model": 32.702,
+          "render": 3.789,
+          "verify": 17.484,
+          "other": 0.728,
+          "total": 78.714
         },
-        "seconds_per_page": 9.784
+        "seconds_per_page": 9.839
       }
     }
   },
   "environment": {
-    "git_commit": "c0e8b15088aa",
+    "git_commit": "0039533fd6ec",
     "git_dirty": false,
     "python": "3.13.5",
     "platform": "Windows 11 AMD64",
