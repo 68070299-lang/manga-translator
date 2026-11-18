@@ -31,8 +31,11 @@ let cacheMetadataLock: Promise<unknown> = Promise.resolve();
 
 async function withCacheMetadataLock<T>(fn: () => Promise<T>): Promise<T> {
   const previous = cacheMetadataLock;
-  const { promise, resolve: release } = Promise.withResolvers<void>();
-  cacheMetadataLock = promise;
+  // Not Promise.withResolvers: that needs Chrome 119 and the floor is 110.
+  let release!: () => void;
+  cacheMetadataLock = new Promise<void>((resolve) => {
+    release = resolve;
+  });
 
   await previous.catch(() => {});
   try {

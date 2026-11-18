@@ -1,6 +1,7 @@
 {
   "extends": "./.wxt/tsconfig.json",
   "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "erasableSyntaxOnly": true,
     "exactOptionalPropertyTypes": false,
     "noImplicitReturns": true,

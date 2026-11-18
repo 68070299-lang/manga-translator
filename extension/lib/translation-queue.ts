@@ -60,7 +60,13 @@ export class TranslationQueue {
       return existing.promise as Promise<T>;
     }
 
-    const { promise, resolve, reject } = Promise.withResolvers<T>();
+    // Not Promise.withResolvers: that needs Chrome 119 and the floor is 110.
+    let resolve!: (value: T) => void;
+    let reject!: (reason: unknown) => void;
+    const promise = new Promise<T>((onResolve, onReject) => {
+      resolve = onResolve;
+      reject = onReject;
+    });
     const entry: QueueEntry<T> = {
       key: normalizedKey,
       task,
