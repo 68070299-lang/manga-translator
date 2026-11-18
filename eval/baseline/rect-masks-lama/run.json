@@ -1,9 +1,9 @@
 {
-  "schema_version": 1,
-  "label": "rect-masks-lama",
-  "created_utc": "2026-11-18T05:13:00Z",
+  "schema_version": 2,
+  "label": "wp1-identity-rect-masks-lama",
+  "created_utc": "2026-11-18T07:23:49Z",
   "config": {
-    "label": "rect-masks-lama",
+    "label": "wp1-identity-rect-masks-lama",
     "detector": "rtdetr",
     "mask_mode": "rectangular",
     "inpainter": "lama_large",
@@ -13,6 +13,7 @@
     "device": "cpu",
     "verify": true,
     "warmup": true,
+    "fill": "auto",
     "render_options": {
       "line_spacing": 1.2,
       "border_size": 2.0,
@@ -63,7 +64,8 @@
         "mask_px": 130047,
         "white_fill_px": 0,
         "mask_fraction": 0.180621,
-        "suppressed_composites": 0
+        "suppressed_composites": 0,
+        "reason_codes": {}
       },
       "inpaint": {
         "requested": "lama_large",
@@ -83,6 +85,7 @@
           16,
           16
         ],
+        "font_size_spread": 0,
         "shrink_events": 0,
         "below_min_readable": 0,
         "overflow_attempts": 0,
@@ -101,20 +104,28 @@
         "recall": 1.0,
         "text_mae": 0.891,
         "residual_ink_ratio": 0.0,
+        "ink_mask_recall": 1.0,
+        "residual_in_mask_ratio": 0.0,
+        "residual_out_of_mask_ratio": 0.0,
+        "residual_ink_lp_ratio": 0.0,
+        "hole_in_tone_px": 0,
+        "render_ink_outside_bubble_px": 0,
+        "ocr_cer": null,
+        "ocr_cer_blocks": 0,
         "over_erased_px": 33,
         "touched_away_px": 89783,
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 1.4604,
-        "ocr": 1.389,
+        "detect": 0.9939,
+        "ocr": 0.8945,
         "translate": 0.0001,
-        "mask": 0.0008,
-        "inpaint_model": 11.9734,
-        "render": 0.1351,
-        "verify": 2.3085,
-        "total": 17.2774,
-        "other": 0.0101
+        "mask": 0.0006,
+        "inpaint_model": 7.8234,
+        "render": 0.0428,
+        "verify": 1.1215,
+        "total": 10.882,
+        "other": 0.0052
       }
     },
     {
@@ -153,7 +164,8 @@
         "mask_px": 108064,
         "white_fill_px": 0,
         "mask_fraction": 0.208457,
-        "suppressed_composites": 0
+        "suppressed_composites": 0,
+        "reason_codes": {}
       },
       "inpaint": {
         "requested": "lama_large",
@@ -171,6 +183,7 @@
           16,
           16
         ],
+        "font_size_spread": 0,
         "shrink_events": 0,
         "below_min_readable": 0,
         "overflow_attempts": 0,
@@ -189,20 +202,28 @@
         "recall": 1.0,
         "text_mae": 0.985,
         "residual_ink_ratio": 0.0,
+        "ink_mask_recall": 1.0,
+        "residual_in_mask_ratio": 0.0,
+        "residual_out_of_mask_ratio": 0.0,
+        "residual_ink_lp_ratio": 0.0,
+        "hole_in_tone_px": 0,
+        "render_ink_outside_bubble_px": 0,
+        "ocr_cer": null,
+        "ocr_cer_blocks": 0,
         "over_erased_px": 11,
         "touched_away_px": 79206,
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 2.836,
-        "ocr": 2.4449,
-        "translate": 0.0015,
-        "mask": 0.0018,
-        "inpaint_model": 11.4885,
-        "render": 0.0294,
-        "verify": 0.789,
-        "total": 17.601,
-        "other": 0.0099
+        "detect": 0.9056,
+        "ocr": 0.6203,
+        "translate": 0.0001,
+        "mask": 0.0004,
+        "inpaint_model": 5.4966,
+        "render": 0.0268,
+        "verify": 0.739,
+        "total": 7.7928,
+        "other": 0.004
       }
     },
     {
@@ -243,7 +264,8 @@
         "mask_px": 47792,
         "white_fill_px": 0,
         "mask_fraction": 0.066378,
-        "suppressed_composites": 0
+        "suppressed_composites": 0,
+        "reason_codes": {}
       },
       "inpaint": {
         "requested": "lama_large",
@@ -262,6 +284,7 @@
           16,
           16
         ],
+        "font_size_spread": 0,
         "shrink_events": 0,
         "below_min_readable": 0,
         "overflow_attempts": 0,
@@ -280,20 +303,28 @@
         "recall": 1.0,
         "text_mae": 23.256,
         "residual_ink_ratio": 0.1612,
+        "ink_mask_recall": 1.0,
+        "residual_in_mask_ratio": 0.1612,
+        "residual_out_of_mask_ratio": 0.0,
+        "residual_ink_lp_ratio": 0.0,
+        "hole_in_tone_px": 0,
+        "render_ink_outside_bubble_px": 0,
+        "ocr_cer": 0.0,
+        "ocr_cer_blocks": 3,
         "over_erased_px": 2448,
         "touched_away_px": 16275,
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.9394,
-        "ocr": 0.9333,
-        "translate": 0.0007,
-        "mask": 0.001,
-        "inpaint_model": 12.4463,
-        "render": 0.0602,
-        "verify": 2.4908,
-        "total": 16.881,
-        "other": 0.0093
+        "detect": 0.8553,
+        "ocr": 0.6989,
+        "translate": 0.0011,
+        "mask": 0.0006,
+        "inpaint_model": 7.6957,
+        "render": 0.0288,
+        "verify": 0.9257,
+        "total": 10.2107,
+        "other": 0.0046
       }
     },
     {
@@ -331,7 +362,8 @@
         "mask_px": 70722,
         "white_fill_px": 0,
         "mask_fraction": 0.136424,
-        "suppressed_composites": 0
+        "suppressed_composites": 0,
+        "reason_codes": {}
       },
       "inpaint": {
         "requested": "lama_large",
@@ -349,6 +381,7 @@
           16,
           16
         ],
+        "font_size_spread": 0,
         "shrink_events": 0,
         "below_min_readable": 0,
         "overflow_attempts": 0,
@@ -367,20 +400,28 @@
         "recall": 1.0,
         "text_mae": 41.047,
         "residual_ink_ratio": 0.4037,
+        "ink_mask_recall": 1.0,
+        "residual_in_mask_ratio": 0.4037,
+        "residual_out_of_mask_ratio": 0.0,
+        "residual_ink_lp_ratio": 0.0,
+        "hole_in_tone_px": 0,
+        "render_ink_outside_bubble_px": 0,
+        "ocr_cer": 0.0,
+        "ocr_cer_blocks": 2,
         "over_erased_px": 7175,
         "touched_away_px": 23775,
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 1.9068,
-        "ocr": 1.4446,
-        "translate": 0.0017,
-        "mask": 0.0005,
-        "inpaint_model": 9.3455,
-        "render": 0.0173,
-        "verify": 0.7901,
-        "total": 13.5134,
-        "other": 0.0069
+        "detect": 0.8549,
+        "ocr": 0.4838,
+        "translate": 0.0001,
+        "mask": 0.0003,
+        "inpaint_model": 5.5824,
+        "render": 0.0096,
+        "verify": 0.6352,
+        "total": 7.5704,
+        "other": 0.0041
       }
     },
     {
@@ -419,7 +460,8 @@
         "mask_px": 51576,
         "white_fill_px": 0,
         "mask_fraction": 0.033578,
-        "suppressed_composites": 0
+        "suppressed_composites": 0,
+        "reason_codes": {}
       },
       "inpaint": {
         "requested": "lama_large",
@@ -439,6 +481,7 @@
           16,
           16
         ],
+        "font_size_spread": 0,
         "shrink_events": 0,
         "below_min_readable": 0,
         "overflow_attempts": 0,
@@ -457,20 +500,332 @@
         "recall": 1.0,
         "text_mae": 1.027,
         "residual_ink_ratio": 0.0,
+        "ink_mask_recall": 1.0,
+        "residual_in_mask_ratio": 0.0,
+        "residual_out_of_mask_ratio": 0.0,
+        "residual_ink_lp_ratio": 0.0,
+        "hole_in_tone_px": 0,
+        "render_ink_outside_bubble_px": 0,
+        "ocr_cer": 0.025,
+        "ocr_cer_blocks": 4,
         "over_erased_px": 0,
         "touched_away_px": 18100,
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 1.4672,
-        "ocr": 1.3514,
-        "translate": 0.0002,
-        "mask": 0.0009,
-        "inpaint_model": 26.8748,
-        "render": 0.3121,
-        "verify": 2.0058,
-        "total": 32.0297,
-        "other": 0.0173
+        "detect": 1.0012,
+        "ocr": 0.9196,
+        "translate": 0.0001,
+        "mask": 0.0006,
+        "inpaint_model": 19.6125,
+        "render": 0.213,
+        "verify": 1.371,
+        "total": 23.1305,
+        "other": 0.0125
+      }
+    },
+    {
+      "id": "syn-tone-rotated",
+      "tags": [
+        "textured-background",
+        "narration",
+        "sfx",
+        "vertical-text",
+        "horizontal-text",
+        "adversarial"
+      ],
+      "source": "synthetic:tone-rotated",
+      "sha256": "09f227a57b4ec815",
+      "size": [
+        720,
+        1000
+      ],
+      "status": "ok",
+      "blocks": {
+        "detected": 4,
+        "ocr_nonempty": 4,
+        "to_erase": 4
+      },
+      "mask": {
+        "path": "rectangular",
+        "strategies": {
+          "rectangle": 4
+        },
+        "kinds": {
+          "contour_safe_glyph": 0,
+          "bubble_interior": 0,
+          "rectangular": 4,
+          "other": 0,
+          "skipped": 0
+        },
+        "white_fill_blocks": 0,
+        "model_blocks": 4,
+        "mask_px": 71533,
+        "white_fill_px": 0,
+        "mask_fraction": 0.099351,
+        "suppressed_composites": 0,
+        "reason_codes": {}
+      },
+      "inpaint": {
+        "requested": "lama_large",
+        "used": "lama_large",
+        "fallback": false,
+        "strategy": "model",
+        "changed_outside_mask_px": 0,
+        "changed_inside_mask_px": 71303,
+        "model_changed_outside_mask_px": 0
+      },
+      "render": {
+        "regions": 4,
+        "preferred_font_size": 16,
+        "font_sizes": [
+          16,
+          16,
+          16,
+          16
+        ],
+        "font_size_spread": 0,
+        "shrink_events": 0,
+        "below_min_readable": 0,
+        "overflow_attempts": 0,
+        "overflow_events": 0,
+        "unfit_skipped": 0
+      },
+      "verify": {
+        "ran": true,
+        "checked": 4,
+        "step6_flagged": 0,
+        "rendered_checked": 4,
+        "kana_kanji": 0
+      },
+      "truth": {
+        "boxes": 4,
+        "recall": 1.0,
+        "text_mae": 38.609,
+        "residual_ink_ratio": 0.277,
+        "ink_mask_recall": 1.0,
+        "residual_in_mask_ratio": 0.277,
+        "residual_out_of_mask_ratio": 0.0,
+        "residual_ink_lp_ratio": 0.0,
+        "hole_in_tone_px": 61,
+        "render_ink_outside_bubble_px": 0,
+        "ocr_cer": 0.0,
+        "ocr_cer_blocks": 4,
+        "over_erased_px": 4134,
+        "touched_away_px": 19370,
+        "glyph_source": "msgothic.ttc"
+      },
+      "timings": {
+        "detect": 0.8909,
+        "ocr": 1.0299,
+        "translate": 0.0005,
+        "mask": 0.0005,
+        "inpaint_model": 10.055,
+        "render": 0.0324,
+        "verify": 2.4422,
+        "total": 14.4586,
+        "other": 0.0072
+      }
+    },
+    {
+      "id": "syn-faint-lettering",
+      "tags": [
+        "white-bubble",
+        "textured-background",
+        "vertical-text",
+        "horizontal-text",
+        "adversarial"
+      ],
+      "source": "synthetic:faint-lettering",
+      "sha256": "9232e9ae007093a8",
+      "size": [
+        720,
+        1000
+      ],
+      "status": "ok",
+      "blocks": {
+        "detected": 3,
+        "ocr_nonempty": 3,
+        "to_erase": 3
+      },
+      "mask": {
+        "path": "rectangular",
+        "strategies": {
+          "rectangle": 3
+        },
+        "kinds": {
+          "contour_safe_glyph": 0,
+          "bubble_interior": 0,
+          "rectangular": 3,
+          "other": 0,
+          "skipped": 0
+        },
+        "white_fill_blocks": 0,
+        "model_blocks": 3,
+        "mask_px": 46756,
+        "white_fill_px": 0,
+        "mask_fraction": 0.064939,
+        "suppressed_composites": 0,
+        "reason_codes": {}
+      },
+      "inpaint": {
+        "requested": "lama_large",
+        "used": "lama_large",
+        "fallback": false,
+        "strategy": "model",
+        "changed_outside_mask_px": 0,
+        "changed_inside_mask_px": 43719,
+        "model_changed_outside_mask_px": 0
+      },
+      "render": {
+        "regions": 3,
+        "preferred_font_size": 16,
+        "font_sizes": [
+          16,
+          16,
+          16
+        ],
+        "font_size_spread": 0,
+        "shrink_events": 0,
+        "below_min_readable": 0,
+        "overflow_attempts": 0,
+        "overflow_events": 0,
+        "unfit_skipped": 0
+      },
+      "verify": {
+        "ran": true,
+        "checked": 3,
+        "step6_flagged": 1,
+        "rendered_checked": 3,
+        "kana_kanji": 1
+      },
+      "truth": {
+        "boxes": 4,
+        "recall": 1.0,
+        "text_mae": 17.484,
+        "residual_ink_ratio": 0.1817,
+        "ink_mask_recall": 1.0,
+        "residual_in_mask_ratio": 0.1817,
+        "residual_out_of_mask_ratio": 0.0,
+        "residual_ink_lp_ratio": 0.0,
+        "hole_in_tone_px": 0,
+        "render_ink_outside_bubble_px": 0,
+        "ocr_cer": 0.3464,
+        "ocr_cer_blocks": 4,
+        "over_erased_px": 2832,
+        "touched_away_px": 12255,
+        "glyph_source": "msgothic.ttc"
+      },
+      "timings": {
+        "detect": 1.157,
+        "ocr": 0.8589,
+        "translate": 0.0001,
+        "mask": 0.0005,
+        "inpaint_model": 8.3628,
+        "render": 0.1757,
+        "verify": 0.9858,
+        "total": 11.5479,
+        "other": 0.0071
+      }
+    },
+    {
+      "id": "syn-text-touching-outline",
+      "tags": [
+        "white-bubble",
+        "vertical-text",
+        "horizontal-text",
+        "adversarial"
+      ],
+      "source": "synthetic:text-touching-outline",
+      "sha256": "cbf7b9dcb0a66bd5",
+      "size": [
+        720,
+        1000
+      ],
+      "status": "ok",
+      "blocks": {
+        "detected": 3,
+        "ocr_nonempty": 3,
+        "to_erase": 3
+      },
+      "mask": {
+        "path": "rectangular",
+        "strategies": {
+          "rectangle": 3
+        },
+        "kinds": {
+          "contour_safe_glyph": 0,
+          "bubble_interior": 0,
+          "rectangular": 3,
+          "other": 0,
+          "skipped": 0
+        },
+        "white_fill_blocks": 0,
+        "model_blocks": 3,
+        "mask_px": 78032,
+        "white_fill_px": 0,
+        "mask_fraction": 0.108378,
+        "suppressed_composites": 0,
+        "reason_codes": {}
+      },
+      "inpaint": {
+        "requested": "lama_large",
+        "used": "lama_large",
+        "fallback": false,
+        "strategy": "model",
+        "changed_outside_mask_px": 0,
+        "changed_inside_mask_px": 75875,
+        "model_changed_outside_mask_px": 0
+      },
+      "render": {
+        "regions": 3,
+        "preferred_font_size": 16,
+        "font_sizes": [
+          16,
+          16,
+          16
+        ],
+        "font_size_spread": 0,
+        "shrink_events": 0,
+        "below_min_readable": 0,
+        "overflow_attempts": 0,
+        "overflow_events": 0,
+        "unfit_skipped": 0
+      },
+      "verify": {
+        "ran": true,
+        "checked": 3,
+        "step6_flagged": 1,
+        "rendered_checked": 3,
+        "kana_kanji": 1
+      },
+      "truth": {
+        "boxes": 3,
+        "recall": 1.0,
+        "text_mae": 7.017,
+        "residual_ink_ratio": 0.1037,
+        "ink_mask_recall": 0.8963,
+        "residual_in_mask_ratio": 0.0112,
+        "residual_out_of_mask_ratio": 0.0925,
+        "residual_ink_lp_ratio": 0.1132,
+        "hole_in_tone_px": 59,
+        "render_ink_outside_bubble_px": 0,
+        "ocr_cer": 0.1818,
+        "ocr_cer_blocks": 2,
+        "over_erased_px": 255,
+        "touched_away_px": 29731,
+        "glyph_source": "msgothic.ttc"
+      },
+      "timings": {
+        "detect": 0.9197,
+        "ocr": 0.7738,
+        "translate": 0.0001,
+        "mask": 0.0005,
+        "inpaint_model": 8.729,
+        "render": 0.1185,
+        "verify": 0.9626,
+        "total": 11.5119,
+        "other": 0.0077
       }
     },
     {
@@ -511,7 +866,8 @@
         "mask_px": 95836,
         "white_fill_px": 0,
         "mask_fraction": 0.181002,
-        "suppressed_composites": 1
+        "suppressed_composites": 1,
+        "reason_codes": {}
       },
       "inpaint": {
         "requested": "lama_large",
@@ -540,6 +896,7 @@
           12,
           11
         ],
+        "font_size_spread": 7,
         "shrink_events": 8,
         "below_min_readable": 1,
         "overflow_attempts": 1,
@@ -555,15 +912,15 @@
       },
       "truth": null,
       "timings": {
-        "detect": 1.2416,
-        "ocr": 5.9689,
-        "translate": 0.0017,
-        "mask": 0.0015,
-        "inpaint_model": 8.9787,
-        "render": 0.172,
-        "verify": 12.1628,
-        "total": 28.535,
-        "other": 0.0078
+        "detect": 1.1958,
+        "ocr": 6.5704,
+        "translate": 0.0015,
+        "mask": 0.0022,
+        "inpaint_model": 11.1123,
+        "render": 0.1989,
+        "verify": 9.3059,
+        "total": 28.3924,
+        "other": 0.0054
       }
     },
     {
@@ -605,7 +962,8 @@
         "mask_px": 90474,
         "white_fill_px": 0,
         "mask_fraction": 0.08089,
-        "suppressed_composites": 1
+        "suppressed_composites": 1,
+        "reason_codes": {}
       },
       "inpaint": {
         "requested": "lama_large",
@@ -643,6 +1001,7 @@
           16,
           16
         ],
+        "font_size_spread": 12,
         "shrink_events": 14,
         "below_min_readable": 4,
         "overflow_attempts": 2,
@@ -658,15 +1017,15 @@
       },
       "truth": null,
       "timings": {
-        "detect": 1.7427,
-        "ocr": 13.003,
-        "translate": 0.0006,
-        "mask": 0.012,
-        "inpaint_model": 26.851,
-        "render": 0.3466,
-        "verify": 11.8379,
-        "total": 53.8172,
-        "other": 0.0234
+        "detect": 1.3223,
+        "ocr": 10.0836,
+        "translate": 0.0015,
+        "mask": 0.0032,
+        "inpaint_model": 18.9541,
+        "render": 0.4627,
+        "verify": 15.2629,
+        "total": 46.1068,
+        "other": 0.0165
       }
     },
     {
@@ -708,7 +1067,8 @@
         "mask_px": 123662,
         "white_fill_px": 0,
         "mask_fraction": 0.112488,
-        "suppressed_composites": 0
+        "suppressed_composites": 0,
+        "reason_codes": {}
       },
       "inpaint": {
         "requested": "lama_large",
@@ -749,6 +1109,7 @@
           16,
           16
         ],
+        "font_size_spread": 9,
         "shrink_events": 10,
         "below_min_readable": 1,
         "overflow_attempts": 1,
@@ -764,34 +1125,34 @@
       },
       "truth": null,
       "timings": {
-        "detect": 1.6637,
-        "ocr": 10.8442,
-        "translate": 0.0003,
-        "mask": 0.004,
-        "inpaint_model": 14.5704,
-        "render": 0.1554,
-        "verify": 20.7499,
-        "total": 47.9997,
-        "other": 0.0118
+        "detect": 1.8405,
+        "ocr": 11.896,
+        "translate": 0.0002,
+        "mask": 0.005,
+        "inpaint_model": 24.7198,
+        "render": 0.4524,
+        "verify": 17.9339,
+        "total": 56.8677,
+        "other": 0.0199
       }
     }
   ],
   "summary": {
     "pages": {
-      "total": 8,
-      "scored": 8
+      "total": 11,
+      "scored": 11
     },
     "blocks": {
-      "detected": 79,
-      "to_erase": 77
+      "detected": 89,
+      "to_erase": 87
     },
     "cjk_residue": {
-      "step6_checked": 79,
-      "step6_flagged": 9,
-      "step6_rate": 0.1139,
-      "rendered_checked": 77,
-      "kana_kanji": 9,
-      "kana_kanji_rate": 0.1169
+      "step6_checked": 89,
+      "step6_flagged": 11,
+      "step6_rate": 0.1236,
+      "rendered_checked": 87,
+      "kana_kanji": 11,
+      "kana_kanji_rate": 0.1264
     },
     "inpaint": {
       "changed_outside_mask_px": 0,
@@ -799,56 +1160,149 @@
       "model_changed_outside_mask_px": 0,
       "fallback_pages": 0,
       "used": {
-        "lama_large": 8
+        "lama_large": 11
       }
     },
     "mask": {
       "kinds": {
         "contour_safe_glyph": 0,
         "bubble_interior": 0,
-        "rectangular": 75,
+        "rectangular": 85,
         "other": 0,
         "skipped": 0
       },
       "strategies": {
-        "rectangle": 75
+        "rectangle": 85
       },
       "white_fill_blocks": 0,
-      "model_blocks": 75,
+      "model_blocks": 85,
       "suppressed_composites": 2,
-      "mask_px": 718173
+      "mask_px": 914494,
+      "reason_codes": {}
     },
     "render": {
-      "regions": 75,
+      "regions": 85,
       "shrink_events": 32,
       "below_min_readable": 6,
       "overflow_attempts": 4,
       "overflow_events": 4,
       "unfit_skipped": 0,
       "font_size_median": 16,
-      "font_size_min": 4
+      "font_size_min": 4,
+      "font_size_spread": 2.5455
     },
     "truth": {
-      "pages": 5,
+      "pages": 8,
       "recall": 1.0,
-      "text_mae": 13.4412,
-      "residual_ink_ratio": 0.113,
-      "over_erased_px": 9667,
-      "touched_away_px": 227139
+      "text_mae": 16.2895,
+      "residual_ink_ratio": 0.1409,
+      "ink_mask_recall": 0.987,
+      "residual_in_mask_ratio": 0.1293,
+      "residual_out_of_mask_ratio": 0.0116,
+      "residual_ink_lp_ratio": 0.0141,
+      "hole_in_tone_px": 120,
+      "render_ink_outside_bubble_px": 0,
+      "ocr_cer": 0.0922,
+      "ocr_cer_blocks": 19,
+      "over_erased_px": 16888,
+      "touched_away_px": 288495
     },
     "timings": {
-      "detect": 13.258,
-      "ocr": 37.379,
-      "translate": 0.007,
-      "mask": 0.022,
-      "inpaint_model": 122.529,
-      "render": 1.228,
-      "verify": 53.135,
-      "other": 0.097,
-      "total": 227.654
+      "detect": 11.937,
+      "ocr": 34.83,
+      "translate": 0.005,
+      "mask": 0.014,
+      "inpaint_model": 128.144,
+      "render": 1.762,
+      "verify": 51.686,
+      "other": 0.094,
+      "total": 228.472
     },
-    "seconds_per_page": 28.457,
+    "seconds_per_page": 20.77,
     "by_tag": {
+      "adversarial": {
+        "pages": {
+          "total": 3,
+          "scored": 3
+        },
+        "blocks": {
+          "detected": 10,
+          "to_erase": 10
+        },
+        "cjk_residue": {
+          "step6_checked": 10,
+          "step6_flagged": 2,
+          "step6_rate": 0.2,
+          "rendered_checked": 10,
+          "kana_kanji": 2,
+          "kana_kanji_rate": 0.2
+        },
+        "inpaint": {
+          "changed_outside_mask_px": 0,
+          "pages_changed_outside_mask": 0,
+          "model_changed_outside_mask_px": 0,
+          "fallback_pages": 0,
+          "used": {
+            "lama_large": 3
+          }
+        },
+        "mask": {
+          "kinds": {
+            "contour_safe_glyph": 0,
+            "bubble_interior": 0,
+            "rectangular": 10,
+            "other": 0,
+            "skipped": 0
+          },
+          "strategies": {
+            "rectangle": 10
+          },
+          "white_fill_blocks": 0,
+          "model_blocks": 10,
+          "suppressed_composites": 0,
+          "mask_px": 196321,
+          "reason_codes": {}
+        },
+        "render": {
+          "regions": 10,
+          "shrink_events": 0,
+          "below_min_readable": 0,
+          "overflow_attempts": 0,
+          "overflow_events": 0,
+          "unfit_skipped": 0,
+          "font_size_median": 16.0,
+          "font_size_min": 16,
+          "font_size_spread": 0.0
+        },
+        "truth": {
+          "pages": 3,
+          "recall": 1.0,
+          "text_mae": 21.0367,
+          "residual_ink_ratio": 0.1875,
+          "ink_mask_recall": 0.9654,
+          "residual_in_mask_ratio": 0.1566,
+          "residual_out_of_mask_ratio": 0.0308,
+          "residual_ink_lp_ratio": 0.0377,
+          "hole_in_tone_px": 120,
+          "render_ink_outside_bubble_px": 0,
+          "ocr_cer": 0.1761,
+          "ocr_cer_blocks": 10,
+          "over_erased_px": 7221,
+          "touched_away_px": 61356
+        },
+        "timings": {
+          "detect": 2.968,
+          "ocr": 2.663,
+          "translate": 0.001,
+          "mask": 0.002,
+          "inpaint_model": 27.147,
+          "render": 0.327,
+          "verify": 4.391,
+          "other": 0.022,
+          "total": 37.518
+        },
+        "seconds_per_page": 12.506
+      },
       "bookwalker": {
         "pages": {
           "total": 2,
@@ -889,7 +1343,8 @@
           "white_fill_blocks": 0,
           "model_blocks": 47,
           "suppressed_composites": 1,
-          "mask_px": 214136
+          "mask_px": 214136,
+          "reason_codes": {}
         },
         "render": {
           "regions": 47,
@@ -899,28 +1354,37 @@
           "overflow_events": 3,
           "unfit_skipped": 0,
           "font_size_median": 15,
-          "font_size_min": 4
+          "font_size_min": 4,
+          "font_size_spread": 10.5
         },
         "truth": {
           "pages": 0,
           "recall": null,
           "text_mae": null,
           "residual_ink_ratio": null,
+          "ink_mask_recall": null,
+          "residual_in_mask_ratio": null,
+          "residual_out_of_mask_ratio": null,
+          "residual_ink_lp_ratio": null,
+          "hole_in_tone_px": 0,
+          "render_ink_outside_bubble_px": 0,
+          "ocr_cer": null,
+          "ocr_cer_blocks": 0,
           "over_erased_px": 0,
           "touched_away_px": 0
         },
         "timings": {
-          "detect": 3.406,
-          "ocr": 23.847,
-          "translate": 0.001,
-          "mask": 0.016,
-          "inpaint_model": 41.421,
-          "render": 0.502,
-          "verify": 32.588,
-          "other": 0.035,
-          "total": 101.817
+          "detect": 3.163,
+          "ocr": 21.98,
+          "translate": 0.002,
+          "mask": 0.008,
+          "inpaint_model": 43.674,
+          "render": 0.915,
+          "verify": 33.197,
+          "other": 0.036,
+          "total": 102.975
         },
-        "seconds_per_page": 50.908
+        "seconds_per_page": 51.487
       },
       "conjoined-bubbles": {
         "pages": {
@@ -962,7 +1426,8 @@
           "white_fill_blocks": 0,
           "model_blocks": 49,
           "suppressed_composites": 1,
-          "mask_px": 322200
+          "mask_px": 322200,
+          "reason_codes": {}
         },
         "render": {
           "regions": 49,
@@ -972,45 +1437,54 @@
           "overflow_events": 3,
           "unfit_skipped": 0,
           "font_size_median": 16,
-          "font_size_min": 4
+          "font_size_min": 4,
+          "font_size_spread": 7.0
         },
         "truth": {
           "pages": 1,
           "recall": 1.0,
           "text_mae": 0.985,
           "residual_ink_ratio": 0.0,
+          "ink_mask_recall": 1.0,
+          "residual_in_mask_ratio": 0.0,
+          "residual_out_of_mask_ratio": 0.0,
+          "residual_ink_lp_ratio": 0.0,
+          "hole_in_tone_px": 0,
+          "render_ink_outside_bubble_px": 0,
+          "ocr_cer": null,
+          "ocr_cer_blocks": 0,
           "over_erased_px": 11,
           "touched_away_px": 79206
         },
         "timings": {
-          "detect": 6.242,
-          "ocr": 26.292,
+          "detect": 4.068,
+          "ocr": 22.6,
           "translate": 0.002,
-          "mask": 0.018,
-          "inpaint_model": 52.91,
-          "render": 0.531,
-          "verify": 33.377,
-          "other": 0.045,
-          "total": 119.418
+          "mask": 0.009,
+          "inpaint_model": 49.17,
+          "render": 0.942,
+          "verify": 33.936,
+          "other": 0.04,
+          "total": 110.767
         },
-        "seconds_per_page": 39.806
+        "seconds_per_page": 36.922
       },
       "horizontal-text": {
         "pages": {
-          "total": 2,
-          "scored": 2
+          "total": 5,
+          "scored": 5
         },
         "blocks": {
-          "detected": 7,
-          "to_erase": 7
+          "detected": 17,
+          "to_erase": 17
         },
         "cjk_residue": {
-          "step6_checked": 7,
-          "step6_flagged": 2,
-          "step6_rate": 0.2857,
-          "rendered_checked": 7,
-          "kana_kanji": 2,
-          "kana_kanji_rate": 0.2857
+          "step6_checked": 17,
+          "step6_flagged": 4,
+          "step6_rate": 0.2353,
+          "rendered_checked": 17,
+          "kana_kanji": 4,
+          "kana_kanji_rate": 0.2353
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
@@ -1018,55 +1492,65 @@
           "model_changed_outside_mask_px": 0,
           "fallback_pages": 0,
           "used": {
-            "lama_large": 2
+            "lama_large": 5
           }
         },
         "mask": {
           "kinds": {
             "contour_safe_glyph": 0,
             "bubble_interior": 0,
-            "rectangular": 7,
+            "rectangular": 17,
             "other": 0,
             "skipped": 0
           },
           "strategies": {
-            "rectangle": 7
+            "rectangle": 17
           },
           "white_fill_blocks": 0,
-          "model_blocks": 7,
+          "model_blocks": 17,
           "suppressed_composites": 0,
-          "mask_px": 99368
+          "mask_px": 295689,
+          "reason_codes": {}
         },
         "render": {
-          "regions": 7,
+          "regions": 17,
           "shrink_events": 0,
           "below_min_readable": 0,
           "overflow_attempts": 0,
           "overflow_events": 0,
           "unfit_skipped": 0,
           "font_size_median": 16,
-          "font_size_min": 16
+          "font_size_min": 16,
+          "font_size_spread": 0.0
         },
         "truth": {
-          "pages": 2,
+          "pages": 5,
           "recall": 1.0,
-          "text_mae": 12.1415,
-          "residual_ink_ratio": 0.0806,
-          "over_erased_px": 2448,
-          "touched_away_px": 34375
+          "text_mae": 17.4786,
+          "residual_ink_ratio": 0.1447,
+          "ink_mask_recall": 0.9793,
+          "residual_in_mask_ratio": 0.1262,
+          "residual_out_of_mask_ratio": 0.0185,
+          "residual_ink_lp_ratio": 0.0226,
+          "hole_in_tone_px": 120,
+          "render_ink_outside_bubble_px": 0,
+          "ocr_cer": 0.1106,
+          "ocr_cer_blocks": 17,
+          "over_erased_px": 9669,
+          "touched_away_px": 95731
         },
         "timings": {
-          "detect": 2.407,
-          "ocr": 2.285,
-          "translate": 0.001,
-          "mask": 0.002,
-          "inpaint_model": 39.321,
-          "render": 0.372,
-          "verify": 4.497,
-          "other": 0.027,
-          "total": 48.911
+          "detect": 4.824,
+          "ocr": 4.281,
+          "translate": 0.002,
+          "mask": 0.003,
+          "inpaint_model": 54.455,
+          "render": 0.568,
+          "verify": 6.687,
+          "other": 0.039,
+          "total": 70.86
         },
-        "seconds_per_page": 24.456
+        "seconds_per_page": 14.172
       },
       "light-on-dark": {
         "pages": {
@@ -1108,7 +1592,8 @@
           "white_fill_blocks": 0,
           "model_blocks": 3,
           "suppressed_composites": 0,
-          "mask_px": 47792
+          "mask_px": 47792,
+          "reason_codes": {}
         },
         "render": {
           "regions": 3,
@@ -1118,45 +1603,54 @@
           "overflow_events": 0,
           "unfit_skipped": 0,
           "font_size_median": 16,
-          "font_size_min": 16
+          "font_size_min": 16,
+          "font_size_spread": 0.0
         },
         "truth": {
           "pages": 1,
           "recall": 1.0,
           "text_mae": 23.256,
           "residual_ink_ratio": 0.1612,
+          "ink_mask_recall": 1.0,
+          "residual_in_mask_ratio": 0.1612,
+          "residual_out_of_mask_ratio": 0.0,
+          "residual_ink_lp_ratio": 0.0,
+          "hole_in_tone_px": 0,
+          "render_ink_outside_bubble_px": 0,
+          "ocr_cer": 0.0,
+          "ocr_cer_blocks": 3,
           "over_erased_px": 2448,
           "touched_away_px": 16275
         },
         "timings": {
-          "detect": 0.939,
-          "ocr": 0.933,
+          "detect": 0.855,
+          "ocr": 0.699,
           "translate": 0.001,
           "mask": 0.001,
-          "inpaint_model": 12.446,
-          "render": 0.06,
-          "verify": 2.491,
-          "other": 0.009,
-          "total": 16.881
+          "inpaint_model": 7.696,
+          "render": 0.029,
+          "verify": 0.926,
+          "other": 0.005,
+          "total": 10.211
         },
-        "seconds_per_page": 16.881
+        "seconds_per_page": 10.211
       },
       "narration": {
         "pages": {
-          "total": 2,
-          "scored": 2
+          "total": 3,
+          "scored": 3
         },
         "blocks": {
-          "detected": 17,
-          "to_erase": 17
+          "detected": 21,
+          "to_erase": 21
         },
         "cjk_residue": {
-          "step6_checked": 17,
+          "step6_checked": 21,
           "step6_flagged": 4,
-          "step6_rate": 0.2353,
-          "rendered_checked": 17,
+          "step6_rate": 0.1905,
+          "rendered_checked": 21,
           "kana_kanji": 4,
-          "kana_kanji_rate": 0.2353
+          "kana_kanji_rate": 0.1905
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
@@ -1164,145 +1658,82 @@
           "model_changed_outside_mask_px": 0,
           "fallback_pages": 0,
           "used": {
-            "lama_large": 2
+            "lama_large": 3
           }
         },
         "mask": {
           "kinds": {
             "contour_safe_glyph": 0,
             "bubble_interior": 0,
-            "rectangular": 16,
+            "rectangular": 20,
             "other": 0,
             "skipped": 0
           },
           "strategies": {
-            "rectangle": 16
+            "rectangle": 20
           },
           "white_fill_blocks": 0,
-          "model_blocks": 16,
+          "model_blocks": 20,
           "suppressed_composites": 1,
-          "mask_px": 143628
+          "mask_px": 215161,
+          "reason_codes": {}
         },
         "render": {
-          "regions": 16,
+          "regions": 20,
           "shrink_events": 8,
           "below_min_readable": 1,
           "overflow_attempts": 1,
           "overflow_events": 1,
           "unfit_skipped": 0,
-          "font_size_median": 15.5,
-          "font_size_min": 9
+          "font_size_median": 16.0,
+          "font_size_min": 9,
+          "font_size_spread": 2.3333
         },
         "truth": {
-          "pages": 1,
+          "pages": 2,
           "recall": 1.0,
-          "text_mae": 23.256,
-          "residual_ink_ratio": 0.1612,
-          "over_erased_px": 2448,
-          "touched_away_px": 16275
+          "text_mae": 30.9325,
+          "residual_ink_ratio": 0.2191,
+          "ink_mask_recall": 1.0,
+          "residual_in_mask_ratio": 0.2191,
+          "residual_out_of_mask_ratio": 0.0,
+          "residual_ink_lp_ratio": 0.0,
+          "hole_in_tone_px": 61,
+          "render_ink_outside_bubble_px": 0,
+          "ocr_cer": 0.0,
+          "ocr_cer_blocks": 7,
+          "over_erased_px": 6582,
+          "touched_away_px": 35645
         },
         "timings": {
-          "detect": 2.181,
-          "ocr": 6.902,
-          "translate": 0.002,
+          "detect": 2.942,
+          "ocr": 8.299,
+          "translate": 0.003,
           "mask": 0.003,
-          "inpaint_model": 21.425,
-          "render": 0.232,
-          "verify": 14.654,
+          "inpaint_model": 28.863,
+          "render": 0.26,
+          "verify": 12.674,
           "other": 0.017,
-          "total": 45.416
+          "total": 53.062
         },
-        "seconds_per_page": 22.708
+        "seconds_per_page": 17.687
       },
       "sfx": {
-        "pages": {
-          "total": 4,
-          "scored": 4
-        },
-        "blocks": {
-          "detected": 66,
-          "to_erase": 64
-        },
-        "cjk_residue": {
-          "step6_checked": 66,
-          "step6_flagged": 6,
-          "step6_rate": 0.0909,
-          "rendered_checked": 64,
-          "kana_kanji": 6,
-          "kana_kanji_rate": 0.0938
-        },
-        "inpaint": {
-          "changed_outside_mask_px": 0,
-          "pages_changed_outside_mask": 0,
-          "model_changed_outside_mask_px": 0,
-          "fallback_pages": 0,
-          "used": {
-            "lama_large": 4
-          }
-        },
-        "mask": {
-          "kinds": {
-            "contour_safe_glyph": 0,
-            "bubble_interior": 0,
-            "rectangular": 62,
-            "other": 0,
-            "skipped": 0
-          },
-          "strategies": {
-            "rectangle": 62
-          },
-          "white_fill_blocks": 0,
-          "model_blocks": 62,
-          "suppressed_composites": 2,
-          "mask_px": 380694
-        },
-        "render": {
-          "regions": 62,
-          "shrink_events": 32,
-          "below_min_readable": 6,
-          "overflow_attempts": 4,
-          "overflow_events": 4,
-          "unfit_skipped": 0,
-          "font_size_median": 15.0,
-          "font_size_min": 4
-        },
-        "truth": {
-          "pages": 1,
-          "recall": 1.0,
-          "text_mae": 41.047,
-          "residual_ink_ratio": 0.4037,
-          "over_erased_px": 7175,
-          "touched_away_px": 23775
-        },
-        "timings": {
-          "detect": 6.555,
-          "ocr": 31.261,
-          "translate": 0.004,
-          "mask": 0.018,
-          "inpaint_model": 59.746,
-          "render": 0.691,
-          "verify": 45.541,
-          "other": 0.05,
-          "total": 143.865
-        },
-        "seconds_per_page": 35.966
-      },
-      "textured-background": {
         "pages": {
           "total": 5,
           "scored": 5
         },
         "blocks": {
-          "detected": 69,
-          "to_erase": 67
+          "detected": 70,
+          "to_erase": 68
         },
         "cjk_residue": {
-          "step6_checked": 69,
-          "step6_flagged": 7,
-          "step6_rate": 0.1014,
-          "rendered_checked": 67,
-          "kana_kanji": 7,
-          "kana_kanji_rate": 0.1045
+          "step6_checked": 70,
+          "step6_flagged": 6,
+          "step6_rate": 0.0857,
+          "rendered_checked": 68,
+          "kana_kanji": 6,
+          "kana_kanji_rate": 0.0882
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
@@ -1317,65 +1748,75 @@
           "kinds": {
             "contour_safe_glyph": 0,
             "bubble_interior": 0,
-            "rectangular": 65,
+            "rectangular": 66,
             "other": 0,
             "skipped": 0
           },
           "strategies": {
-            "rectangle": 65
+            "rectangle": 66
           },
           "white_fill_blocks": 0,
-          "model_blocks": 65,
+          "model_blocks": 66,
           "suppressed_composites": 2,
-          "mask_px": 428486
+          "mask_px": 452227,
+          "reason_codes": {}
         },
         "render": {
-          "regions": 65,
+          "regions": 66,
           "shrink_events": 32,
           "below_min_readable": 6,
           "overflow_attempts": 4,
           "overflow_events": 4,
           "unfit_skipped": 0,
-          "font_size_median": 16,
-          "font_size_min": 4
+          "font_size_median": 16.0,
+          "font_size_min": 4,
+          "font_size_spread": 5.6
         },
         "truth": {
           "pages": 2,
           "recall": 1.0,
-          "text_mae": 32.1515,
-          "residual_ink_ratio": 0.2824,
-          "over_erased_px": 9623,
-          "touched_away_px": 40050
+          "text_mae": 39.828,
+          "residual_ink_ratio": 0.3404,
+          "ink_mask_recall": 1.0,
+          "residual_in_mask_ratio": 0.3404,
+          "residual_out_of_mask_ratio": 0.0,
+          "residual_ink_lp_ratio": 0.0,
+          "hole_in_tone_px": 61,
+          "render_ink_outside_bubble_px": 0,
+          "ocr_cer": 0.0,
+          "ocr_cer_blocks": 6,
+          "over_erased_px": 11309,
+          "touched_away_px": 43145
         },
         "timings": {
-          "detect": 7.494,
-          "ocr": 32.194,
-          "translate": 0.005,
-          "mask": 0.019,
-          "inpaint_model": 72.192,
-          "render": 0.752,
-          "verify": 48.032,
-          "other": 0.059,
-          "total": 160.746
+          "detect": 6.104,
+          "ocr": 30.064,
+          "translate": 0.004,
+          "mask": 0.011,
+          "inpaint_model": 70.424,
+          "render": 1.156,
+          "verify": 45.58,
+          "other": 0.053,
+          "total": 153.396
         },
-        "seconds_per_page": 32.149
+        "seconds_per_page": 30.679
       },
-      "vertical-text": {
+      "textured-background": {
         "pages": {
-          "total": 6,
-          "scored": 6
+          "total": 7,
+          "scored": 7
         },
         "blocks": {
-          "detected": 73,
-          "to_erase": 71
+          "detected": 76,
+          "to_erase": 74
         },
         "cjk_residue": {
-          "step6_checked": 73,
+          "step6_checked": 76,
           "step6_flagged": 8,
-          "step6_rate": 0.1096,
-          "rendered_checked": 71,
+          "step6_rate": 0.1053,
+          "rendered_checked": 74,
           "kana_kanji": 8,
-          "kana_kanji_rate": 0.1127
+          "kana_kanji_rate": 0.1081
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
@@ -1383,55 +1824,148 @@
           "model_changed_outside_mask_px": 0,
           "fallback_pages": 0,
           "used": {
-            "lama_large": 6
+            "lama_large": 7
           }
         },
         "mask": {
           "kinds": {
             "contour_safe_glyph": 0,
             "bubble_interior": 0,
-            "rectangular": 69,
+            "rectangular": 72,
             "other": 0,
             "skipped": 0
           },
           "strategies": {
-            "rectangle": 69
+            "rectangle": 72
           },
           "white_fill_blocks": 0,
-          "model_blocks": 69,
+          "model_blocks": 72,
           "suppressed_composites": 2,
-          "mask_px": 595875
+          "mask_px": 546775,
+          "reason_codes": {}
         },
         "render": {
-          "regions": 69,
+          "regions": 72,
+          "shrink_events": 32,
+          "below_min_readable": 6,
+          "overflow_attempts": 4,
+          "overflow_events": 4,
+          "unfit_skipped": 0,
+          "font_size_median": 16.0,
+          "font_size_min": 4,
+          "font_size_spread": 4.0
+        },
+        "truth": {
+          "pages": 4,
+          "recall": 1.0,
+          "text_mae": 30.099,
+          "residual_ink_ratio": 0.2559,
+          "ink_mask_recall": 1.0,
+          "residual_in_mask_ratio": 0.2559,
+          "residual_out_of_mask_ratio": 0.0,
+          "residual_ink_lp_ratio": 0.0,
+          "hole_in_tone_px": 61,
+          "render_ink_outside_bubble_px": 0,
+          "ocr_cer": 0.0866,
+          "ocr_cer_blocks": 13,
+          "over_erased_px": 16589,
+          "touched_away_px": 71675
+        },
+        "timings": {
+          "detect": 8.117,
+          "ocr": 31.622,
+          "translate": 0.005,
+          "mask": 0.012,
+          "inpaint_model": 86.482,
+          "render": 1.361,
+          "verify": 47.492,
+          "other": 0.065,
+          "total": 175.154
+        },
+        "seconds_per_page": 25.022
+      },
+      "vertical-text": {
+        "pages": {
+          "total": 9,
+          "scored": 9
+        },
+        "blocks": {
+          "detected": 83,
+          "to_erase": 81
+        },
+        "cjk_residue": {
+          "step6_checked": 83,
+          "step6_flagged": 10,
+          "step6_rate": 0.1205,
+          "rendered_checked": 81,
+          "kana_kanji": 10,
+          "kana_kanji_rate": 0.1235
+        },
+        "inpaint": {
+          "changed_outside_mask_px": 0,
+          "pages_changed_outside_mask": 0,
+          "model_changed_outside_mask_px": 0,
+          "fallback_pages": 0,
+          "used": {
+            "lama_large": 9
+          }
+        },
+        "mask": {
+          "kinds": {
+            "contour_safe_glyph": 0,
+            "bubble_interior": 0,
+            "rectangular": 79,
+            "other": 0,
+            "skipped": 0
+          },
+          "strategies": {
+            "rectangle": 79
+          },
+          "white_fill_blocks": 0,
+          "model_blocks": 79,
+          "suppressed_composites": 2,
+          "mask_px": 792196,
+          "reason_codes": {}
+        },
+        "render": {
+          "regions": 79,
           "shrink_events": 32,
           "below_min_readable": 6,
           "overflow_attempts": 4,
           "overflow_events": 4,
           "unfit_skipped": 0,
           "font_size_median": 16,
-          "font_size_min": 4
+          "font_size_min": 4,
+          "font_size_spread": 3.1111
         },
         "truth": {
-          "pages": 3,
+          "pages": 6,
           "recall": 1.0,
-          "text_mae": 8.3773,
-          "residual_ink_ratio": 0.0537,
-          "over_erased_px": 2492,
-          "touched_away_px": 185264
+          "text_mae": 14.707,
+          "residual_ink_ratio": 0.1206,
+          "ink_mask_recall": 0.9827,
+          "residual_in_mask_ratio": 0.1052,
+          "residual_out_of_mask_ratio": 0.0154,
+          "residual_ink_lp_ratio": 0.0189,
+          "hole_in_tone_px": 120,
+          "render_ink_outside_bubble_px": 0,
+          "ocr_cer": 0.1321,
+          "ocr_cer_blocks": 13,
+          "over_erased_px": 9713,
+          "touched_away_px": 246620
         },
         "timings": {
-          "detect": 9.884,
-          "ocr": 34.583,
+          "detect": 10.081,
+          "ocr": 33.426,
           "translate": 0.005,
-          "mask": 0.021,
-          "inpaint_model": 86.308,
-          "render": 0.899,
-          "verify": 50.339,
-          "other": 0.072,
-          "total": 182.111
+          "mask": 0.013,
+          "inpaint_model": 102.949,
+          "render": 1.539,
+          "verify": 49.68,
+          "other": 0.078,
+          "total": 197.771
         },
-        "seconds_per_page": 30.352
+        "seconds_per_page": 21.975
       },
       "webtoon-strip": {
         "pages": {
@@ -1473,7 +2007,8 @@
           "white_fill_blocks": 0,
           "model_blocks": 4,
           "suppressed_composites": 0,
-          "mask_px": 51576
+          "mask_px": 51576,
+          "reason_codes": {}
         },
         "render": {
           "regions": 4,
@@ -1483,45 +2018,54 @@
           "overflow_events": 0,
           "unfit_skipped": 0,
           "font_size_median": 16.0,
-          "font_size_min": 16
+          "font_size_min": 16,
+          "font_size_spread": 0.0
         },
         "truth": {
           "pages": 1,
           "recall": 1.0,
           "text_mae": 1.027,
           "residual_ink_ratio": 0.0,
+          "ink_mask_recall": 1.0,
+          "residual_in_mask_ratio": 0.0,
+          "residual_out_of_mask_ratio": 0.0,
+          "residual_ink_lp_ratio": 0.0,
+          "hole_in_tone_px": 0,
+          "render_ink_outside_bubble_px": 0,
+          "ocr_cer": 0.025,
+          "ocr_cer_blocks": 4,
           "over_erased_px": 0,
           "touched_away_px": 18100
         },
         "timings": {
-          "detect": 1.467,
-          "ocr": 1.351,
+          "detect": 1.001,
+          "ocr": 0.92,
           "translate": 0.0,
           "mask": 0.001,
-          "inpaint_model": 26.875,
-          "render": 0.312,
-          "verify": 2.006,
-          "other": 0.017,
-          "total": 32.03
+          "inpaint_model": 19.613,
+          "render": 0.213,
+          "verify": 1.371,
+          "other": 0.013,
+          "total": 23.131
         },
-        "seconds_per_page": 32.03
+        "seconds_per_page": 23.131
       },
       "white-bubble": {
         "pages": {
-          "total": 6,
-          "scored": 6
+          "total": 8,
+          "scored": 8
         },
         "blocks": {
-          "detected": 74,
-          "to_erase": 72
+          "detected": 80,
+          "to_erase": 78
         },
         "cjk_residue": {
-          "step6_checked": 74,
-          "step6_flagged": 8,
-          "step6_rate": 0.1081,
-          "rendered_checked": 72,
-          "kana_kanji": 8,
-          "kana_kanji_rate": 0.1111
+          "step6_checked": 80,
+          "step6_flagged": 10,
+          "step6_rate": 0.125,
+          "rendered_checked": 78,
+          "kana_kanji": 10,
+          "kana_kanji_rate": 0.1282
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
@@ -1529,60 +2073,70 @@
           "model_changed_outside_mask_px": 0,
           "fallback_pages": 0,
           "used": {
-            "lama_large": 6
+            "lama_large": 8
           }
         },
         "mask": {
           "kinds": {
             "contour_safe_glyph": 0,
             "bubble_interior": 0,
-            "rectangular": 70,
+            "rectangular": 76,
             "other": 0,
             "skipped": 0
           },
           "strategies": {
-            "rectangle": 70
+            "rectangle": 76
           },
           "white_fill_blocks": 0,
-          "model_blocks": 70,
+          "model_blocks": 76,
           "suppressed_composites": 2,
-          "mask_px": 599659
+          "mask_px": 724447,
+          "reason_codes": {}
         },
         "render": {
-          "regions": 70,
+          "regions": 76,
           "shrink_events": 32,
           "below_min_readable": 6,
           "overflow_attempts": 4,
           "overflow_events": 4,
           "unfit_skipped": 0,
           "font_size_median": 16.0,
-          "font_size_min": 4
+          "font_size_min": 4,
+          "font_size_spread": 3.5
         },
         "truth": {
-          "pages": 3,
+          "pages": 5,
           "recall": 1.0,
-          "text_mae": 0.9677,
-          "residual_ink_ratio": 0.0,
-          "over_erased_px": 44,
-          "touched_away_px": 187089
+          "text_mae": 5.4808,
+          "residual_ink_ratio": 0.0571,
+          "ink_mask_recall": 0.9793,
+          "residual_in_mask_ratio": 0.0386,
+          "residual_out_of_mask_ratio": 0.0185,
+          "residual_ink_lp_ratio": 0.0226,
+          "hole_in_tone_px": 59,
+          "render_ink_outside_bubble_px": 0,
+          "ocr_cer": 0.1844,
+          "ocr_cer_blocks": 10,
+          "over_erased_px": 3131,
+          "touched_away_px": 229075
         },
         "timings": {
-          "detect": 10.412,
-          "ocr": 35.001,
+          "detect": 9.336,
+          "ocr": 32.617,
           "translate": 0.004,
-          "mask": 0.021,
-          "inpaint_model": 100.737,
-          "render": 1.151,
-          "verify": 49.854,
-          "other": 0.08,
-          "total": 197.26
+          "mask": 0.013,
+          "inpaint_model": 104.811,
+          "render": 1.691,
+          "verify": 47.683,
+          "other": 0.078,
+          "total": 196.232
         },
-        "seconds_per_page": 32.877
+        "seconds_per_page": 24.529
       }
     }
   },
   "environment": {
-    "git_commit": "c1af6c2297dc",
+    "git_commit": "9d179d644643",
     "git_dirty": false,
     "python": "3.13.5",
     "platform": "Windows 11 AMD64",
@@ -1620,6 +2174,6 @@
   },
   "corpus": {
     "manifest": "eval/corpus.json",
-    "pages": 8
+    "pages": 11
   }
 }

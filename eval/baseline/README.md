@@ -1,11 +1,15 @@
 # Baselines
 
-Four runs of `scripts/eval_pipeline.py` on `eval/corpus.json`, made on commit
-`c1af6c2` (clean tree). That commit adds the Step 6 fix (`0c03191`) to the
-harness branch, which sits on `publish/rewrite-modern-stack` (`189f34ed`).
-The baselines committed before the fix (`c2e36e99`) differ only in the Step 6
-verdict and in timings. Each folder holds `run.json` and `summary.md`. No
-images are committed.
+Four runs of `scripts/eval_pipeline.py` on `eval/corpus.json` (11 pages), made
+on commit `9d179d644643` (clean tree). That commit is the WP1 harness upgrade on
+the harness branch: it adds the diagnostic metrics (`ink_mask_recall`,
+`residual_in_mask` / `residual_out_of_mask`, residual after low-pass,
+hole-in-tone, OCR CER, typesetting geometry, mask reason codes, oracle modes)
+and the three adversarial synthetic pages. It is observational: every metric
+that existed before is unchanged on the old 8 pages (see "Identity check"
+below). Each folder holds `run.json` and `summary.md`. No images are committed.
+The run label inside each folder still reads `wp1-identity-*`: the promoted
+baselines are the identity-check runs themselves, not a rerun.
 
 | Folder | Flags | What it measures |
 | --- | --- | --- |
@@ -28,55 +32,86 @@ uv run --project backend --locked python scripts/eval_pipeline.py --compare eval
 
 - **Machine.** Windows 11, Intel Core i5-13420H (12 threads), 16 GB RAM, CPU
   only (onnxruntime `CPUExecutionProvider`). Models came from the main
-  checkout's `backend/models_cache` through `MANGA_BACKEND_MODELS_DIR`.
+  checkout's `backend/models_cache` through `MANGA_BACKEND_MODELS_DIR`. The
+  desktop was in active use during the day (browser, editor): each timed run
+  was started only after two load readings under 20, 30 s apart, with no other
+  `eval_pipeline` or `pytest` process alive, and the two plain-CPU timings
+  (`render`, `mask`) came out within ±20 % of the other routes.
 - **Pipeline settings.** OCR `manga-ocr`, stub translator, Step 6 on, one
   untimed warm-up page, and the `POST /translate` render defaults.
-- **Pages.** All 8 pages were scored: 5 synthetic and the 3 private pages in
-  `eval/pages/`. Synthetic lettering used MS Gothic (`msgothic.ttc`). On a
-  machine without the private pages, `--compare` falls back to the 5
-  synthetic pages.
-- **Inpainter: LaMa.** ComfyUI was not running at `127.0.0.1:8188`, so FLUX
-  (LanPaint) never ran. Every page that needed a model on the FLUX route fell
-  back to `lama_large`; that is the 5 fallback pages. The other 3 pages
-  report `flux2_klein_lanpaint` only because the white-fill fast path covered
-  every block, so no model was called. Read the `*-default` runs as "FLUX
-  route with LaMa fill". Rerun them with ComfyUI up to measure FLUX itself.
+- **Pages.** All 11 pages were scored: 5 original synthetic, 3 adversarial
+  synthetic (`syn-tone-rotated`, `syn-faint-lettering`,
+  `syn-text-touching-outline`) and the 3 private pages in `eval/pages/`.
+  Synthetic lettering used MS Gothic (`msgothic.ttc`).
+- **Inpainter: LaMa stands in for FLUX.** ComfyUI was not running at
+  `127.0.0.1:8188`, so FLUX (LanPaint) never ran. Every page that needed a
+  model on the FLUX route fell back to `lama_large`; that is the 5 fallback
+  pages. The other 6 pages report `flux2_klein_lanpaint` only because the
+  white-fill fast path covered every block, so no model was called — including
+  all three adversarial pages, whose rotated screentone still passes the
+  white test. Read the `*-default` runs as "FLUX route with LaMa fill".
+  Rerun them with ComfyUI up to measure FLUX itself.
 - **Detector: RT-DETR only.** The AnimeText YOLO weights are not on disk, and
   their Hugging Face repository is gated. No token was used. The `rect-masks`
   runs emulate the AnimeText mask path with `--mask-mode rectangular` on
   RT-DETR boxes. They measure that mask path, not AnimeText detection.
 
+## Identity check
+
+Before promoting these runs, each route was compared against the previous
+baselines (commit `c1af6c2`, 8 pages) over the pages scored in both. Every
+metric that existed then is identical on the old 8 pages: blocks 79 / to erase
+77, Step 6 verdict (13.9 / 15.2 / 12.7 / 11.4 %), kana-kanji residue, px
+outside mask 0, mask kinds, white-fill blocks 68, masked px (124,721 / 124,721
+/ 181,216 / 718,173), render regions 75, shrink 32, below-10 px 6, overflow 4,
+detection recall 100 %, residual ink (6.4 / 6.5 / 6.4 / 11.3 %), text MAE
+(7.97 / 8.09 / 7.97 / 13.44), over-erased px, px touched away from text. Only
+the new metrics and the three new pages differ. The harness change is
+observational, as intended.
+
 ## Headline numbers
 
-Times are wall-clock totals over the 8 pages, except seconds per page.
+Times are wall-clock totals over the 11 pages, except seconds per page.
 
 | Metric | `rtdetr-default` | `rtdetr-lama` | `rect-masks-default` | `rect-masks-lama` |
 | --- | --- | --- | --- | --- |
-| Inpainter used (pages) | white fill only x3, lama_large x5 (fallback) | lama_large x8 | white fill only x3, lama_large x5 (fallback) | lama_large x8 |
-| Blocks detected / to erase | 79 / 77 | 79 / 77 | 79 / 77 | 79 / 77 |
-| CJK residue, Step 6 verdict | 13.9% | 15.2% | 12.7% | 11.4% |
-| CJK residue, kana/kanji only | 14.3% | 15.6% | 13.0% | 11.7% |
+| Inpainter used (pages) | white fill only x6, lama_large x5 (fallback) | lama_large x11 | white fill only x6, lama_large x5 (fallback) | lama_large x11 |
+| Blocks detected / to erase | 89 / 87 | 89 / 87 | 89 / 87 | 89 / 87 |
+| CJK residue, Step 6 verdict | 14.6% | 15.7% | 13.5% | 12.4% |
+| CJK residue, kana/kanji only | 14.9% | 16.1% | 13.8% | 12.6% |
 | Px changed outside mask | 0 | 0 | 0 | 0 |
 | Px inpainter changed outside its mask | 0 | 0 | 0 | 0 |
-| Masks: contour-safe glyph / rectangular | 75 / 0 | 75 / 0 | 75 / 0 | 0 / 75 |
-| Masks: bubble interior / skipped | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
-| White-fill blocks | 68 | 0 | 68 | 0 |
+| Masks: glyph-kind / rectangular-kind | 85 / 0 | 85 / 0 | 85 / 0 | 0 / 85 |
+| White-fill blocks | 78 | 0 | 78 | 0 |
 | Composite duplicates not masked | 2 | 2 | 2 | 2 |
-| Masked px | 124,721 | 124,721 | 181,216 | 718,173 |
-| Render regions / shrink / below 10 px / overflow / unfit | 75 / 32 / 6 / 4 / 0 | 75 / 32 / 6 / 4 / 0 | 75 / 32 / 6 / 4 / 0 | 75 / 32 / 6 / 4 / 0 |
-| Median font size | 16 | 16 | 16 | 16 |
+| Masked px | 194,315 | 194,315 | 290,274 | 914,494 |
+| Mask reason: no contour found / text_free | 39 / 22 | 39 / 22 | 39 / 22 | n/a |
+| Render regions / shrink / below 10 px / overflow / unfit | 85 / 32 / 6 / 4 / 0 | 85 / 32 / 6 / 4 / 0 | 85 / 32 / 6 / 4 / 0 | 85 / 32 / 6 / 4 / 0 |
+| Median font size / font spread (mean per page) | 16 / 2.5 | 16 / 2.5 | 16 / 2.5 | 16 / 2.5 |
 | Synthetic: detection recall | 100% | 100% | 100% | 100% |
-| Synthetic: residual ink ratio | 6.4% | 6.5% | 6.4% | 11.3% |
-| Synthetic: text-region MAE | 7.97 | 8.09 | 7.97 | 13.44 |
-| Synthetic: over-erased px (visible) | 2,832 | 2,658 | 2,832 | 9,667 |
-| Synthetic: px touched away from text | 2,832 | 6,407 | 2,832 | 227,139 |
-| Seconds per page | 13.6 | 20.2 | 22.1\* | 28.5\* |
-| Time: detect / OCR / inpaint model / verify (s) | 7.1 / 25.4 / 45.2 / 30.5 | 8.7 / 24.5 / 87.4 / 39.8 | 12.4 / 43.2 / 67.6 / 52.0\* | 13.3 / 37.4 / 122.5 / 53.1\* |
+| Synthetic: ink-mask recall | 84.8% | 84.8% | 88.7% | 98.7% |
+| Synthetic: residual ink ratio | 11.9% | 12.3% | 10.3% | 14.1% |
+| Synthetic: residual ink in mask (fill failure) | 5.4% | 5.9% | 6.0% | 12.9% |
+| Synthetic: residual ink outside mask (mask miss) | 6.5% | 6.5% | 4.4% | 1.2% |
+| Synthetic: residual ink after low-pass | 36.4% | 33.7% | 38.2% | 1.4% |
+| Synthetic: tone flattened in text boxes (px) | 44,541 | 40,056 | 46,138 | 120 |
+| Synthetic: text-region MAE | 11.57 | 11.71 | 11.44 | 16.29 |
+| Synthetic: OCR character error rate | 0.092 | 0.092 | 0.092 | 0.092 |
+| Synthetic: over-erased px (visible) | 8,709 | 8,616 | 8,709 | 16,888 |
+| Synthetic: px touched away from text | 8,709 | 22,161 | 8,709 | 288,495 |
+| Synthetic: rendered ink outside bubble interior (px) | 0 | 0 | 0 | 0 |
+| Seconds per page | 8.2 | 12.8 | 8.1 | 20.8 |
+| Time: detect / OCR / inpaint model / verify (s) | 9.5 / 17.2 / 40.5 / 22.0 | 8.7 / 17.6 / 89.3 / 24.1 | 9.7 / 16.8 / 40.3 / 21.3 | 11.9 / 34.8 / 128.1 / 51.7 |
 
-\* Measured while another process loaded the CPU: even rendering, which is
-plain CPU work, ran 1.4 to 2 times slower than in the other runs. Do not use
-these two runs for timing comparisons. On a quiet CPU, the same flags took
-14.3 and 19.9 s per page before the fix.
+Seconds per page dropped against the old baselines (13.6 / 20.2 / 22.1* /
+28.5*) mostly because the three new pages are fast (2–2.5 s each: no model
+call, small images) and because the old `rect-masks` pair was measured on a
+busy CPU. Do not compare across that boundary.
+
+On the FLUX route, `--mask-mode rectangular` does not change the per-block
+masks (they stay glyph-kind); it only grows the white-fill area (masked px
+290,274 vs 194,315). On the LaMa route it produces real rectangular masks
+(masked px 914,494). This reproduces the old baselines' behavior.
 
 Synthetic pages, as residual ink / visible over-erased px:
 
@@ -87,61 +122,92 @@ Synthetic pages, as residual ink / visible over-erased px:
 | `syn-textured-narration` | 12.0% / 2,496 | 12.2% / 2,572 | 12.0% / 2,496 | 16.1% / 2,448 |
 | `syn-sfx` | 20.1% / 0 | 20.1% / 0 | 20.1% / 0 | 40.4% / 7,175 |
 | `syn-webtoon-strip` | 0.0% / 0 | 0.0% / 0 | 0.0% / 0 | 0.0% / 0 |
+| `syn-tone-rotated` | 15.7% / 3,295 | 15.7% / 3,301 | 15.7% / 3,295 | 27.7% / 4,134 |
+| `syn-faint-lettering` | 25.8% / 2,582 | 29.0% / 2,657 | 13.3% / 2,582 | 18.2% / 2,832 |
+| `syn-text-touching-outline` | 21.8% / 0 | 21.8% / 0 | 21.8% / 0 | 10.4% / 255 |
 
-## Findings
+## H1–H5: confirmed or rejected
 
-The harness changes nothing in the pipeline. These are observations for
-follow-up work.
+The research report (section 2.0) proposed five code-reading hypotheses. The
+new metrics answer them on the default route unless noted.
 
-1. **Step 6 flagged almost every block (fixed in `0c03191`).** Before the
-   fix, the verdict was 98.7% on every run, although white bubbles showed 0%
-   residual ink. manga-ocr widens ASCII to full-width forms
-   (`jaconv.h2z(ascii=True)`), and `has_cjk` counted that block
-   (U+FF00-FFEF) as CJK. So rendered English failed: "Right me." was read as
-   "Ｒｅｓｔｒｙｅ．". Step 6 now counts only Han, kana and Hangul letters.
-   Its rate, 11.4% to 15.2%, tracks `kana_kanji_rate`.
-2. **The kana/kanji rate has a noise floor.** manga-ocr reads some short
-   English as kana. On `syn-white-bubbles` and `syn-webtoon-strip`, 1 of 4
-   blocks is counted each, with 0% residual ink. On the real pages, treat a
-   difference of one or two blocks per page as noise.
-3. **White fill paints over bubble outlines.** Most blocks get the plain
-   `glyph` strategy: 3 of 4 on `syn-white-bubbles`, and 57 of 75 overall,
-   because no closed bubble interior is found around the RT-DETR box. Where
-   that glyph mask reaches the bubble outline, the white-fill fast path paints
-   the outline white. That is 252 visible px on `syn-white-bubbles` and 84 on
-   `syn-conjoined-bubbles`. LaMa, given the same masks, redraws most of the
-   outline (62 and 24 px).
-4. **Residual ink is concentrated on textured backgrounds.** All of it comes
-   from narration on screentone or a dark gradient (12%) and outlined SFX over
-   hatching (20%). White bubbles and the webtoon strip come out clean.
-5. **Rectangular masks cost quality on texture.** On the LaMa route,
-   rectangular masks grow masked pixels 5.8x. They double residual ink on SFX
-   (20% to 40%) and add 7,175 visibly damaged px there. On white bubbles they
-   touch large areas, but only by a level or two, so over-erasure stays low.
-   On the FLUX route, rectangular mode only grows the white-fill area (masked
-   px 181,216 vs 124,721). The per-block masks and every synthetic score stay
-   the same as the default.
-6. **The white-fill fast path is the main speed win.** It handles 68 of the
-   75 masked blocks, which halves the inpainter time against LaMa-only (45 s
-   vs 87 s).
-7. **Typesetting.** With the stub's text length, 32 of 75 regions shrink below
-   the preferred 16 px, 6 fall below 10 px, and 4 move to an overflow box.
-   These counts do not depend on the mask path.
+| Hypothesis | Verdict | Evidence |
+| --- | --- | --- |
+| **H1** Two-tone SFX lettering is half-masked: the white outline is never in the mask, so it survives (mask miss); with rectangular masks it is covered but residual rises to a fill failure. | **Confirmed** | `syn-sfx`: ink-mask recall 50.6 % — only the dark fill is masked; residual splits 10.0 % in-mask / 10.1 % out-of-mask, i.e. the outline stays. On `rect-masks-lama` recall is 100 % and residual jumps to 40.4 %, all in-mask (LaMa cannot fill the large hole in phase). |
+| **H2** Screentone dots pass the white test, so tone blocks are white-filled and the tone is flattened to a visible hole. | **Confirmed, and it also fires on rotated / non-integer tone** | `syn-textured-narration`: 2 of 3 blocks white-filled, hole-in-tone 12,484 px, residual 12.0 % entirely in-mask. `syn-tone-rotated` (periods 7.3 at 15°, 8.6 at −24°): all 4 blocks white-filled, hole-in-tone 25,399 px, residual 15.7 % (10.3 in / 5.3 out). This is a wrong-tier fill, not an inpainter weakness. |
+| **H3** The ROI-edge rule drops whole glyph components that the detector box cuts, leaving a mask miss. | **Confirmed on the adversarial page; contribution to the old SFX residue is not separable from H1** | `syn-text-touching-outline`: residual 21.8 %, all out-of-mask, 0 % in-mask; ink recall 76.3 %. The strokes crossing the bubble outline are never masked; the outlines themselves survive. |
+| **H4** Light-on-dark halos stay unmasked (small mask miss). | **Rejected on the synthetic page** | The `light-on-dark` block of `syn-textured-narration`: ink recall 100 %, out-of-mask residual 0.0 % on all four routes; its 12–16 % residual is entirely in-mask (fill side). The halos are covered by the erase mask as built (block mask plus white-fill rect), so no mask miss is measurable. |
+| **H5** Bubble interiors fail even on clean bubbles, so blocks fall back to the plain glyph mask. | **Confirmed, with the reason now attributed** | 61 of 85 masked blocks use the plain glyph strategy on the default routes (was 57 of 75). Reason codes: "no contour found" 39, "text_free" 22; "contour touches ROI edge", "area test failed" and "coverage below 35 %" never fired on this corpus. |
+
+## Phase-2 order call
+
+**WP4 (the fill-tier router) first, WP5 (ink masks + flood-fill interiors)
+second.**
+
+On the textured/sfx synthetic pages (`syn-textured-narration`, `syn-sfx`,
+`syn-tone-rotated`), residual ink in the mask — fill failure — is about twice
+the mask miss: 10.8 % in-mask vs 5.2 % out-of-mask on average. The in-mask half
+is dominated by two wrong-tier fills the router owns: the white-fill fast path
+flattening screentone (hole-in-tone 12,484 + 25,399 px, H2) and the LaMa smear
+that does not regenerate hatching in phase (`syn-sfx` keeps 94.3 % of its
+residual after a low-pass at the tone period — almost pure texture-phase
+mismatch). `light-on-dark` (12 %) is also all in-mask.
+
+WP5 follows immediately: the out-of-mask half is concentrated exactly where
+WP5 aims — the SFX white outline (H1, 10.1 % of `syn-sfx` ink), faint gray
+lettering (14.7 % out-of-mask on `syn-faint-lettering`) and lettering that
+crosses the bubble outline (21.8 % out-of-mask on
+`syn-text-touching-outline`), plus the 39 "no contour found" glyph blocks (H5).
+Rectangular masks already show what covering that ink costs the fill (40.4 %
+residual on `syn-sfx`), so WP4's tier 2 (lattice copy) is the precondition for
+WP5's bigger masks to pay off.
+
+## Eyeball observations (`--save-images`)
+
+Checked on the sanity run (3 new pages, default route) and a dedicated run for
+`syn-textured-narration` / `syn-sfx`. All three new pages complete without
+errors, detection recall is 100 %, and every block takes the white-fill fast
+path (no model call at all — `inpaint_model` time 0), which is itself the H2
+finding: the fast path fires on rotated screentone and flattens it.
+
+- `syn-tone-rotated`: the erased boxes come back as flat fields; the rotated
+  lattice inside them is gone (25,399 px hole-in-tone). The boxed caption keeps
+  its border. Over-erase 3,295 px; MAE 25.1 (worst of the corpus).
+- `syn-faint-lettering`: the light-gray (185) lettering is detected and erased
+  (recall 84.7 %), mostly by one large white-fill rect per block; the diagonal
+  hatching inside that rect is visibly thinner than outside it. Residual 25.8 %
+  (11.1 in / 14.7 out) — faint strokes at the rect edges survive. Step 6
+  re-OCR reads the rendered page cleanly (0/3 blocks flagged); OCR CER 0.35
+  comes from the re-read of rendered English, not from leftovers.
+- `syn-text-touching-outline`: bubble outlines survive, but dark clusters sit
+  on the outline exactly where the lettering crossed it — the crossing strokes
+  were never masked. Residual 21.8 %, all out-of-mask, over-erase 0. Step 6
+  flags 2 of 3 blocks (it re-reads the leftover strokes as CJK).
+- `syn-textured-narration`: the narration block over screentone is white-
+  filled, leaving a flat rectangular hole in the tone with the replacement
+  text inside it; the boxed caption over the dark gradient is refilled and
+  re-texted with its border intact.
+- `syn-sfx`: the dark fill is erased by the LaMa fallback and the diagonal
+  hatching inside the hole comes back as a shapeless smear, not in phase with
+  the surrounding lines; the white outline around the erased glyphs remains.
 
 ## Noise
 
-- **Timings.** Each set of flags has been run three to five times on this
-  machine. On a quiet CPU, seconds per page stayed within about 10% between
-  runs. When another process loaded the CPU, they rose by up to 80%. Compare
-  timings only between runs made close together. Rerun when render or mask
-  time, which is plain CPU work, moves by more than about 20%.
-- **Masks and synthetic scores.** Mask counts, render counts and the
-  synthetic truth metrics were identical in every run.
-- **Over-erasure on screentone is not yet explained.** On
-  `syn-textured-narration`, about 2,500 px count as visibly over-erased on
-  every route. On the default route, every touched pixel there is visibly
-  changed (2,496 of 2,496). That pattern points to white fill painting
-  screentone flat. On the LaMa route, only 2,572 of 6,001 touched pixels are
-  visible, which fits regenerated tone that does not line up with the
-  original. Neither has been checked by eye yet; `--save-images` writes the
-  images to look at.
+- **Identity.** All pre-existing metrics were identical on the old 8 pages
+  against the previous baselines, on all four routes. Mask counts, render
+  counts and synthetic scores have never moved between runs on this machine.
+- **Timings.** The desktop is in active use; the queue rule is two load
+  readings under 20 about 30 s apart, no other eval or pytest running. Under
+  that rule the four routes above are mutually consistent (render 0.6–0.8 s on
+  the 8-page scope, 1.4 s on `rect-masks-lama`, whose masks are 5× larger). If
+  `render` or `mask` time moves more than about 20 % from these numbers, the
+  machine was busy: rerun before trusting a timing. The previous baselines'
+  warning about the two `rect-masks` runs having been measured on a busy CPU
+  no longer applies — those runs were replaced by the ones above.
+- **kana/kanji floor.** manga-ocr reads some short rendered English as kana:
+  about 1 block per page on the synthetic pages, more on text that crosses
+  outlines (`syn-text-touching-outline` flags 2 of 3 because it re-reads real
+  leftover strokes). Treat a difference of one or two blocks per page as
+  noise; on the adversarial pages check the residual ink first.
+- **Private pages.** The three pages in `eval/pages/` are fixed; `--compare`
+  between runs on this machine scopes itself to pages scored in both.
