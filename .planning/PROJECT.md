@@ -70,8 +70,9 @@ the mature BookWalker/composite reader path at page concurrency one.
 
 ## Constraints
 
-- **Compatibility**: Keep Chrome MV3 and the current vanilla JS/FastAPI stack --
-  the project has no build framework to absorb a large runtime rewrite.
+- **Compatibility**: Keep Chrome MV3 and the current WXT + TypeScript +
+  Svelte 5 / FastAPI stack (rewritten from vanilla JS; the backend HTTP
+  contract and extension runtime behavior did not change).
 - **Performance**: Local backend work stays serial; cloud work may use at most
   three concurrent jobs in the service worker.
 - **Privacy**: Never accept an arbitrary referrer from page content. DNR rules

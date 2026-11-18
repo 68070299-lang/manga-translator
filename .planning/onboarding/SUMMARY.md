@@ -10,7 +10,7 @@
 ## Codebase Context
 
 - Brownfield repo: yes
-- Runtime: Chrome MV3 vanilla JavaScript extension plus local FastAPI/ONNX backend
+- Runtime: Chrome MV3 extension (WXT + TypeScript + Svelte 5) plus local FastAPI/ONNX backend
 - Existing map: fast map created in `.planning/codebase/`
 - Comparison reference: `C:/Users/acer/Downloads/ichigo-extension-docs`
 

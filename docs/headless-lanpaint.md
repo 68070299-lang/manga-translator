@@ -4,6 +4,8 @@ This project can use a private, loopback-only ComfyUI daemon for higher-quality 
 removal. The runtime is separate from the backend Python environment and is pinned to
 known ComfyUI and LanPaint commits.
 
+The backend side of the integration is `backend/src/manga_backend/comfy_lanpaint/` (client, workflow, crop planning, CLI) and `backend/src/manga_backend/models/flux_lanpaint_inpainter.py`; the install, start, and benchmark helpers are in `scripts/comfy-lanpaint/`.
+
 ## Install
 
 From the repository root:

@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or PR supersedes the run in progress.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  extension:
+    name: Extension (lint, types, unit, build, e2e)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      # postinstall runs `wxt prepare`, which generates .wxt/ for tsc and vitest.
+      - run: npm ci
+
+      - run: npm run verify:repository
+      - run: npm run lint
+      - run: npm run typecheck
+
+      # The build:done hook validates the manifest, permissions, assets and fonts.
+      # It runs before the unit tests: the generated-manifest and build-output
+      # tests need dist/, and fail (rather than skip) without it when CI is set.
+      - run: npm run build
+
+      # Unit tests with the coverage gate from vitest.config.ts.
+      - run: npm run test:coverage
+
+      # The store zip: packed from the validated staging build, without the key.
+      - run: npm run zip
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Runs against the dist/chrome-mv3 built above.
+      - run: npx playwright test
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  backend:
+    name: Backend (ruff, pyright, pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      # setup-uv publishes only exact version tags (no floating v10).
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      # Default groups: dev + cpu (onnxruntime), from backend/pyproject.toml.
+      - run: uv sync --project backend --locked
+
+      - run: npm run lint:backend
+      - run: npm run typecheck:backend
+      - run: npm run test:backend

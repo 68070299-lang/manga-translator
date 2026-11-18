@@ -93,7 +93,7 @@ try {
   }
 
   if ($exitCode -eq 0) {
-    & uv run --no-sync uvicorn main:app --host 127.0.0.1 --port $Port
+    & uv run --no-sync uvicorn manga_backend.main:app --host 127.0.0.1 --port $Port
     $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
   }
 }

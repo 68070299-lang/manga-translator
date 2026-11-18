@@ -28,8 +28,8 @@ Check `rtk git status --short` before starting; the checkout may contain unrelat
 2. Work in small vertical slices.
    For each change, identify the affected surface: extension runtime, backend API, ML pipeline, settings/cache, tests, docs, or packaging. Avoid cross-cutting edits unless the task genuinely requires them.
 
-3. Treat script order as a runtime contract.
-   There is no bundler. `extension/manifest.json`, popup/options script tags, and service-worker `importScripts()` define dependency order. Any new shared file must be added to validation and tests.
+3. Treat the build and manifest as a runtime contract.
+   The extension is built by WXT: `wxt.config.ts` is the manifest source of truth and `extension/entrypoints/` defines the service worker, content script, popup, and options page. Permissions, referenced files, bundled font checksums, DNR rules, and remote-code rules are asserted by `scripts/validate-extension.ts` (run by the `build:done` hook on every build) and `tests/unit/manifest.test.ts`. Any new bundled asset or permission must be reflected in validation and tests.
 
 4. Treat privacy as product behavior, not a later audit.
    The extension can run on all URLs and send image/canvas data to local or cloud providers. Changes should preserve clear consent, local-first defaults, cache controls, and provider-key boundaries.
@@ -46,12 +46,12 @@ Check `rtk git status --short` before starting; the checkout may contain unrelat
 
 Goal: make the tree understandable and safe to maintain.
 
-Status: the documentation half is done. The root `README.md` exists, `backend/README.md` is current, and `verify:repository` guards the boundary. The cleanup half is open and needs the owner, because it means deleting or untracking the owner's own files: the root scratch script `fix3.py`, the ignored `artifacts/` directory, local diagnostics, and the one-off `scripts/bookwalker-*.ps1` / `bookwalker-page23.js` helpers. Decide per file whether to keep it, move it under an ignored path, or remove it. Keep the tasks below as a checklist when the tree drifts.
+Status: the documentation half is done. The root `README.md` exists, `backend/README.md` is current, and `verify:repository` guards the boundary. The cleanup half is open and needs the owner, because it means deleting the owner's own local files: the ignored `artifacts/`, `website/`, and `work/` directories and other local diagnostics (all Git-ignored, so they do not affect the repository check). `scripts/bookwalker-real-uat.ps1` is the one BookWalker helper that remains and is tracked. Decide per file whether to keep it, move it under an ignored path, or remove it. Keep the tasks below as a checklist when the tree drifts.
 
 Tasks:
 
 - Decide whether the current tracked deletions are intentional (open, owner).
-- Remove or untrack forbidden local/generated paths reported by `npm run verify:repository`, and the scratch files named in Status above (open, owner).
+- Remove or untrack forbidden local/generated paths reported by `npm run verify:repository`, and the local scratch directories named in Status above (open, owner).
 - Keep the root `README.md`, `backend/README.md`, and `tests/integration/README.md` current.
 - Keep generated output under ignored paths only: `coverage/`, `dist/`, `test-results/`, `playwright-report/`, backend caches, and virtualenvs.
 
@@ -69,11 +69,11 @@ rtk npm run build
 
 Goal: document the real behavior before changing it.
 
-Status: done. `docs/RUNTIME_CONTRACT.md` covers entrypoints and script order, messages, storage map and defaults, data flow, the data-leaving-the-browser matrix, cache contract, and expected first-run failures. Update it with any runtime change.
+Status: done. `docs/RUNTIME_CONTRACT.md` covers entrypoints and bundles, messages, storage map and defaults, data flow, the data-leaving-the-browser matrix, cache contract, and expected first-run failures. Update it with any runtime change.
 
 The contract covers:
 
-- Extension entrypoints and script order
+- Extension entrypoints and the bundles they build to
 - Message types between popup, content script, and service worker
 - Settings schema and where private API keys are stored
 - Local backend request form fields
@@ -83,15 +83,17 @@ The contract covers:
 
 Best source files:
 
-- `extension/manifest.json`
-- `extension/content/content.js`
-- `extension/background/service-worker.js`
-- `extension/lib/settings.js`
-- `extension/lib/api.js`
-- `extension/lib/cache.js`
-- `backend/main.py`
-- `backend/pipeline.py`
-- `backend/models/translator.py`
+- `wxt.config.ts`
+- `extension/entrypoints/` (background, content, popup, options)
+- `extension/content/` (content script modules, start at `main.ts`)
+- `extension/background/` (service worker modules, start at `index.ts` and `message-router.ts`)
+- `extension/shared/messages.ts`
+- `extension/lib/settings.ts`
+- `extension/lib/api.ts`
+- `extension/lib/cache.ts`
+- `backend/src/manga_backend/api/` (`app.py`, `routes/`, `schemas.py`)
+- `backend/src/manga_backend/pipeline/orchestrator.py`
+- `backend/src/manga_backend/models/translator.py`
 
 Exit criteria:
 
@@ -104,19 +106,19 @@ Goal: reduce high-impact failure modes before adding features.
 
 Status of each item:
 
-- Add an explicit permission budget test for `extension/manifest.json` - done (`tests/unit/manifest.test.js`; permissions are storage, unlimitedStorage, contextMenus, declarativeNetRequest).
+- Add an explicit permission budget test for the manifest - done (`tests/unit/manifest.test.ts` and `scripts/validate-extension.ts`; permissions are storage, unlimitedStorage, contextMenus, declarativeNetRequest).
 - Add explicit cloud/OCR consent or per-site allowlisting before page data leaves the browser - open, pending owner decision. No consent gate exists; choosing a cloud pipeline or Google OCR and saving a key is the opt-in today (documented in the README and runtime contract).
 - Add a backend auth token if the backend may be exposed beyond loopback - done. All routes except `GET /` and preflights require `X-Manga-Translator-Token` (`BACKEND_AUTH_TOKEN`).
 - Add cache pruning on extension startup/session start - done (`pruneCacheSafely` runs at worker load, startup, and install; expiry is also enforced on read).
-- Redact upstream provider error bodies before logs or UI - done (backend and `extension/lib/api.js` redact keys and bearer tokens).
+- Redact upstream provider error bodies before logs or UI - done (backend and `extension/lib/api.ts` redact keys and bearer tokens).
 - Add request concurrency/rate limiting around expensive backend routes - done (`BACKEND_MAX_CONCURRENT` queue with a bounded wait before 429); extension queues are local 1 / cloud 3.
-- Pin or verify model downloads with revisions or checksums - done for the default models (`MODEL_PINS` in `backend/utils/download.py` pins a commit and sha256 for manga-ocr, LaMa, RT-DETR and PaddleOCR; `backend/test_download.py` fails if one is left unpinned). The gated AnimeText YOLO repo hides its hashes from unauthenticated requests, so it is still unpinned. Cached files are re-hashed at load, which adds about 1.3 s to startup.
+- Pin or verify model downloads with revisions or checksums - done for the default models (`MODEL_PINS` in `backend/src/manga_backend/utils/download.py` pins a commit and sha256 for manga-ocr, LaMa, RT-DETR and PaddleOCR; `backend/tests/test_download.py` fails if one is left unpinned). The gated AnimeText YOLO repo hides its hashes from unauthenticated requests, so it is still unpinned. Cached files are re-hashed at load, which adds about 1.3 s to startup.
 - Serialize transient DNR referrer rule installs and removals - done (mutex plus reference-counted leases in the service worker).
 
 Exit criteria:
 
 ```powershell
-rtk npm run test:unit
+rtk npm run test
 rtk npm run test:backend
 rtk npm run test:e2e
 ```
@@ -153,14 +155,14 @@ Tasks:
 - Add tests for tainted canvas, failed background fetch, and stale canvas cleanup when touching content capture code.
 - Preserve local backend URL validation.
 - Preserve cache-key coverage whenever settings change.
-- Do not add content-side assets without updating manifest/web-accessible-resource validation.
+- Do not add content-side assets without updating manifest/web-accessible-resource validation (`scripts/validate-extension.ts`).
 
 Exit criteria:
 
 ```powershell
 rtk npm run lint
-rtk npm run test:unit
-rtk npm run test:integration
+rtk npm run typecheck
+rtk npm run test
 rtk npm run test:e2e
 ```
 
@@ -176,10 +178,10 @@ rtk npm run verify
 
 Expected result:
 
-- Lint passes.
-- Unit, integration, backend, and E2E tests pass.
+- Biome lint, `tsc`/`svelte-check`, ruff, and pyright pass.
+- Vitest (unit and integration) and backend pytest pass; run `npm run test:e2e` separately for the Playwright suite (it is not part of `verify`).
 - Repository boundary check passes.
-- Extension build/package succeeds.
+- Extension build (with its validation hook) and zip succeed.
 - Generated artifacts remain ignored or intentionally packaged.
 
 ## Verification Ladder
@@ -190,9 +192,10 @@ Use the smallest reliable gate first:
 rtk npm run verify:repository
 rtk npm run build
 rtk npm run lint
-rtk npm run test:unit
-rtk npm run test:integration
+rtk npm run typecheck
+rtk npm run test
 rtk npm run lint:backend
+rtk npm run typecheck:backend
 rtk npm run test:backend
 rtk npm run test:e2e
 rtk npm run verify
@@ -214,20 +217,21 @@ Current constraints:
 - The repo may be dirty. Inspect git status first and do not revert unrelated user changes.
 - Use RTK for shell commands.
 - Keep changes scoped to the affected surface.
-- Preserve the extension runtime script order unless the task explicitly changes it.
+- Preserve the extension entrypoint layout and the manifest permission budget unless the task explicitly changes them.
 - Treat privacy/security as product behavior: page images, OCR text, API keys, and translated cache data are sensitive.
 - Backend must remain loopback-first unless authentication and exposure docs are added.
 
 Relevant surfaces:
-- Extension manifest and script loading: extension/manifest.json
-- Content runtime and page capture: extension/content/content.js
-- Service-worker routing/cache/provider path: extension/background/service-worker.js
-- Settings and private keys: extension/lib/settings.js
-- Cloud/local backend requests: extension/lib/api.js
-- Cache behavior: extension/lib/cache.js
-- Backend API contract: backend/main.py
-- Backend ML/render pipeline: backend/pipeline.py
-- Translator/provider env precedence: backend/models/translator.py
+- Manifest and build: wxt.config.ts, extension/entrypoints/, scripts/validate-extension.ts
+- Content runtime and page capture: extension/content/ (entry: main.ts)
+- Service-worker routing/cache/provider path: extension/background/ (entry: index.ts, message-router.ts)
+- Message contracts: extension/shared/messages.ts
+- Settings and private keys: extension/lib/settings.ts
+- Cloud/local backend requests: extension/lib/api.ts
+- Cache behavior: extension/lib/cache.ts
+- Backend API contract: backend/src/manga_backend/api/ (app.py, routes/, schemas.py)
+- Backend ML/render pipeline: backend/src/manga_backend/pipeline/ (orchestrator.py)
+- Translator/provider env precedence: backend/src/manga_backend/models/translator.py
 
 Required workflow:
 1. Inspect current git status and relevant files.
@@ -255,7 +259,7 @@ Use this before starting a non-trivial maintenance change:
 <one sentence>
 
 ## Affected Surface
-- [ ] Extension manifest/script order
+- [ ] Extension manifest/entrypoints/build
 - [ ] Content capture/overlay
 - [ ] Service worker/cache/provider routing
 - [ ] Settings/API keys
@@ -283,7 +287,7 @@ Use this before starting a non-trivial maintenance change:
 ## Verification Commands
 ```powershell
 rtk npm run verify:repository
-rtk npm run test:unit
+rtk npm run test
 rtk npm run test:backend
 ```
 
