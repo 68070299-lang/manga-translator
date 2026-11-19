@@ -138,6 +138,89 @@ class GlyphMaskTests(unittest.TestCase):
         self.assertTrue(mask[55, 39], "the half-covered fringe must be masked")
         self.assertFalse(mask[20, 59], "the paper beyond the halo must stay unmasked")
 
+    def test_faint_fringe_on_flat_paper_leaves_no_ghost(self):
+        # Resampled lettering fades out over a few pixels; a ring only a few
+        # levels below white is invisible next to the glyph but traces it
+        # once the core is painted over, so on flat paper it is covered too.
+        glyph = np.zeros((60, 60), bool)
+        glyph[20:40, 20:40] = True
+        distance = cv2.distanceTransform((~glyph).astype(np.uint8), cv2.DIST_L2, 3)
+        # 6-16 levels below white: well under the 10% alpha the near ring
+        # needs, yet a visible outline of the glyph once the glyph is gone.
+        gray = np.full(glyph.shape, 255.0, np.float32)
+        gray[glyph] = 0.0
+        gray[(distance > 0) & (distance <= 2.5)] = 239.0
+        gray[(distance > 2.5) & (distance <= 4.0)] = 249.0
+        roi = np.repeat(np.rint(gray).astype(np.uint8)[:, :, None], 3, axis=2)
+        paper = masks._Paper(100.0, 0.0, 0.0, np.full(3, 255.0, np.float32))
+
+        covered = masks._cover_halo(roi, glyph, paper, [np.zeros(3, np.float32)])
+
+        ghost = (gray < 255) & ~covered
+        self.assertEqual(int(np.count_nonzero(ghost)), 0, "visible fringe left outside the mask")
+        self.assertFalse(covered[5, 5], "the paper far from the glyph must stay unmasked")
+
+    def test_faint_fringe_is_not_taken_from_textured_surroundings(self):
+        # On tone the same few levels are texture, not antialiasing.
+        glyph = np.zeros((60, 60), bool)
+        glyph[20:40, 20:40] = True
+        yy, xx = np.mgrid[0:60, 0:60]
+        tone = np.where((yy % 4 < 2) ^ (xx % 4 < 2), 200.0, 255.0).astype(np.float32)
+        tone[glyph] = 0.0
+        roi = np.repeat(np.rint(tone).astype(np.uint8)[:, :, None], 3, axis=2)
+        paper = masks._Paper(90.0, 0.0, 0.0, np.full(3, 228.0, np.float32))
+
+        covered = masks._cover_halo(roi, glyph, paper, [np.zeros(3, np.float32)])
+
+        # Only the flat-paper rule reaches past the 3 px near ring.
+        near = cv2.dilate(glyph.astype(np.uint8), np.ones((7, 7), np.uint8)).astype(bool)
+        self.assertEqual(int(np.count_nonzero(covered & ~near)), 0)
+
+    def test_outline_clipped_by_the_text_box_is_not_masked(self):
+        # A bubble outline cutting through the corners of a text box is not
+        # lettering: it continues far outside the crop. Erasing its clipped
+        # ends notched the outline wherever no interior clipped the mask.
+        image = np.full((200, 220, 3), 255, np.uint8)
+        cv2.circle(image, (110, 100), 85, (0, 0, 0), 5)
+        image[60:140, 95:105] = 0
+        image[90:100, 80:120] = 0
+        block = TextBlock([40, 40, 140, 160])
+        local, bounds = masks.glyph_mask_for_block(image, block)
+        mask = _place(local, bounds, image.shape)
+
+        ys, xs = np.mgrid[0:200, 0:220]
+        radius = np.hypot(xs - 110, ys - 100)
+        outline = (np.abs(radius - 85) <= 3) & np.all(image == 0, axis=2)
+        self.assertTrue(mask[100, 100], "the glyph must stay in the mask")
+        self.assertEqual(int(np.count_nonzero(mask & outline)), 0, "outline pixels were masked")
+
+    def test_hollow_lettering_is_masked_whole(self):
+        # Outlined lettering is extracted as its outline; the enclosed letter
+        # body joins the mask so erasing it leaves no letter-shaped island.
+        image = np.full((120, 160, 3), 255, np.uint8)
+        for left in (40, 70, 100):  # three hollow "letters" in one SFX
+            image[45:75, left : left + 22] = 0
+            image[50:70, left + 5 : left + 17] = 255
+        block = TextBlock([34, 38, 128, 82])
+        local, bounds = masks.glyph_mask_for_block(image, block)
+        mask = _place(local, bounds, image.shape)
+
+        self.assertTrue(mask[47, 51], "the outline must be masked")
+        for left in (40, 70, 100):
+            self.assertTrue(mask[60, left + 11], "the hollow body must be masked")
+        self.assertFalse(mask[10, 10], "the paper far from the letters must stay unmasked")
+
+    def test_large_enclosed_regions_are_not_hole_filled(self):
+        ring = np.zeros((100, 100), bool)
+        ring[10:90, 10:90] = True
+        ring[14:86, 14:86] = False
+        small = np.zeros((100, 100), bool)
+        small[40:60, 40:60] = True
+        small[44:56, 44:56] = False
+
+        self.assertFalse(masks._fill_glyph_holes(ring)[50, 50])
+        self.assertTrue(masks._fill_glyph_holes(small)[50, 50])
+
     def test_glyph_mask_is_deterministic(self):
         image = _tone_page()
         block = TextBlock([20, 20, 100, 90])
@@ -168,6 +251,32 @@ class BubbleInteriorTests(unittest.TestCase):
         self.assertTrue(result.found, "a one-pixel gap must be closed before the flood")
         interior = _place(result.interior, result.bounds, image.shape)
         self.assertFalse(interior[5, 5], "the fill must not leak out of the bubble")
+
+    def test_flood_retry_seals_a_speed_line_flash_balloon(self):
+        # A flash balloon is walled only by radial speed lines whose inner
+        # tips leave ~4 px gaps; the single 3x3 close leaks through them, so
+        # the retry with one more pass must find the interior.
+        image = np.full((220, 280, 3), 255, np.uint8)
+        centre_x, centre_y, radius_x, radius_y = 140, 110, 90, 60
+        for angle in np.linspace(0.0, 2.0 * np.pi, 100, endpoint=False):
+            inner = (
+                int(round(centre_x + radius_x * np.cos(angle))),
+                int(round(centre_y + radius_y * np.sin(angle))),
+            )
+            outer = (
+                int(round(centre_x + 400 * np.cos(angle))),
+                int(round(centre_y + 400 * np.sin(angle))),
+            )
+            cv2.line(image, inner, outer, (0, 0, 0), 1)
+        image[100:120, 126:154] = 0
+        block = TextBlock([124, 98, 156, 122])
+        block.bubble_xyxy = [40, 40, 240, 180]
+        result = masks.bubble_interior_details(image, block)
+
+        self.assertTrue(result.found, f"flash balloon interior not found ({result.reason})")
+        interior = _place(result.interior, result.bounds, image.shape)
+        self.assertTrue(interior[80, 140], "the balloon centre must be interior")
+        self.assertFalse(interior[45, 45], "the speed lines outside must stay outside")
 
     def test_flood_rejects_a_leak_and_reports_it(self):
         image = np.full((160, 200, 3), 255, np.uint8)

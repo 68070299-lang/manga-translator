@@ -66,6 +66,14 @@ MIN_BAND_COVERAGE = 0.9
 # crossing the mask, say) instead of escalating to the model.
 MIN_TEXTURED_RING_FRACTION = 0.08
 TEXTURED_DEVIATION = 24
+# A lattice copy also needs the ring to *be* one texture, not to merely hold
+# some: when most of the ring is locally smooth (sky, a white bubble, a
+# gradient) and the texture is one patch of it, offsets found on that patch
+# stitch tone stripes across the other regions while the trimmed band error
+# still passes. Local texture is the 5x5 standard deviation of the gray level.
+MIN_LATTICE_RING_SHARE = 0.5
+LATTICE_LOCAL_STD = 10.0
+LATTICE_LOCAL_WINDOW = 5
 # Mask pixels a lattice may leave behind for the nearest-known fallback.
 MAX_MASK_STRAGGLER_FRACTION = 0.02
 # Band pixels dropped from the lattice error statistic, worst first. The
@@ -201,6 +209,18 @@ def _ring_is_textured(crop: np.ndarray, ring: np.ndarray) -> bool:
     median = np.median(samples, axis=0)
     deviating = np.count_nonzero(np.abs(samples - median).max(axis=1) > TEXTURED_DEVIATION)
     return deviating >= MIN_TEXTURED_RING_FRACTION * samples.shape[0]
+
+
+def _ring_texture_share(crop: np.ndarray, ring: np.ndarray) -> float:
+    """Share of ring pixels whose neighbourhood is itself textured."""
+    if not ring.any():
+        return 0.0
+    gray = crop.astype(np.float32).mean(axis=2)
+    window = (LATTICE_LOCAL_WINDOW, LATTICE_LOCAL_WINDOW)
+    mean = cv2.blur(gray, window)
+    variance = cv2.blur(gray * gray, window) - mean * mean
+    textured = variance >= np.float32(LATTICE_LOCAL_STD * LATTICE_LOCAL_STD)
+    return float(np.count_nonzero(textured & ring)) / float(np.count_nonzero(ring))
 
 
 def _selected_error(
@@ -621,8 +641,13 @@ def route_block_fill(
                 return decision, filled
 
     # Tier 2, lattice: masked autocorrelation plus a verified lattice copy.
-    # It only applies to genuinely textured rings (see MIN_TEXTURED_RING_FRACTION).
-    if start_tier <= 2 and _ring_is_textured(crop, ring):
+    # It only applies to genuinely textured rings (see MIN_TEXTURED_RING_FRACTION)
+    # that are mostly one texture (see MIN_LATTICE_RING_SHARE).
+    if (
+        start_tier <= 2
+        and _ring_is_textured(crop, ring)
+        and _ring_texture_share(crop, ring) >= MIN_LATTICE_RING_SHARE
+    ):
         if interior_mode:
             verify_sources = ring
         else:

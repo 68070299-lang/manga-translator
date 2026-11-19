@@ -247,6 +247,23 @@ LINE_SPARSE_FILL = 0.35
 # A sparse structure that fills a real share of the crop and touches its
 # border is a frame or a rule crossing the block, whatever its corners.
 LINE_SPARSE_MIN_AREA_RATIO = 0.1
+# Structure the crop border cuts through: lettering is bounded, while a bubble
+# outline, a speed line or a panel rule runs on past the text box. A
+# component that touches the crop border, lies mostly along it, and whose
+# dark stroke continues at least CONTINUATION_MIN_PX outside the crop is that
+# structure's clipped end, not a glyph. Erasing it is what cut notches into
+# bubble outlines whenever the interior search failed and nothing clipped
+# the glyph mask.
+CONTINUATION_MARGIN = 16
+CONTINUATION_MIN_PX = 10
+CONTINUATION_BORDER_PX = 6
+CONTINUATION_BORDER_SHARE = 0.5
+CONTINUATION_DARK_SHARE = 0.4
+CONTINUATION_TOUCH_PX = 5
+# Enclosed holes of a glyph mask up to this share of the crop are lettering
+# counters or hollow-letter bodies (see _fill_glyph_holes); anything larger
+# is a region the mask happens to surround, and stays.
+GLYPH_HOLE_MAX_SHARE = 0.15
 # Tone dots: small, round and thin, and they sit on a periodic lattice whose
 # period is shared by a whole population. They are only rejected when their
 # colour is a separate population from the text ink, so small grey lettering
@@ -283,6 +300,17 @@ RING_BACKGROUND_OUTER = 21
 HALO_RADIUS = 3
 HALO_ALPHA_MIN = 0.1
 HALO_MIN_CONTRAST = 8.0
+# On flat paper the alpha floor above leaves a visible ghost: resampled or
+# scanned lettering fades out over 2-3 px, and a ring only a few gray levels
+# below white still traces every erased glyph once its core is painted over.
+# Where the surroundings (the glyph and its candidate fringe repainted with
+# paper) are flat, the fringe is admitted down to a few levels of ink-ward
+# deviation and one pixel further out. Textured backgrounds keep the alpha
+# floor, so tone and hatching next to lettering are never swallowed.
+HALO_FLAT_RADIUS = 4
+HALO_FLAT_MIN_DELTA = 3.0
+HALO_FLAT_MAX_STD = 6.0
+HALO_FLAT_WINDOW = 9
 # Tone never belongs to the ink: screentone dots sit at their own level, and
 # a dot touching a glyph would otherwise be kept as glyph ink (it is not,
 # and filling it would flatten the tone). The halo also skips that level, so
@@ -295,6 +323,9 @@ TONE_REMOVAL_TOLERANCE = 24.0
 INTERIOR_DARK_MIN = 70
 INTERIOR_DARK_MAX = 210
 INTERIOR_GAP_CLOSE = 1
+# Extra closing passes for the single retry after a leak (see
+# _compute_bubble_interior_details).
+INTERIOR_GAP_RETRY = 1
 INTERIOR_ERODE = 1
 # Leak rejection: the fill must not exceed the detector bubble box by more
 # than this factor, and it must stay off the page edge.
@@ -942,38 +973,77 @@ def _cover_halo(
     alpha = ((I - B) . (F - B)) / |F - B|^2 with B the local background taken
     from a blurred copy of the crop whose mask is repainted with paper. This
     replaces the fixed 3x3 dilation with a halo measured from the data.
+
+    On flat surroundings the faint tail of the fringe is admitted too (see
+    HALO_FLAT_*): there the background is known exactly, so a pixel a few
+    levels ink-ward of it is antialiasing, not texture.
     """
     grown = mask.astype(bool)
     if not grown.any() or not ink_colours:
         return grown
+    grown_u8 = grown.astype(np.uint8)
     kernel = np.ones((2 * HALO_RADIUS + 1, 2 * HALO_RADIUS + 1), np.uint8)
-    halo = cv2.dilate(grown.astype(np.uint8), kernel).astype(bool) & ~grown
+    near = cv2.dilate(grown_u8, kernel).astype(bool) & ~grown
+    flat_kernel = np.ones((2 * HALO_FLAT_RADIUS + 1, 2 * HALO_FLAT_RADIUS + 1), np.uint8)
+    halo = cv2.dilate(grown_u8, flat_kernel).astype(bool) & ~grown
     if excluded is not None:
         halo &= ~excluded
+        near &= ~excluded
     if not halo.any():
         return grown
+    paper_rgb = np.clip(np.rint(paper.rgb), 0, 255).astype(np.uint8)
     filled = roi.copy()
-    filled[grown] = np.clip(np.rint(paper.rgb), 0, 255).astype(np.uint8)
+    filled[grown] = paper_rgb
     background = cv2.blur(filled.astype(np.float32), (7, 7))
+    # The surroundings with the glyph and its whole candidate fringe painted
+    # out: flat here means the fringe sits on plain paper, whatever it holds.
+    quiet = filled.astype(np.float32)
+    quiet[halo] = paper_rgb.astype(np.float32)
+    window = (HALO_FLAT_WINDOW, HALO_FLAT_WINDOW)
+    quiet_mean = cv2.blur(quiet, window)
+    quiet_gray = quiet.mean(axis=2)
+    gray_mean = cv2.blur(quiet_gray, window)
+    gray_var = cv2.blur(quiet_gray * quiet_gray, window) - gray_mean * gray_mean
     hy, hx = np.nonzero(halo)
     vals = roi[hy, hx].astype(np.float32)
     bg = background[hy, hx]
     val_minus_bg = vals - bg
+    in_near = near[hy, hx]
+    flat = gray_var[hy, hx] <= np.float32(HALO_FLAT_MAX_STD * HALO_FLAT_MAX_STD)
+    quiet_bg = quiet_mean[hy, hx]
+    val_minus_quiet = vals - quiet_bg
     accepted = np.zeros(hy.size, dtype=bool)
     min_norm = np.float32(HALO_MIN_CONTRAST * HALO_MIN_CONTRAST)
     for colour in ink_colours:
-        diff = colour.astype(np.float32) - bg
+        ink = colour.astype(np.float32)
+        diff = ink - bg
         norm = diff[:, 0] * diff[:, 0] + diff[:, 1] * diff[:, 1] + diff[:, 2] * diff[:, 2]
         covered = norm > min_norm
-        if not np.any(covered):
-            continue
-        dot = (
-            val_minus_bg[:, 0] * diff[:, 0]
-            + val_minus_bg[:, 1] * diff[:, 1]
-            + val_minus_bg[:, 2] * diff[:, 2]
-        )
-        alpha = dot / np.maximum(norm, np.float32(1.0))
-        accepted |= covered & (alpha >= HALO_ALPHA_MIN)
+        if np.any(covered):
+            dot = (
+                val_minus_bg[:, 0] * diff[:, 0]
+                + val_minus_bg[:, 1] * diff[:, 1]
+                + val_minus_bg[:, 2] * diff[:, 2]
+            )
+            alpha = dot / np.maximum(norm, np.float32(1.0))
+            accepted |= in_near & covered & (alpha >= HALO_ALPHA_MIN)
+        if np.any(flat):
+            quiet_diff = ink - quiet_bg
+            quiet_norm = np.sqrt(
+                quiet_diff[:, 0] * quiet_diff[:, 0]
+                + quiet_diff[:, 1] * quiet_diff[:, 1]
+                + quiet_diff[:, 2] * quiet_diff[:, 2]
+            )
+            toward_ink = (
+                val_minus_quiet[:, 0] * quiet_diff[:, 0]
+                + val_minus_quiet[:, 1] * quiet_diff[:, 1]
+                + val_minus_quiet[:, 2] * quiet_diff[:, 2]
+            ) / np.maximum(quiet_norm, np.float32(1.0))
+            accepted |= (
+                flat
+                & (quiet_norm > np.float32(HALO_MIN_CONTRAST))
+                & (toward_ink >= np.float32(HALO_FLAT_MIN_DELTA))
+            )
     if not np.any(accepted):
         return grown
     result = grown.copy()
@@ -1053,6 +1123,102 @@ def rectangular_mask_for_block(
     return local_mask, (x1, y1, x2, y2), "rectangle"
 
 
+def _drop_continuing_structure(
+    image: np.ndarray,
+    bounds: Box,
+    cores: np.ndarray,
+    light: np.ndarray,
+    paper: _Paper,
+) -> np.ndarray:
+    """Remove core components that are the clipped ends of outside structure.
+
+    See CONTINUATION_*: a component qualifies only when the crop border cuts
+    it, most of it lies along that border, and the dark stroke it belongs to
+    runs on outside the crop. Light-on-dark lettering is left alone (the
+    continuation test follows dark ink only).
+    """
+    height, width = cores.shape
+    x1, y1, x2, y2 = bounds
+    count, raw_labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        cores.astype(np.uint8), connectivity=8
+    )
+    if count <= 1:
+        return cores
+    labels = np.asarray(raw_labels, dtype=np.int32)
+    lefts = stats[:, cv2.CC_STAT_LEFT]
+    tops = stats[:, cv2.CC_STAT_TOP]
+    rights = lefts + stats[:, cv2.CC_STAT_WIDTH]
+    bottoms = tops + stats[:, cv2.CC_STAT_HEIGHT]
+    # "At the border" allows the crop padding: the darkest part of a thin,
+    # antialiased outline can sit a pixel or two inside the crop edge.
+    slack = CONTINUATION_TOUCH_PX
+    touches = (
+        (lefts <= slack)
+        | (tops <= slack)
+        | (rights >= width - slack)
+        | (bottoms >= height - slack)
+    )
+    touches[0] = False
+    if not np.any(touches):
+        return cores
+    dark_cores = cores & (light < paper.light)
+    if not np.any(dark_cores):
+        return cores
+    ink_level = float(np.median(light[dark_cores]))
+    if paper.light - ink_level < HALO_MIN_CONTRAST:
+        return cores
+
+    # Share of each component lying within CONTINUATION_BORDER_PX of the crop
+    # border: a clipped outline end hugs the border, a glyph does not.
+    rows = np.arange(height)[:, None]
+    cols = np.arange(width)[None, :]
+    border_distance = np.minimum(
+        np.minimum(rows, height - 1 - rows), np.minimum(cols, width - 1 - cols)
+    )
+    near_border = (border_distance < CONTINUATION_BORDER_PX).ravel().astype(np.float64)
+    flat_labels = labels.ravel()
+    areas = np.bincount(flat_labels, minlength=count).astype(np.float64)
+    border_share = np.bincount(flat_labels, weights=near_border, minlength=count) / np.maximum(
+        areas, 1.0
+    )
+    candidates = touches & (border_share >= CONTINUATION_BORDER_SHARE)
+    if not np.any(candidates):
+        return cores
+
+    page_height, page_width = image.shape[:2]
+    margin = CONTINUATION_MARGIN
+    ox1, oy1 = max(0, x1 - margin), max(0, y1 - margin)
+    ox2, oy2 = min(page_width, x2 + margin), min(page_height, y2 + margin)
+    outer = image[oy1:oy2, ox1:ox2]
+    outer_light = cv2.cvtColor(outer, cv2.COLOR_RGB2LAB)[..., 0].astype(np.float32)
+    dark_limit = paper.light - CONTINUATION_DARK_SHARE * (paper.light - ink_level)
+    dark = outer_light <= dark_limit
+    inner = (slice(y1 - oy1, y2 - oy1), slice(x1 - ox1, x2 - ox1))
+    dark[inner] |= cores
+    outer_count, outer_labels = cv2.connectedComponents(dark.astype(np.uint8), connectivity=8)
+    outer_labels = np.asarray(outer_labels, dtype=np.int32)
+    # How far each outer component reaches beyond the crop rectangle.
+    o_rows = np.arange(oy2 - oy1)[:, None] + oy1
+    o_cols = np.arange(ox2 - ox1)[None, :] + ox1
+    beyond = np.maximum(
+        np.maximum(y1 - o_rows, o_rows - (y2 - 1)), np.maximum(x1 - o_cols, o_cols - (x2 - 1))
+    )
+    beyond = np.maximum(beyond, 0).astype(np.float64)
+    reach = _label_max(beyond, outer_labels, outer_count)
+    reach[0] = 0.0
+    inner_labels = outer_labels[inner]
+
+    drop = np.zeros(count, dtype=bool)
+    for label in np.nonzero(candidates)[0]:
+        owners = np.unique(inner_labels[labels == label])
+        owners = owners[owners > 0]
+        if owners.size and float(reach[owners].max()) >= CONTINUATION_MIN_PX:
+            drop[label] = True
+    if not np.any(drop):
+        return cores
+    return cores & ~drop[labels]
+
+
 def glyph_mask_for_block(
     image: np.ndarray,
     block: TextBlock,
@@ -1115,13 +1281,45 @@ def _compute_glyph_mask_for_block(
     cores &= ~tone_dots
     tone = _tone_dot_bodies(light, tone_dots)
     cores &= ~tone
+    cores = _drop_continuing_structure(image, (x1, y1, x2, y2), cores, light, paper)
     if not np.any(cores):
         return np.zeros(roi.shape[:2], dtype=np.uint8), (x1, y1, x2, y2)
     grown = _grow_outline_bands(roi, cores)
     glyphs = _cover_halo(
         roi, grown, paper, _core_colours(roi, light, cores, paper), tone
     )
+    glyphs = _fill_glyph_holes(glyphs)
     return glyphs.astype(np.uint8) * 255, (x1, y1, x2, y2)
+
+
+def _fill_glyph_holes(glyphs: np.ndarray) -> np.ndarray:
+    """Add small regions the glyph mask fully encloses.
+
+    Hollow (outlined) lettering is extracted as its outline only; erasing
+    that leaves the white letter bodies standing as letter-shaped islands.
+    On plain paper an enclosed counter already is paper, so adding it
+    changes nothing; on tone or art it is part of what has to be refilled.
+    """
+    mask = glyphs.astype(bool)
+    if not mask.any():
+        return mask
+    height, width = mask.shape
+    count, labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        (~mask).astype(np.uint8), connectivity=4
+    )
+    if count <= 2:
+        return mask
+    lefts = stats[:, cv2.CC_STAT_LEFT]
+    tops = stats[:, cv2.CC_STAT_TOP]
+    rights = lefts + stats[:, cv2.CC_STAT_WIDTH]
+    bottoms = tops + stats[:, cv2.CC_STAT_HEIGHT]
+    enclosed = (lefts > 0) & (tops > 0) & (rights < width) & (bottoms < height)
+    small = stats[:, cv2.CC_STAT_AREA] <= GLYPH_HOLE_MAX_SHARE * height * width
+    holes = enclosed & small
+    holes[0] = False
+    if not np.any(holes):
+        return mask
+    return mask | holes[labels]
 
 
 def _interior_window(
@@ -1206,6 +1404,7 @@ def _flood_interior(
     ink_pixels: np.ndarray | None = None,
     *,
     gray: np.ndarray | None = None,
+    gap_close: int = INTERIOR_GAP_CLOSE,
 ) -> tuple[np.ndarray | None, str]:
     """Seeded flood fill over paper, bounded by structure, with leak rejection.
 
@@ -1244,7 +1443,7 @@ def _flood_interior(
         barrier.astype(np.uint8) * 255,
         cv2.MORPH_CLOSE,
         np.ones((3, 3), np.uint8),
-        iterations=INTERIOR_GAP_CLOSE,
+        iterations=gap_close,
     ).astype(bool)
     if ink_pixels is not None:
         barrier &= ~ink_pixels
@@ -1494,14 +1693,25 @@ def _compute_bubble_interior_details(
     if overlap is not None and glyphs.size:
         ink_pixels[overlap[0]] = glyphs[overlap[1]] > 0
     gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
+    flood_ink = ink_pixels if np.any(ink_pixels) else None
     flooded, flood_reason = _flood_interior(
-        roi,
-        local_text,
-        paper,
-        detector_bounds,
-        ink_pixels if np.any(ink_pixels) else None,
-        gray=gray,
+        roi, local_text, paper, detector_bounds, flood_ink, gray=gray
     )
+    if flooded is None and flood_reason == INTERIOR_LEAK:
+        # Flash and emanation balloons are walled by speed lines whose
+        # inner tips leave 2-3 px gaps; one more closing pass seals them.
+        # The leak tests are unchanged, so an open bubble still fails.
+        flooded, retry_reason = _flood_interior(
+            roi,
+            local_text,
+            paper,
+            detector_bounds,
+            flood_ink,
+            gray=gray,
+            gap_close=INTERIOR_GAP_CLOSE + INTERIOR_GAP_RETRY,
+        )
+        if flooded is None and retry_reason != INTERIOR_LEAK:
+            flood_reason = retry_reason
     if flooded is not None:
         return InteriorResult(flooded, bounds, "flood", INTERIOR_OK)
     contour, contour_reason = _contour_interior(roi, local_text, gray=gray)

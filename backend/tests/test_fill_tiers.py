@@ -129,6 +129,21 @@ class TierSelectionTests(unittest.TestCase):
         self.assertEqual(decision.tier, 2)
         self.assertTrue(np.array_equal(filled, clean))
 
+    def test_tone_on_a_minority_of_the_ring_is_not_lattice_filled(self):
+        # Hollow lettering over a tone patch: most of the ring is flat paper,
+        # so the trimmed band error is dominated by the paper and cannot
+        # vouch for the copied tone (on real pages that left stripes). The
+        # block goes to the model instead.
+        clean = np.full((80, 100, 3), 255, np.uint8)
+        clean[:, :45] = _dot_tone(80, 100)[:, :45]
+        crop = clean.copy()
+        mask = np.zeros((80, 100), np.uint8)
+        mask[25:55, 35:65] = 255
+        crop[mask > 0] = 0
+        decision, _ = route_block_fill(crop, mask, np.zeros_like(mask), False)
+
+        self.assertEqual(decision.tier, TIER_MODEL)
+
     def test_random_texture_escalates_to_model(self):
         rng = np.random.default_rng(11)
         noise = rng.integers(0, 255, (60, 80, 3)).astype(np.uint8)
