@@ -39,8 +39,8 @@ from manga_backend.pipeline.fill_tiers import (
     TIER_MODEL,
     TIER_SKIPPED,
     FillDecision,
-    route_block_fill,
 )
+from manga_backend.pipeline.residual import route_block_fill_checked
 from manga_backend.pipeline.regions import int_box, suppress_composite_render_regions
 from manga_backend.utils.textblock import Box, TextBlock
 
@@ -1412,17 +1412,26 @@ def prepare_flux_inpainting(
         if not interior_mode and strategy in INTERIOR_STRATEGIES:
             valid = _bubble_valid_region(block, (cx1, cy1, cx2, cy2), crop.shape)
 
-        decision, filled = route_block_fill(
-            crop, local_mask, excluded, interior_mode, valid
+        # Route, then re-run the ink extractor on the inpainted crop and
+        # escalate a flagged block once (research section 2.7).
+        decision, filled, model_local = route_block_fill_checked(
+            crop,
+            local_mask,
+            excluded,
+            interior_mode,
+            valid,
+            block=block,
+            origin=(cx1, cy1),
+            strategy=strategy,
         )
-        if filled is not None and decision.tier != TIER_MODEL:
+        if filled is not None and decision["tier"] != TIER_MODEL:
             cleaned[cy1:cy2, cx1:cx2] = filled
             filled_count += 1
         else:
-            local_target = model_mask[y1:y2, x1:x2]
-            np.maximum(local_target, local, out=local_target)
+            target_crop = model_mask[cy1:cy2, cx1:cx2]
+            np.maximum(target_crop, model_local, out=target_crop)
             model_count += 1
-        decisions.append(decision.as_dict(strategy))
+        decisions.append(decision)
 
     logger.info(
         "Fill router: %s blocks filled by verified tiers; %s queued for the model",

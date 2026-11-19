@@ -82,9 +82,10 @@ from manga_backend.pipeline import TranslationPipeline  # noqa: E402
 from manga_backend.pipeline import masks as masks_module  # noqa: E402
 from manga_backend.pipeline import orchestrator as orchestrator_module  # noqa: E402
 from manga_backend.pipeline import rendering as rendering_module  # noqa: E402
+from manga_backend.pipeline import residual as residual_module  # noqa: E402
 from manga_backend.pipeline.fonts import get_cached_font  # noqa: E402
 from manga_backend.pipeline.inpainting import DEFAULT_INPAINTER  # noqa: E402
-from manga_backend.pipeline.text import is_unchanged_punctuation  # noqa: E402
+from manga_backend.pipeline.text import has_cjk_letters, is_unchanged_punctuation  # noqa: E402
 from manga_backend.utils.textblock import TextBlock  # noqa: E402
 
 logger = logging.getLogger("eval_pipeline")
@@ -95,7 +96,9 @@ logger = logging.getLogger("eval_pipeline")
 # hole_in_tone_px, render_ink_outside_bubble_px, OCR character error rate,
 # mask reason codes, font_size_spread and the oracle run modes.
 # Version 3 adds the WP6b translation section (per-unit length budgets and the
-# one re-ask), again additive: every version 2 key is unchanged.
+# one re-ask) and the WP3 pre-render residual-check section (`residual_flag`
+# plus `timings.verify_harness`), again additive: every version 2 key is
+# unchanged.
 SCHEMA_VERSION = 3
 Box = tuple[int, int, int, int]
 
@@ -703,6 +706,8 @@ class PageProbe:
     in_render: bool = False
     preferred_font_size: int = int(API_RENDER_DEFAULTS["preferred_font_size"])
     render_regions: list[dict[str, Any]] = field(default_factory=list)
+    # The live block list Step 5 rendered, kept for the harness's own re-OCR.
+    render_blocks: list[TextBlock] | None = None
     verified_blocks: list[TextBlock] | None = None
 
     @contextmanager
@@ -816,7 +821,7 @@ class Instrumentation:
         original_run_ocr = pipeline._run_ocr
         original_inpaint = pipeline._inpaint
         original_inpaint_page = inpainters.inpaint_page
-        original_verify = type(pipeline)._verify_rendered_text
+        original_grow = residual_module.grow_escalation_mask
         original_translate = orchestrator_module.translate_texts
         original_prepare_flux = orchestrator_module.prepare_flux_inpainting
         original_render = orchestrator_module.render_text
@@ -868,6 +873,8 @@ class Instrumentation:
         def prepare_flux(
             image: np.ndarray, blocks: list[TextBlock], rectangular: bool = False
         ) -> tuple[np.ndarray, np.ndarray, int, int, list[dict[str, Any]]]:
+            self.probe.mask_records.clear()
+            self.probe.mask_blocks.clear()
             with self.probe.timed("mask"), self.mask_phase():
                 oracle = self.oracle_ink_mask(image.shape) if self.mask_mode == "oracle" else None
                 if oracle is not None:
@@ -916,7 +923,37 @@ class Instrumentation:
             self.probe.model_calls.append((image, mask, output, str(used)))
             return output, used
 
+        def grow_mask(
+            original_crop: np.ndarray,
+            filled_crop: np.ndarray,
+            block: TextBlock,
+            origin: tuple[int, int],
+            mask: np.ndarray,
+            residue: np.ndarray | None = None,
+        ) -> tuple[np.ndarray, Any]:
+            # The residual check grows a block mask before re-routing it. The
+            # record keeps mask_px, ink-mask recall and the in/out residual
+            # split honest, and keeps changed_outside_mask at zero, because
+            # the harness then measures against the mask the pipeline erased.
+            grown, bounds = original_grow(
+                original_crop, filled_crop, block, origin, mask, residue
+            )
+            if self.probe.in_mask_phase:
+                x1, y1, x2, y2 = (int(value) for value in bounds)
+                if x2 > x1 and y2 > y1:
+                    for index, owner in enumerate(self.probe.mask_blocks):
+                        if owner is block:
+                            _local, _old, strategy = self.probe.mask_records[index]
+                            local = grown[
+                                y1 - origin[1] : y2 - origin[1],
+                                x1 - origin[0] : x2 - origin[0],
+                            ]
+                            self.probe.mask_records[index] = (local, bounds, strategy)
+                            break
+            return grown, bounds
+
         def render_text(image: np.ndarray, blocks: list[TextBlock], **options: Any) -> np.ndarray:
+            self.probe.render_blocks = blocks
             self.probe.preferred_font_size = int(
                 options.get("preferred_font_size", API_RENDER_DEFAULTS["preferred_font_size"])
             )
@@ -942,17 +979,12 @@ class Instrumentation:
                 )
             return result
 
-        async def verify(ocr_engine: Any, rendered: np.ndarray, blocks: list[TextBlock]) -> None:
-            with self.probe.timed("verify"):
-                await original_verify(ocr_engine, rendered, blocks)
-            self.probe.verified_blocks = list(blocks)
-
         with ExitStack() as stack:
             stack.enter_context(_swap(detectors, "get", get_detector))
             stack.enter_context(_swap(pipeline, "_run_ocr", run_ocr))
             stack.enter_context(_swap(pipeline, "_inpaint", inpaint))
-            stack.enter_context(_swap(pipeline, "_verify_rendered_text", verify))
             stack.enter_context(_swap(inpainters, "inpaint_page", inpaint_page))
+            stack.enter_context(_swap(residual_module, "grow_escalation_mask", grow_mask))
             stack.enter_context(_swap(orchestrator_module, "translate_texts", translate_texts))
             stack.enter_context(_swap(orchestrator_module, "prepare_flux_inpainting", prepare_flux))
             stack.enter_context(_swap(orchestrator_module, "render_text", render_text))
@@ -1312,6 +1344,138 @@ def _ocr_cer(
     }
 
 
+async def _verify_rendered_text(
+    ocr_engine: Any, rendered: np.ndarray, blocks: list[TextBlock]
+) -> None:
+    """The harness's own Step 6 re-read of the rendered page.
+
+    Production no longer runs this pass (WP3): it ran after drawing, so it
+    could not repair anything, and it read short rendered English as kana.
+    The harness keeps it for measurement continuity, so the CJK-residue rows
+    stay comparable run over run. Full-width Latin and CJK punctuation do not
+    count as residue (``has_cjk_letters``).
+    """
+    verified_texts = await ocr_engine.process(rendered, blocks)
+    issue_count = 0
+    for index, (block, verified) in enumerate(zip(blocks, verified_texts)):
+        block.verified_text = verified
+        block.verification_passed = not (verified and has_cjk_letters(verified))
+        if not block.verification_passed:
+            issue_count += 1
+            logger.warning(
+                "Harness re-OCR block %s: rendered text still contains CJK: "
+                "orig=%r translated=%r verified=%r",
+                index,
+                block.text,
+                block.translated_text,
+                verified,
+            )
+    logger.info(
+        "Harness re-OCR: %s/%s blocks still contain CJK text",
+        issue_count,
+        len(blocks),
+    )
+
+
+def _residual_flag_metrics(
+    probe: PageProbe,
+    synthetic: SyntheticPage | None,
+    inpainted: np.ndarray,
+    erase: np.ndarray,
+) -> dict[str, Any]:
+    """Agreement between the pre-render residue flag and the synthetic truth.
+
+    A block's truth residue is the truth lettering inside its box that is
+    still visibly wrong in the inpainted page (the same 40-level bound as
+    ``residual_ink_ratio``). Only blocks the router filled are scored: a
+    model-tier block has no cheap fill to check, and a box with no truth
+    lettering in it (a detector duplicate) says nothing about the flag.
+
+    The in-mask agreement is the stricter target of the check (fill failure);
+    the overall agreement also counts lettering the mask never covered, which
+    the flag can only see when the extractor saw it too. Both are reported so
+    a mask miss is not silently blamed on the fill.
+    """
+    decisions = probe.fill_decisions
+    escalated = [decision for decision in decisions if decision.get("escalated")]
+    metrics: dict[str, Any] = {
+        "escalated_blocks": len(escalated),
+        "second_flags": sum(bool(decision.get("second_flag")) for decision in escalated),
+        "mask_grown_px": sum(
+            int(decision.get("escalation_grown_px") or 0) for decision in escalated
+        ),
+        "scored_blocks": 0,
+        "flagged_blocks": sum(bool(decision.get("residual_flag")) for decision in decisions),
+        "truth_blocks": 0,
+        "truth_residual_px": 0,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "true_negatives": 0,
+        "agreement": None,
+        "in_mask_truth_blocks": 0,
+        "in_mask_true_positives": 0,
+        "in_mask_false_positives": 0,
+        "in_mask_false_negatives": 0,
+        "in_mask_true_negatives": 0,
+        "in_mask_agreement": None,
+    }
+    if synthetic is None:
+        return metrics
+
+    error = np.abs(inpainted.astype(np.int16) - synthetic.clean.astype(np.int16)).max(axis=2)
+    bad = error > VISIBLE_LEVELS
+    ink = synthetic.ink
+    height, width = ink.shape[:2]
+    scored = 0
+    for decision in decisions:
+        bbox = decision.get("block_bbox")
+        if not bbox or decision.get("tier_name") in ("model", "skipped"):
+            continue
+        x1, y1, x2, y2 = (int(value) for value in bbox)
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(width, x2), min(height, y2)
+        if x2 <= x1 or y2 <= y1:
+            continue
+        truth = ink[y1:y2, x1:x2]
+        if not truth.any():
+            continue
+        wrong = bad[y1:y2, x1:x2] & truth
+        predicted = bool(decision.get("residual_flag"))
+        scored += 1
+        metrics["scored_blocks"] += 1
+        metrics["truth_residual_px"] += int(np.count_nonzero(wrong))
+        if wrong.any():
+            metrics["truth_blocks"] += 1
+            if predicted:
+                metrics["true_positives"] += 1
+            else:
+                metrics["false_negatives"] += 1
+        elif predicted:
+            metrics["false_positives"] += 1
+        else:
+            metrics["true_negatives"] += 1
+        in_mask_wrong = wrong & erase[y1:y2, x1:x2]
+        if in_mask_wrong.any():
+            metrics["in_mask_truth_blocks"] += 1
+            if predicted:
+                metrics["in_mask_true_positives"] += 1
+            else:
+                metrics["in_mask_false_negatives"] += 1
+        elif predicted:
+            metrics["in_mask_false_positives"] += 1
+        else:
+            metrics["in_mask_true_negatives"] += 1
+    if scored:
+        correct = metrics["true_positives"] + metrics["true_negatives"]
+        in_mask_correct = (
+            metrics["in_mask_true_positives"] + metrics["in_mask_true_negatives"]
+        )
+        metrics["agreement"] = _rate(correct, scored)
+        metrics["in_mask_agreement"] = _rate(in_mask_correct, scored)
+    return metrics
+
+
 def _verify_metrics(probe: PageProbe) -> dict[str, Any]:
     blocks = probe.verified_blocks
     if blocks is None:
@@ -1412,6 +1576,7 @@ def measure_page(
     detected = [list(block["bbox"]) for block in result.get("blocks") or []]
     inpainted = probe.inpaint_output if probe.inpaint_output is not None else image
     timings = {stage: round(probe.timings.get(stage, 0.0), 4) for stage in STAGES}
+    timings["verify_harness"] = round(probe.timings.get("verify_harness", 0.0), 4)
     to_erase = sum(
         bool(target.strip()) and not is_unchanged_punctuation(source, target)
         for source, target in zip(texts, translated)
@@ -1436,6 +1601,9 @@ def measure_page(
         "translate": _translation_metrics(result),
         "render": _render_metrics(probe),
         "verify": _verify_metrics(probe),
+        "residual_flag": _residual_flag_metrics(
+            probe, loaded.synthetic, np.asarray(inpainted), erase
+        ),
         "truth": None
         if loaded.synthetic is None
         else _truth_metrics(
@@ -1568,6 +1736,27 @@ async def run_corpus(
                 records.append(record)
                 continue
             total = time.perf_counter() - started
+            # Step 6 continuity: production no longer re-reads the rendered
+            # page, so the harness runs the same pass itself. It runs after
+            # the page timer (timings.verify_harness), because it is measured
+            # work, not production latency; the CJK rows stay comparable.
+            if (
+                config.verify
+                and result.get("image") is not None
+                and probe.render_blocks
+                and pipeline._ocr is not None
+            ):
+                with probe.timed("verify_harness"):
+                    try:
+                        await _verify_rendered_text(
+                            pipeline._ocr,
+                            np.asarray(result["image"]),
+                            probe.render_blocks,
+                        )
+                    except Exception as error:
+                        logger.warning("Harness re-OCR failed for %s: %s", page.id, error)
+                    else:
+                        probe.verified_blocks = probe.render_blocks
             record["status"] = "ok"
             record.update(measure_page(probe, loaded, result, config.inpainter))
             record["timings"]["total"] = round(total, 4)
@@ -1626,6 +1815,39 @@ def summarize(records: Sequence[dict[str, Any]], *, by_tag: bool = True) -> dict
         tiers.update(record["mask"].get("tier_counts") or {})
     sizes = [size for record in scored for size in record["render"]["font_sizes"]]
     truths = [record["truth"] for record in scored if record.get("truth")]
+    flag_keys = (
+        "escalated_blocks",
+        "second_flags",
+        "mask_grown_px",
+        "scored_blocks",
+        "flagged_blocks",
+        "truth_blocks",
+        "truth_residual_px",
+        "true_positives",
+        "false_positives",
+        "false_negatives",
+        "true_negatives",
+        "in_mask_truth_blocks",
+        "in_mask_true_positives",
+        "in_mask_false_positives",
+        "in_mask_false_negatives",
+        "in_mask_true_negatives",
+    )
+    flags = Counter()
+    for record in scored:
+        section = record.get("residual_flag") or {}
+        for key in flag_keys:
+            flags[key] += int(section.get(key) or 0)
+    flag_blocks = flags["scored_blocks"]
+    in_mask_blocks = flags["scored_blocks"]
+    flag_summary: dict[str, Any] = {key: flags[key] for key in flag_keys}
+    flag_summary["agreement"] = _rate(
+        flags["true_positives"] + flags["true_negatives"], flag_blocks
+    )
+    flag_summary["in_mask_agreement"] = _rate(
+        flags["in_mask_true_positives"] + flags["in_mask_true_negatives"],
+        in_mask_blocks,
+    )
 
     def truth_mean(key: str) -> float | None:
         return _mean([truth.get(key) for truth in truths])
@@ -1634,7 +1856,7 @@ def summarize(records: Sequence[dict[str, Any]], *, by_tag: bool = True) -> dict
         return sum(int(truth.get(key) or 0) for truth in truths)
     timings = {
         stage: round(sum(float(record["timings"].get(stage, 0.0)) for record in scored), 3)
-        for stage in (*STAGES, "other", "total")
+        for stage in (*STAGES, "verify_harness", "other", "total")
     }
     translate_records = [record.get("translate") or {} for record in scored]
     translate_budgeted = sum(int(record.get("budgeted") or 0) for record in translate_records)
@@ -1737,6 +1959,7 @@ def summarize(records: Sequence[dict[str, Any]], *, by_tag: bool = True) -> dict
             "over_erased_px": sum(int(truth["over_erased_px"]) for truth in truths),
             "touched_away_px": sum(int(truth["touched_away_px"]) for truth in truths),
         },
+        "residual_flag": flag_summary,
         "timings": timings,
         "seconds_per_page": round(timings["total"] / len(scored), 3) if scored else None,
     }
@@ -1812,7 +2035,16 @@ METRICS: tuple[tuple[str, str, str | None], ...] = (
     ("truth.ocr_cer", "Synthetic: OCR character error rate", "lower"),
     ("truth.over_erased_px", "Synthetic: over-erased px (visible)", "lower"),
     ("truth.touched_away_px", "Synthetic: px touched away from text", "lower"),
+    ("residual_flag.agreement", "Pre-render flag: agreement with truth residue", "higher"),
+    ("residual_flag.in_mask_agreement", "Pre-render flag: agreement (fill failure only)", "higher"),
+    ("residual_flag.truth_blocks", "Pre-render flag: blocks with truth residue", None),
+    ("residual_flag.flagged_blocks", "Pre-render flag: blocks flagged", None),
+    ("residual_flag.false_positives", "Pre-render flag: false positives", "lower"),
+    ("residual_flag.false_negatives", "Pre-render flag: false negatives", "lower"),
+    ("residual_flag.escalated_blocks", "Residual escalation: blocks escalated", None),
+    ("residual_flag.second_flags", "Residual escalation: second flags (not retried)", None),
     ("seconds_per_page", "Seconds per page", "lower"),
+    ("timings.verify_harness", "Time: harness re-OCR (s)", None),
     *((f"timings.{stage}", f"Time: {stage} (s)", "lower") for stage in STAGES),
 )
 
@@ -2191,7 +2423,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--device", default=os.environ.get("EVAL_DEVICE", "cpu"))
     parser.add_argument("--pages", nargs="+", help="only these page ids")
     parser.add_argument("--tags", nargs="+", help="only pages with any of these tags")
-    parser.add_argument("--no-verify", action="store_true", help="skip the Step 6 re-OCR")
+    parser.add_argument("--no-verify", action="store_true", help="skip the harness's own Step 6 re-OCR")
     parser.add_argument("--no-warmup", action="store_true", help="time the first page cold")
     parser.add_argument("--save-images", action="store_true", help="write mask/inpainted/rendered PNGs")
     parser.add_argument("--strict", action="store_true", help="fail when a listed page is missing")

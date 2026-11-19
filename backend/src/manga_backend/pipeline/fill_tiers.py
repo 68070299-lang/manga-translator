@@ -499,6 +499,7 @@ def route_block_fill(
     excluded: np.ndarray,
     interior_mode: bool,
     valid: np.ndarray | None = None,
+    start_tier: int = 0,
 ) -> tuple[FillDecision, np.ndarray | None]:
     """Choose the cheapest verified fill tier for one block crop.
 
@@ -507,6 +508,11 @@ def route_block_fill(
     the region the fill may sample from (e.g. the bubble interior). Returns
     the decision and, when a tier was accepted, the filled crop with only
     the masked pixels repainted.
+
+    ``start_tier`` is the additive hook the residual check uses to re-route a
+    flagged block at the next tier: tiers below it are skipped, the acceptance
+    rules and bounds are unchanged. The default 0 keeps the router's own
+    behaviour byte-identical.
     """
     mask_bool = mask.astype(bool)
     mask_px = int(np.count_nonzero(mask_bool))
@@ -528,7 +534,7 @@ def route_block_fill(
         )
 
     # Tier 0, flat: any colour, accepted on a low band error.
-    flat = _flat_tier(crop, ring, band)
+    flat = _flat_tier(crop, ring, band) if start_tier <= 0 else None
     if flat is not None and flat[0] <= FLAT_MAX_ERROR:
         error, color = flat
         decision = FillDecision(0, error, mask_px, band_px, ring_px, "flat")
@@ -537,8 +543,8 @@ def route_block_fill(
         return decision, filled
 
     # Tier 1, smooth: a plane per channel over the ring, predicting the band.
-    fit = _PlaneFit(crop, ring)
-    if fit.usable():
+    fit = _PlaneFit(crop, ring) if start_tier <= 1 else None
+    if fit is not None and fit.usable():
         bys, bxs = np.nonzero(band)
         error = _selected_error(fit.predict(bys, bxs), crop, band)
         if error <= SMOOTH_MAX_ERROR:
@@ -554,7 +560,7 @@ def route_block_fill(
 
     # Tier 2, lattice: masked autocorrelation plus a verified lattice copy.
     # It only applies to genuinely textured rings (see MIN_TEXTURED_RING_FRACTION).
-    if _ring_is_textured(crop, ring):
+    if start_tier <= 2 and _ring_is_textured(crop, ring):
         if interior_mode:
             verify_sources = ring
         else:

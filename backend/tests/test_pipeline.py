@@ -2308,21 +2308,6 @@ class RenderedTextVerificationTests(unittest.IsolatedAsyncioTestCase):
         # Font choice, wrapping and the translate decision keep the wider check.
         self.assertTrue(has_cjk("Ｒｅａｄｙ．"))
 
-    async def test_step6_passes_rendered_english_read_back_full_width(self):
-        class ReadBackOcr:
-            async def process(self, image, blocks):
-                return ["Ｒｅａｄｙ．", "それは、", "", "。"]
-
-        blocks = [TextBlock([0, 0, 10, 10], text="待って") for _ in range(4)]
-        await TranslationPipeline._verify_rendered_text(
-            ReadBackOcr(), np.zeros((10, 10, 3), np.uint8), blocks
-        )
-
-        self.assertEqual(
-            [block.verification_passed for block in blocks], [True, False, True, True]
-        )
-        self.assertEqual(blocks[0].verified_text, "Ｒｅａｄｙ．")
-
 
 class FontObjectCacheTests(unittest.TestCase):
     def test_concurrent_requests_load_each_font_once(self):
@@ -2655,6 +2640,34 @@ class TranslationConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([block.text for block in calls["mask"][0]], ["一", "三"])
         self.assertEqual([block.text for block in calls["mask"][1]], ["一", "……"])
         self.assertEqual(len(calls["mask"]), 2)
+
+    async def test_concurrent_erase_records_residual_check_and_skips_step6_reocr(self):
+        pipeline, image, _blocks = self.build_pipeline()
+        # Draw thin lettering strokes inside the two erased blocks ([80, 10, 130, 40]
+        # and [10, 80, 60, 110]) so the real fill router + residual check run on both.
+        image[18:22, 90:120] = 0
+        image[88:92, 20:50] = 0
+        ocr_mock = AsyncMock(return_value=["一", "……", "三"])
+        pipeline._ocr = types.SimpleNamespace(process=ocr_mock)
+
+        async def fake_translate(texts, target_lang, **kwargs):
+            return ["One", "……", "Three"]
+
+        with patch.object(orchestrator_module, "translate_texts", fake_translate):
+            result = await pipeline.translate(
+                image,
+                translator="local",
+                inpainter="lama_large",
+                render=True,
+                verify_translation=True,
+            )
+
+        self.assertTrue(result["fill_decisions"])
+        for decision in result["fill_decisions"]:
+            self.assertIn("residual_flag", decision)
+            self.assertIn("escalated", decision)
+        # Step 6 re-OCR is off the production path even when verify_translation=True.
+        ocr_mock.assert_not_awaited()
 
 
 class EraseFilterTests(unittest.TestCase):

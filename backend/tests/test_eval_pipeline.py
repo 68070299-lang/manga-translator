@@ -19,6 +19,7 @@ import numpy as np
 
 from manga_backend.pipeline import TranslationPipeline
 from manga_backend.pipeline import masks as masks_module
+from manga_backend.pipeline import residual as residual_module
 from manga_backend.pipeline import orchestrator as orchestrator_module
 from manga_backend.pipeline import rendering as rendering_module
 from manga_backend.pipeline.fill_tiers import TIER_MODEL, FillDecision
@@ -265,7 +266,7 @@ class HarnessModeTests(unittest.TestCase):
         # Cleaner masks leave the synthetic corpus fully tier-fillable, so the
         # fallback leg is exercised by declining the tiers by hand: this test
         # is about the flux -> lama fallback plumbing, not about a tier verdict.
-        def decline(crop, mask, excluded, interior_mode, valid=None):
+        def decline(crop, mask, excluded, interior_mode, valid=None, start_tier=0):
             return (
                 FillDecision(
                     TIER_MODEL, None, int(np.count_nonzero(mask > 0)), 0, 0, "test"
@@ -287,7 +288,7 @@ class HarnessModeTests(unittest.TestCase):
             )
         with (
             patch("manga_backend.pipeline.inpainting.create_inpainter", create),
-            patch.object(masks_module, "route_block_fill", decline),
+            patch.object(residual_module, "route_block_fill", decline),
         ):
             textured_result = asyncio.run(
                 eval_pipeline.run_corpus(
@@ -816,6 +817,177 @@ class AdversarialPageTests(unittest.TestCase):
         truth = result["pages"][0]["truth"]
         self.assertEqual(truth["ink_mask_recall"], 1.0)
         self.assertEqual(truth["residual_out_of_mask_ratio"], 0.0)
+
+
+class HarnessReReadTests(unittest.IsolatedAsyncioTestCase):
+    """Step 6 re-OCR is off the production path and kept in the harness."""
+
+    async def test_full_width_latin_read_back_is_not_residue(self):
+        class ReadBackOcr:
+            async def process(self, image, blocks):
+                return ["Ｒｅａｄｙ．", "それは、", "", "。"]
+
+        blocks = [TextBlock([0, 0, 10, 10], text="待って") for _ in range(4)]
+        await eval_pipeline._verify_rendered_text(
+            ReadBackOcr(), np.zeros((10, 10, 3), np.uint8), blocks
+        )
+
+        self.assertEqual(
+            [block.verification_passed for block in blocks], [True, False, True, True]
+        )
+        self.assertEqual(blocks[0].verified_text, "Ｒｅａｄｙ．")
+
+    def test_production_pipeline_has_no_step6_and_the_harness_runs_it_once(self):
+        self.assertFalse(hasattr(TranslationPipeline, "_verify_rendered_text"))
+
+        class CountingOcr(EchoOcr):
+            def __init__(self):
+                self.verification_calls = 0
+
+            async def process(self, image, blocks):
+                if any(block.translated_text for block in blocks):
+                    self.verification_calls += 1
+                return await super().process(image, blocks)
+
+        pipeline = fake_pipeline()
+        ocr = CountingOcr()
+        pipeline._ocr = ocr
+        config = eval_pipeline.RunConfig(
+            label="probe",
+            detector=eval_pipeline.TRUTH_DETECTOR,
+            inpainter="fake-telea",
+            warmup=False,
+        )
+        result = asyncio.run(
+            eval_pipeline.run_corpus(
+                pipeline, synthetic_pages("syn-white-bubbles"), CORPUS.parent, config
+            )
+        )
+        page = result["pages"][0]
+        self.assertEqual(ocr.verification_calls, 1, "only the harness re-reads the page")
+        self.assertTrue(page["verify"]["ran"])
+        self.assertEqual(page["timings"]["verify"], 0.0, "production verify stage is gone")
+        self.assertIn("verify_harness", page["timings"])
+
+        pipeline = fake_pipeline()
+        skipped = CountingOcr()
+        pipeline._ocr = skipped
+        result = asyncio.run(
+            eval_pipeline.run_corpus(
+                pipeline,
+                synthetic_pages("syn-white-bubbles"),
+                CORPUS.parent,
+                eval_pipeline.RunConfig(
+                    label="no-verify",
+                    detector=eval_pipeline.TRUTH_DETECTOR,
+                    inpainter="fake-telea",
+                    warmup=False,
+                    verify=False,
+                ),
+            )
+        )
+        self.assertEqual(skipped.verification_calls, 0)
+        self.assertFalse(result["pages"][0]["verify"]["ran"])
+
+
+class ResidualFlagMetricTests(unittest.TestCase):
+    @staticmethod
+    def _page():
+        clean = np.zeros((80, 80, 3), np.uint8)
+        ink = np.zeros((80, 80), dtype=bool)
+        ink[10:20, 10:20] = True
+        ink[50:60, 50:60] = True
+        return eval_pipeline.SyntheticPage(
+            name="metric",
+            image=clean.copy(),
+            clean=clean,
+            ink=ink,
+            truth=(),
+            glyph_source="test",
+        )
+
+    def _metrics(self, decisions, *, error_at_first=True):
+        page = self._page()
+        inpainted = page.clean.copy()
+        if error_at_first:
+            inpainted[10:20, 10:20] = 200
+        erase = np.zeros((80, 80), dtype=bool)
+        erase[10:20, 10:20] = True
+        probe = eval_pipeline.PageProbe()
+        probe.fill_decisions = decisions
+        return eval_pipeline._residual_flag_metrics(probe, page, inpainted, erase)
+
+    def test_agreement_counts_a_true_positive_and_a_false_positive(self):
+        metrics = self._metrics(
+            [
+                {"block_bbox": [0, 0, 40, 40], "tier_name": "flat", "residual_flag": True},
+                {"block_bbox": [40, 40, 80, 80], "tier_name": "flat", "residual_flag": True},
+            ]
+        )
+        self.assertEqual(metrics["scored_blocks"], 2)
+        self.assertEqual(metrics["flagged_blocks"], 2)
+        self.assertEqual(metrics["truth_blocks"], 1)
+        self.assertEqual((metrics["true_positives"], metrics["false_positives"]), (1, 1))
+        self.assertEqual(metrics["agreement"], 0.5)
+        self.assertEqual(metrics["in_mask_agreement"], 0.5)
+
+    def test_an_unflagged_block_with_residue_is_a_false_negative(self):
+        metrics = self._metrics(
+            [{"block_bbox": [0, 0, 40, 40], "tier_name": "flat", "residual_flag": False}]
+        )
+        self.assertEqual(metrics["false_negatives"], 1)
+        self.assertEqual(metrics["in_mask_false_negatives"], 1)
+        self.assertEqual(metrics["agreement"], 0.0)
+
+    def test_model_blocks_and_blocks_without_truth_ink_are_skipped(self):
+        metrics = self._metrics(
+            [
+                {"block_bbox": [0, 0, 20, 20], "tier_name": "model", "residual_flag": True},
+                {"block_bbox": [40, 40, 60, 60], "tier_name": "flat", "residual_flag": True},
+            ]
+        )
+        self.assertEqual(metrics["scored_blocks"], 1)
+        self.assertEqual(metrics["truth_blocks"], 0)
+        self.assertEqual(metrics["agreement"], 0.0)
+
+    def test_escalation_statistics_are_aggregated_even_without_truth(self):
+        metrics = eval_pipeline._residual_flag_metrics(
+            probe=self._probe_with_escalations(),
+            synthetic=None,
+            inpainted=np.zeros((20, 20, 3), np.uint8),
+            erase=np.zeros((20, 20), dtype=bool),
+        )
+        self.assertEqual(metrics["escalated_blocks"], 2)
+        self.assertEqual(metrics["second_flags"], 1)
+        self.assertEqual(metrics["mask_grown_px"], 70)
+        self.assertIsNone(metrics["agreement"])
+
+    @staticmethod
+    def _probe_with_escalations():
+        probe = eval_pipeline.PageProbe()
+        probe.fill_decisions = [
+            {"tier_name": "smooth", "escalated": True, "second_flag": False, "escalation_grown_px": 20},
+            {"tier_name": "model", "escalated": True, "second_flag": True, "escalation_grown_px": 50},
+        ]
+        return probe
+
+
+class ResidualCheckDecisionTests(unittest.TestCase):
+    def test_every_fill_decision_records_the_check(self):
+        result = run(synthetic_pages("syn-tone-rotated"))
+        decisions = result["pages"][0]["mask"]["fill_decisions"]
+        self.assertTrue(decisions)
+        for decision in decisions:
+            with self.subTest(tier=decision["tier_name"]):
+                self.assertIn("residual_flag", decision)
+                self.assertIn("block_bbox", decision)
+                self.assertIn("escalation_grown_px", decision)
+        # Clean synthetic fills leave nothing letter-shaped behind, so the
+        # flag is silent and nothing escalates there.
+        summary = result["summary"]["residual_flag"]
+        self.assertEqual(summary["escalated_blocks"], 0)
+        self.assertEqual(summary["second_flags"], 0)
+        self.assertIsNotNone(summary["agreement"])
 
 
 class CharacterErrorRateTests(unittest.TestCase):

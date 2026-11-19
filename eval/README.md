@@ -122,8 +122,8 @@ Per page, summed in `summary`, and summed again per tag in `summary.by_tag`:
 
 | Metric | Source | Meaning |
 | --- | --- | --- |
-| `cjk_residue.step6_rate` | Step 6 `verification_passed` | Share of blocks the pipeline's own re-OCR check flags as still showing Han, kana or Hangul. |
-| `cjk_residue.kana_kanji_rate` | Step 6 `verified_text` | The same re-OCR text, NFKC-folded and counted only when it contains kana or kanji. It covers only blocks that were erased and rendered. |
+| `cjk_residue.step6_rate` | Harness re-OCR `verification_passed` | Share of blocks the harness's post-render re-OCR pass flags as still showing Han, kana or Hangul. Production no longer runs Step 6 (WP3); the harness keeps this pass after the page timer (`timings.verify_harness`) for continuity. |
+| `cjk_residue.kana_kanji_rate` | Harness re-OCR `verified_text` | The same re-OCR text, NFKC-folded and counted only when it contains kana or kanji. It covers only blocks that were erased and rendered. |
 | `inpaint.changed_outside_mask_px` | inpaint step input vs output | Pixels the inpainting step changed outside every mask it built. These masks are the per-block masks plus the white-fill masks. Expected 0. |
 | `inpaint.model_changed_outside_mask_px` | inpainter call | Pixels the inpainter model changed outside the mask it was given. Expected 0. |
 | `mask.kinds` | per-block mask builders | `contour_safe_glyph` (`glyph`, `bubble-clipped-glyph`, `contour-clipped-glyph`), `bubble_interior`, `rectangular`, `skipped` (no safe mask). Raw strategy names are in `mask.strategies`. |
@@ -152,7 +152,8 @@ Per page, summed in `summary`, and summed again per tag in `summary.by_tag`:
 | `translate.page_image` | `supports_page_image` | Pages whose provider request carried the downscaled page with a reading-order number drawn at each unit. Text-only routes (the local OpenAI-compatible route among them) keep the text-only prompt. |
 | `translate.requests` | `translation.TranslationReport` | Provider requests the translate step made: 1 for the page, 2 when one re-ask was needed. Zero on stub runs, which never enter the step. |
 | `translate.reask_units`, `translate.reask_shortened` | `TranslationReport` | Units whose translation could not be set at the minimum readable size (and so were re-asked once for a shorter version), and how many of those came back with usable text. `translate.reask_failed` marks a re-ask the provider refused. |
-| `timings.*` | stage wrappers | Seconds in detect, OCR, translate, mask building, inpainter model, render and verify. `other` covers the rest, such as bubble geometry. |
+| `residual_flag.*` | `pipeline/residual.py` | Pre-render residual check agreement against synthetic truth (`agreement`, `in_mask_agreement`, `truth_blocks`, `flagged_blocks`, `false_positives`, `false_negatives`) plus escalation stats (`escalated_blocks`, `second_flags`, `mask_grown_px`). |
+| `timings.*` | stage wrappers | Seconds in detect, OCR, translate, mask building, inpainter model, render and production verify (0.0 since WP3). `timings.verify_harness` records the harness's own post-render re-OCR outside `seconds_per_page`; `other` covers the rest, such as bubble geometry. |
 
 ### Caveats
 
