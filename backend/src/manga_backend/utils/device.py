@@ -105,6 +105,35 @@ def with_provider_options(providers: Sequence[Provider]) -> list[Provider]:
     ]
 
 
+def resolve_onnx_model_path(
+    model_path: str | os.PathLike[str],
+    providers: Sequence[Provider],
+) -> str | os.PathLike[str]:
+    """Use a sibling ``<stem>.fp16.onnx`` sidecar on CUDA/TensorRT when present.
+
+    The original FP32 model file stays untouched on disk so SHA256 verification
+    and CPU execution remain unchanged. Set ``ORT_DISABLE_FP16=1`` to force FP32.
+    """
+    if not providers:
+        return model_path
+    requested = providers[0][0] if isinstance(providers[0], tuple) else providers[0]
+    if requested not in {"CUDAExecutionProvider", "TensorrtExecutionProvider"}:
+        return model_path
+    if os.getenv("ORT_DISABLE_FP16", "").strip().lower() in {"1", "true", "yes"}:
+        return model_path
+    path = Path(model_path)
+    if path.suffix.lower() != ".onnx" or path.name.lower().endswith(".fp16.onnx"):
+        return model_path
+    candidate = path.with_name(f"{path.stem}.fp16.onnx")
+    try:
+        if candidate.is_file() and candidate.stat().st_size > 0:
+            logger.info("Using FP16 GPU model sidecar: %s", candidate.name)
+            return str(candidate)
+    except OSError:
+        return model_path
+    return model_path
+
+
 def create_onnx_session(
     model_path: str | os.PathLike[str],
     providers: Sequence[Provider] | str | None = None,
@@ -123,7 +152,8 @@ def create_onnx_session(
     requested = providers[0][0] if isinstance(providers[0], tuple) else providers[0]
     opts.inter_op_num_threads = 1
     opts.intra_op_num_threads = _intra_op_threads(requested)
-    session = ort.InferenceSession(model_path, opts, providers=providers)
+    resolved_path = resolve_onnx_model_path(model_path, providers)
+    session = ort.InferenceSession(resolved_path, opts, providers=providers)
     actual = session.get_providers()
     if requested != "CPUExecutionProvider" and (not actual or actual[0] != requested):
         raise RuntimeError(

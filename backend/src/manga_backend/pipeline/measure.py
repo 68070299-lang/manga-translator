@@ -174,7 +174,22 @@ def page_lettering_size(anchors: list[int], preferred_font_size: int) -> int:
 
 
 def _median_colour(pixels: np.ndarray) -> RGB:
-    red, green, blue = np.median(pixels.reshape(-1, 3), axis=0)
+    flat = pixels.reshape(-1, 3)
+    if flat.dtype == np.uint8 and flat.shape[0] > 0:
+        n = int(flat.shape[0])
+        half = n // 2
+        odd = (n & 1) == 1
+        vals = [0, 0, 0]
+        for c in range(3):
+            cdf = np.cumsum(np.bincount(flat[:, c], minlength=256))
+            if odd:
+                vals[c] = int(np.searchsorted(cdf, half + 1, side="left"))
+            else:
+                lo = int(np.searchsorted(cdf, half, side="left"))
+                hi = int(np.searchsorted(cdf, half + 1, side="left"))
+                vals[c] = int(round(0.5 * (lo + hi)))
+        return (vals[0], vals[1], vals[2])
+    red, green, blue = np.median(flat, axis=0)
     return (int(round(red)), int(round(green)), int(round(blue)))
 
 

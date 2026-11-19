@@ -227,7 +227,9 @@ class InpainterManager:
         if target == "none" or target in LAZY_INPAINTERS or self.instance is not None:
             return
         try:
-            await self.get(target)
+            model = await self.get(target)
+            if isinstance(model, Inpainter):
+                await model.warm_up()
             logger.info("Inpainter %s loaded ahead of the first request", target)
         except Exception as error:
             logger.warning("Could not load inpainter %s ahead of time: %s", target, error)

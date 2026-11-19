@@ -344,7 +344,9 @@ def render_text(
     preferred_font_size: int = 16,
 ) -> np.ndarray:
     """Render translated text onto the image with rooms and anchored sizes."""
-    img = Image.fromarray(image).convert("RGBA")
+    img = Image.fromarray(image)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
     with image_analysis_cache(image):
         infer_bubble_render_bounds(image, blocks)
         infer_bubble_text_centers(image, blocks)
@@ -419,7 +421,7 @@ def render_text(
             page_height,
         )
 
-    return np.array(img.convert("RGB"))
+    return np.array(img)
 
 
 def _draw_region(
@@ -471,7 +473,7 @@ def _draw_region(
             stroke_fill=border_rgb,
             spacing=max(0, int(round(fit.size * 0.08))),
         )
-        img.alpha_composite(layer, dest=(left, top))
+        img.paste(layer, (left, top), layer)
         return
 
     anchors = {"center": "mm", "left": "lm", "right": "rm"}
@@ -499,7 +501,7 @@ def _draw_region(
             stroke_width=fit.stroke_width,
             stroke_fill=border_rgb,
         )
-    img.alpha_composite(layer, dest=(left, top))
+    img.paste(layer, (left, top), layer)
 
 
 def draw_vertical_text(

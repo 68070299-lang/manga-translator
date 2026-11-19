@@ -201,11 +201,6 @@ def measure_residue(
     if roi is not None:
         reference &= roi.astype(bool)
     roi_area = int(np.count_nonzero(roi)) if roi is not None else int(height * width)
-    if roi is not None and roi.any():
-        roi_y, roi_x = np.nonzero(roi)
-        edges = (int(roi_x.min()), int(roi_y.min()), int(roi_x.max()), int(roi_y.max()))
-    else:
-        edges = (0, 0, width - 1, height - 1)
     residue = np.zeros((height, width), dtype=bool)
     total_components = 0
     best_iou = 0.0
@@ -220,6 +215,11 @@ def measure_residue(
             flagged=False,
             residue=residue,
         )
+    if roi is not None and roi.any():
+        roi_y, roi_x = np.nonzero(roi)
+        edges = (int(roi_x.min()), int(roi_y.min()), int(roi_x.max()), int(roi_y.max()))
+    else:
+        edges = (0, 0, width - 1, height - 1)
 
     ref_count, ref_labels, ref_stats, _ = cv2.connectedComponentsWithStats(
         reference.astype(np.uint8), connectivity=8

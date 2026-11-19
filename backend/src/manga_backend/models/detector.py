@@ -73,8 +73,10 @@ class TextDetector:
         pil_image = Image.fromarray(image)
         orig_w, orig_h = pil_image.size
 
-        arr = np.asarray(pil_image.resize((640, 640)), dtype=np.float32) / 255.0
-        im_data = np.transpose(arr, (2, 0, 1))[np.newaxis, ...]
+        resized = np.asarray(pil_image.resize((640, 640)))
+        im_data = np.ascontiguousarray(resized.transpose(2, 0, 1), dtype=np.float32)
+        im_data *= np.float32(1.0 / 255.0)
+        im_data = im_data[np.newaxis, ...]
 
         outputs = await asyncio.to_thread(
             self.session.run,

@@ -17,7 +17,8 @@ shifted towards the room's body axis) and the vertical slot itself.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+import math
+from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
@@ -77,6 +78,15 @@ class Room:
     center: tuple[float, float]
     kind: str
     air: int = 0
+    _eroded_cache: dict[int, Room] = field(
+        default_factory=dict, init=False, repr=False, compare=False, hash=False
+    )
+    _spans_cache: list[tuple[np.ndarray, list[int], list[int]]] = field(
+        default_factory=list, init=False, repr=False, compare=False, hash=False
+    )
+    _area_cache: list[int] = field(
+        default_factory=list, init=False, repr=False, compare=False, hash=False
+    )
 
     @property
     def width(self) -> int:
@@ -88,7 +98,9 @@ class Room:
 
     @property
     def area(self) -> int:
-        return int(np.count_nonzero(self.mask))
+        if not self._area_cache:
+            self._area_cache.append(int(np.count_nonzero(self.mask)))
+        return self._area_cache[0]
 
     def eroded(self, air: int) -> Room:
         """Return this room with an air inset applied (no-op when air is 0).
@@ -96,31 +108,46 @@ class Room:
         Erosion composes, so calling this on an already-eroded room adds the
         difference instead of eroding twice from the base mask.
         """
-        delta = int(round(air)) - self.air
+        target_air = int(round(air))
+        delta = target_air - self.air
         if delta <= 0:
             return self
+        cached = self._eroded_cache.get(target_air)
+        if cached is not None:
+            return cached
         kernel = cv2.getStructuringElement(
             cv2.MORPH_ELLIPSE, (delta * 2 + 1, delta * 2 + 1)
         )
         eroded = cv2.erode(self.mask, kernel)
         if np.count_nonzero(eroded) < max(4, self.area // 10):
-            return replace(self, air=int(round(air)))
-        return replace(self, mask=eroded, air=int(round(air)))
+            result = Room(self.mask, self.bounds, self.center, self.kind, target_air)
+        else:
+            result = Room(eroded, self.bounds, self.center, self.kind, target_air)
+        self._eroded_cache[target_air] = result
+        return result
 
-    def row_spans(self) -> np.ndarray:
-        """First and last set column per row as an (h, 2) array; -1 when empty."""
+    def _row_spans_with_lists(self) -> tuple[np.ndarray, list[int], list[int]]:
+        if self._spans_cache:
+            return self._spans_cache[0]
         mask = self.mask > 0
         height, width = mask.shape
         spans = np.full((height, 2), -1, dtype=np.int32)
-        if not np.any(mask):
-            return spans
-        columns = np.arange(width, dtype=np.int32)
-        left = np.where(mask, columns, width).min(axis=1)
-        right = np.where(mask, columns, -1).max(axis=1)
-        empty = right < 0
-        spans[:, 0] = np.where(empty, -1, left)
-        spans[:, 1] = np.where(empty, -1, right)
-        return spans
+        if mask.any():
+            nonempty = mask.any(axis=1)
+            if nonempty.all():
+                spans[:, 0] = mask.argmax(axis=1)
+                spans[:, 1] = width - 1 - mask[:, ::-1].argmax(axis=1)
+            else:
+                rows = mask[nonempty]
+                spans[nonempty, 0] = rows.argmax(axis=1)
+                spans[nonempty, 1] = width - 1 - rows[:, ::-1].argmax(axis=1)
+        entry = (spans, spans[:, 0].tolist(), spans[:, 1].tolist())
+        self._spans_cache.append(entry)
+        return entry
+
+    def row_spans(self) -> np.ndarray:
+        """First and last set column per row as an (h, 2) array; -1 when empty."""
+        return self._row_spans_with_lists()[0]
 
     def bands(
         self,
@@ -132,33 +159,40 @@ class Room:
         """Lay ``count`` line bands of ``size`` px on the room's body axis."""
         if count <= 0 or size <= 0:
             return []
-        if spans is None:
-            spans = self.row_spans()
-        height = spans.shape[0]
+        if spans is None or (self._spans_cache and spans is self._spans_cache[0][0]):
+            spans_arr, lefts, rights = self._row_spans_with_lists()
+        else:
+            spans_arr = spans
+            lefts = spans[:, 0].tolist()
+            rights = spans[:, 1].tolist()
+        height = spans_arr.shape[0]
         if height <= 0:
             return []
         pitch = max(1.0, size * line_spacing)
         block_height = (count - 1) * pitch + size
         top = self.center[1] - block_height / 2.0
         x1, y1 = self.bounds[0], self.bounds[1]
+        floor = math.floor
+        ceil = math.ceil
 
         raw: list[tuple[float, float, float, float]] = []
         for index in range(count):
             band_top = top + index * pitch
             band_bottom = band_top + size
-            first = int(np.floor(band_top - y1))
-            last = int(np.ceil(band_bottom - y1)) - 1
-            first = max(0, first)
-            last = min(height - 1, last)
+            first = floor(band_top - y1)
+            last = ceil(band_bottom - y1) - 1
+            if first < 0:
+                first = 0
+            if last >= height:
+                last = height - 1
             if last < first:
                 return []
-            rows = spans[first : last + 1]
-            valid = rows[:, 0] >= 0
-            if not np.all(valid):
+            row_lefts = lefts[first : last + 1]
+            if min(row_lefts) < 0:
                 return []
-            left = float(np.max(rows[:, 0]))
-            right = float(np.min(rows[:, 1]))
-            if right - left < 1:
+            left = float(max(row_lefts))
+            right = float(min(rights[first : last + 1]))
+            if right - left < 1.0:
                 return []
             raw.append((left + x1, right + x1, band_top, band_bottom))
 
@@ -168,11 +202,12 @@ class Room:
         bands: list[Band] = []
         for left, right, band_top, band_bottom in raw:
             width = right - left
-            shifted = min(max(axis, left + width / 2.0), right - width / 2.0)
+            half = width * 0.5
+            shifted = min(max(axis, left + half), right - half)
             bands.append(
                 Band(
-                    left=shifted - width / 2.0,
-                    right=shifted + width / 2.0,
+                    left=shifted - half,
+                    right=shifted + half,
                     top=band_top,
                     bottom=band_bottom,
                     axis=axis,
@@ -278,7 +313,10 @@ def free_space_room(
     seed_labels = set(int(value) for value in np.unique(labels[seeds > 0])) - {0}
     if not seed_labels:
         return None
-    region = np.isin(labels, list(seed_labels)).astype(np.uint8)
+    keep_labels = np.zeros(count, dtype=np.uint8)
+    for label in seed_labels:
+        keep_labels[label] = 1
+    region = keep_labels[np.asarray(labels, dtype=np.int32)]
 
     for ox1, oy1, ox2, oy2 in obstacles:
         left = max(0, ox1 - obstacle_margin - wx1)
@@ -485,7 +523,7 @@ def _watershed_split(
     """
     labels = np.zeros(binary.shape, dtype=np.int32)
     mask = binary > 0
-    kernel = np.ones((3, 3), dtype=np.uint8)
+    height, width = binary.shape
     for index, (x, y) in enumerate(seeds, start=1):
         if not mask[y, x]:
             candidates = np.argwhere(mask)
@@ -497,15 +535,44 @@ def _watershed_split(
         labels[y, x] = index
 
     pending = mask & (labels == 0)
-    while pending.any():
+    # 8-connected frontier BFS matching 3x3 dilation waves in seed order.
+    dy = np.array([-1, -1, -1, 0, 0, 1, 1, 1], dtype=np.int32)
+    dx = np.array([-1, 0, 1, -1, 1, -1, 0, 1], dtype=np.int32)
+    frontiers: list[tuple[np.ndarray, np.ndarray]] = []
+    for index in range(1, len(seeds) + 1):
+        fy, fx = np.nonzero(labels == index)
+        frontiers.append((fy.astype(np.int32), fx.astype(np.int32)))
+
+    empty = np.empty(0, dtype=np.int32)
+    remaining_pending = int(np.count_nonzero(pending))
+    while remaining_pending > 0:
         claimed = False
-        for index in range(1, len(seeds) + 1):
-            grown = cv2.dilate((labels == index).astype(np.uint8), kernel) > 0
-            claim = grown & pending
-            if np.any(claim):
-                labels[claim] = index
-                pending[claim] = False
-                claimed = True
+        for pos, index in enumerate(range(1, len(seeds) + 1)):
+            fy, fx = frontiers[pos]
+            if fy.size == 0:
+                continue
+            ny = (fy[:, None] + dy).ravel()
+            nx = (fx[:, None] + dx).ravel()
+            in_bounds = (ny >= 0) & (ny < height) & (nx >= 0) & (nx < width)
+            if not in_bounds.any():
+                frontiers[pos] = (empty, empty)
+                continue
+            ny = ny[in_bounds]
+            nx = nx[in_bounds]
+            is_pending = pending[ny, nx]
+            if not is_pending.any():
+                frontiers[pos] = (empty, empty)
+                continue
+            cy = ny[is_pending]
+            cx = nx[is_pending]
+            uniq = np.unique(cy * width + cx)
+            uy = (uniq // width).astype(np.int32)
+            ux = (uniq % width).astype(np.int32)
+            labels[uy, ux] = index
+            pending[uy, ux] = False
+            remaining_pending -= int(uniq.size)
+            frontiers[pos] = (uy, ux)
+            claimed = True
         if not claimed:
             break
 

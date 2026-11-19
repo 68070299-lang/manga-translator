@@ -324,19 +324,15 @@ class TranslationPipeline:
         units = group_translation_units(blocks)
         unit_texts = [unit_source_text(unit) for unit in units]
 
-        # Step 4 starts here: masking needs only the detected boxes and the
-        # OCR text, so the erase runs while the provider translates and the
-        # two are joined before rendering. Both tasks read the same immutable
-        # original image, so they share one per-page glyph/bubble cache.
+        # Step 4 starts before the provider call: masking needs only the detected
+        # boxes and OCR text, so the erase runs while the provider translates and
+        # the two are joined before rendering. Planning page context first avoids
+        # CPU/GIL contention between two worker threads and pre-warms the shared
+        # per-page glyph/bubble cache for masking.
         erase_blocks = [block for block in blocks if erase_candidate(block)]
         inpaint_task: asyncio.Task[np.ndarray] | None = None
         with image_analysis_cache(image):
-            if render and inpainter and inpainter != "none":
-                logger.info("Step 4: Inpainting using %s (concurrent with translation)...", inpainter)
-                inpaint_task = asyncio.create_task(
-                    self._inpaint(image, erase_blocks, inpainter, detector_type, result)
-                )
-
+            page_context: PageContext | None = None
             if translating:
                 # The length budget is the unit's room capacity at the page's
                 # lettering size, so it needs the source em the mask stage
@@ -357,13 +353,20 @@ class TranslationPipeline:
                         text_direction=str(render_options.get("text_direction", "auto")),
                     )
 
-                # Rooms, font metrics and the flood fill are CPU work; keep them
-                # off the event loop while the erase runs beside them.
                 page_context = await asyncio.to_thread(prepare_page_context)
                 result["length_budgets"] = [
                     None if budget is None else budget.as_dict()
                     for budget in page_context.budgets
                 ]
+
+            if render and inpainter and inpainter != "none":
+                logger.info("Step 4: Inpainting using %s (concurrent with translation)...", inpainter)
+                inpaint_task = asyncio.create_task(
+                    self._inpaint(image, erase_blocks, inpainter, detector_type, result)
+                )
+
+            if translating:
+                assert page_context is not None
                 # Only a route that can take an image part receives the page; the
                 # text-only routes keep the text-only prompt.
                 page_image = None
@@ -417,38 +420,38 @@ class TranslationPipeline:
             cached_interiors = snapshot_cached_interiors(image)
 
         # Step 5: Render translated text
-        if render:
-            start_time = time.time()
-            logger.info("Step 5: Rendering text...")
-            with image_analysis_cache(
-                render_image, precomputed_interiors=cached_interiors
-            ):
+        with image_analysis_cache(
+            render_image, precomputed_interiors=cached_interiors
+        ):
+            if render:
+                start_time = time.time()
+                logger.info("Step 5: Rendering text...")
                 result["image"] = await asyncio.to_thread(
                     render_text, render_image, blocks, **render_options
                 )
-            logger.info(
-                "Step 5 complete: Rendering finished in %.2fs", time.time() - start_time
-            )
-
-            # Validate output is not mostly black (indicates inpainting/rendering failure)
-            mean_brightness = result["image"].mean()
-            if mean_brightness < 5:
-                logger.warning(
-                    "Rendered image is almost completely black (mean brightness=%.2f). "
-                    "Returning original image to avoid showing a black result.",
-                    mean_brightness,
+                logger.info(
+                    "Step 5 complete: Rendering finished in %.2fs", time.time() - start_time
                 )
-                result["image"] = image
-        else:
-            result["image"] = render_image
 
-        # Step 6 (re-OCR of the rendered page) is gone from the production
-        # path: it ran after drawing, so it could not repair anything, and it
-        # read short rendered English as kana. The replacement is the
-        # pre-render residual check in the fill router (pipeline/residual.py);
-        # the eval harness keeps its own re-OCR pass for measurement.
+                # Validate output is not mostly black (indicates inpainting/rendering failure)
+                mean_brightness = result["image"].mean()
+                if mean_brightness < 5:
+                    logger.warning(
+                        "Rendered image is almost completely black (mean brightness=%.2f). "
+                        "Returning original image to avoid showing a black result.",
+                        mean_brightness,
+                    )
+                    result["image"] = image
+            else:
+                result["image"] = render_image
 
-        await asyncio.to_thread(self._infer_bubble_geometry, render_image, blocks)
+            # Step 6 (re-OCR of the rendered page) is gone from the production
+            # path: it ran after drawing, so it could not repair anything, and it
+            # read short rendered English as kana. The replacement is the
+            # pre-render residual check in the fill router (pipeline/residual.py);
+            # the eval harness keeps its own re-OCR pass for measurement.
+
+            await asyncio.to_thread(self._infer_bubble_geometry, render_image, blocks)
         result["blocks"] = [text_block_to_dict(block) for block in blocks]
         return result
 

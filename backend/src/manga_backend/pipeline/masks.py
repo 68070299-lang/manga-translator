@@ -68,6 +68,8 @@ class _ImageAnalysisCache:
     interior_inflight: dict[tuple[Box, Box | None, str], threading.Event] = field(
         default_factory=dict
     )
+    papers: dict[Box, Any] = field(default_factory=dict)
+    paper_inflight: dict[Box, threading.Event] = field(default_factory=dict)
 
     def get_or_compute(
         self,
@@ -149,6 +151,41 @@ def _lightness_mode(values: np.ndarray, bins: int) -> float:
     clipped = np.clip(values.astype(np.int32), 0, 255)
     counts = np.bincount(clipped >> shift, minlength=bins)
     return float(int(np.argmax(counts[:bins])) * step + step * 0.5)
+
+
+def _uint8_channel_median(pixels: np.ndarray) -> np.ndarray:
+    """Exact per-channel median of an (N, C) uint8 array using 256-bin histograms."""
+    n = int(pixels.shape[0])
+    channels = int(pixels.shape[1])
+    out = np.empty(channels, dtype=np.float64)
+    half = n // 2
+    odd = (n & 1) == 1
+    for c in range(channels):
+        cdf = np.cumsum(np.bincount(pixels[:, c], minlength=256))
+        if odd:
+            out[c] = float(int(np.searchsorted(cdf, half + 1, side="left")))
+        else:
+            lo = int(np.searchsorted(cdf, half, side="left"))
+            hi = int(np.searchsorted(cdf, half + 1, side="left"))
+            out[c] = 0.5 * (lo + hi)
+    return out
+
+
+def _uint8_percentile(values: np.ndarray, q: float) -> float:
+    """Exact linear-interpolated percentile of a uint8 array via histogram."""
+    flat = values.ravel()
+    n = int(flat.size)
+    if n == 0:
+        return 0.0
+    cdf = np.cumsum(np.bincount(flat, minlength=256))
+    pos = (n - 1) * (q / 100.0)
+    lo_idx = int(pos)
+    hi_idx = min(n - 1, lo_idx + 1)
+    v_lo = int(np.searchsorted(cdf, lo_idx + 1, side="left"))
+    if hi_idx == lo_idx:
+        return float(v_lo)
+    v_hi = int(np.searchsorted(cdf, hi_idx + 1, side="left"))
+    return float(v_lo + (v_hi - v_lo) * (pos - lo_idx))
 
 # How far the router's context ring reaches beyond the block mask, and how
 # far inside a detector bubble box the sampling region stays.
@@ -328,12 +365,35 @@ def _lab_channels(pixels: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarra
     )
 
 
-def _paper_estimate(image: np.ndarray, box: Box) -> _Paper:
+def _paper_estimate(
+    image: np.ndarray,
+    box: Box,
+    *,
+    inside_lab: np.ndarray | None = None,
+) -> _Paper:
     """The dominant ring colour outside a block box: this block's paper.
 
     The ring is read from the page, not the crop, so a text-free margin still
     gives an estimate when the block box itself is full of ink.
     """
+    cache = _current_cache(image)
+    if cache is not None:
+        key = (int(box[0]), int(box[1]), int(box[2]), int(box[3]))
+        return cache.get_or_compute(
+            cache.papers,
+            cache.paper_inflight,
+            key,
+            lambda: _compute_paper_estimate(image, key, inside_lab=inside_lab),
+        )
+    return _compute_paper_estimate(image, box, inside_lab=inside_lab)
+
+
+def _compute_paper_estimate(
+    image: np.ndarray,
+    box: Box,
+    *,
+    inside_lab: np.ndarray | None = None,
+) -> _Paper:
     height, width = image.shape[:2]
     x1, y1, x2, y2 = (int(value) for value in box)
     ox1, oy1 = max(0, x1 - PAPER_RING_RADIUS), max(0, y1 - PAPER_RING_RADIUS)
@@ -360,17 +420,28 @@ def _paper_estimate(image: np.ndarray, box: Box) -> _Paper:
     if int(np.count_nonzero(near)) < max(8, int(0.25 * values.size)):
         near = np.ones(values.shape, bool)
     flat_pixels = pixels.reshape(-1, image.shape[2])
-    lab_median = np.median(converted[near], axis=0)
+    lab_median = _uint8_channel_median(converted[near])
+    rgb_median = (
+        _uint8_channel_median(flat_pixels[near]).astype(np.float32)
+        if flat_pixels.dtype == np.uint8
+        else np.median(flat_pixels[near], axis=0).astype(np.float32)
+    )
     paper = _Paper(
         float(lab_median[0]),
         float(lab_median[1]) - 128.0,
         float(lab_median[2]) - 128.0,
-        np.median(flat_pixels[near], axis=0).astype(np.float32),
+        rgb_median,
     )
-    return _block_island_paper(image, box, paper)
+    return _block_island_paper(image, box, paper, inside_lab=inside_lab)
 
 
-def _block_island_paper(image: np.ndarray, box: Box, paper: _Paper) -> _Paper:
+def _block_island_paper(
+    image: np.ndarray,
+    box: Box,
+    paper: _Paper,
+    *,
+    inside_lab: np.ndarray | None = None,
+) -> _Paper:
     """Override the ring paper when the block box sits on its own bright island.
 
     A caption box or a white panel inside dark art has its paper *inside* the
@@ -384,21 +455,27 @@ def _block_island_paper(image: np.ndarray, box: Box, paper: _Paper) -> _Paper:
     if x2 - x1 < 4 or y2 - y1 < 4:
         return paper
     inside = image[y1:y2, x1:x2].reshape(-1, image.shape[2])
-    converted = cv2.cvtColor(inside.reshape(-1, 1, 3), cv2.COLOR_RGB2LAB).reshape(-1, 3)
+    if inside_lab is not None:
+        converted = inside_lab.reshape(-1, 3)
+    else:
+        converted = cv2.cvtColor(inside.reshape(-1, 1, 3), cv2.COLOR_RGB2LAB).reshape(-1, 3)
     values = converted[:, 0].astype(np.float32)
     mode = _lightness_mode(values, bins=64)
-    share = float(np.count_nonzero(np.abs(values - mode) <= PAPER_MODE_TOLERANCE)) / max(
-        1, values.size
-    )
+    selected = np.abs(values - mode) <= PAPER_MODE_TOLERANCE
+    share = float(np.count_nonzero(selected)) / max(1, values.size)
     if share < PAPER_ISLAND_SHARE or mode < paper.light + INK_MIN_DISTANCE:
         return paper
-    selected = np.abs(values - mode) <= PAPER_MODE_TOLERANCE
-    lab_median = np.median(converted[selected], axis=0)
+    lab_median = _uint8_channel_median(converted[selected])
+    rgb_median = (
+        _uint8_channel_median(inside[selected]).astype(np.float32)
+        if inside.dtype == np.uint8
+        else np.median(inside[selected], axis=0).astype(np.float32)
+    )
     return _Paper(
         float(lab_median[0]),
         float(lab_median[1]) - 128.0,
         float(lab_median[2]) - 128.0,
-        np.median(inside[selected], axis=0).astype(np.float32),
+        rgb_median,
     )
 
 
@@ -495,8 +572,18 @@ def _ink_populations(
         and float(np.linalg.norm(merged[index] - merged[paper_index]))
         >= INK_MIN_DISTANCE
     ]
-    diff = features[:, None, :] - stacked[None, :, :]
-    nearest = np.argmin(np.einsum("ijk,ijk->ij", diff, diff), axis=1)
+    if len(merged) == 1:
+        nearest = np.zeros(features.shape[0], dtype=np.intp)
+    else:
+        dists = np.empty((features.shape[0], len(merged)), dtype=np.float32)
+        for ci, centre in enumerate(merged):
+            delta = features - centre
+            dists[:, ci] = (
+                delta[:, 0] * delta[:, 0]
+                + delta[:, 1] * delta[:, 1]
+                + delta[:, 2] * delta[:, 2]
+            )
+        nearest = np.argmin(dists, axis=1)
     flat_roi = roi.reshape(-1, roi.shape[2])
     populations: list[tuple[np.ndarray, np.ndarray]] = []
     claimed = np.zeros(features.shape[0], bool)
@@ -526,16 +613,11 @@ def _label_max(
     values: np.ndarray, labels: np.ndarray, count: int
 ) -> np.ndarray:
     """Per-label maximum of ``values`` (labels run from 0 to count-1)."""
-    flat_labels = labels.ravel()
-    order = np.argsort(flat_labels, kind="stable")
-    sorted_labels = flat_labels[order]
-    sorted_values = values.ravel()[order]
-    starts = np.searchsorted(sorted_labels, np.arange(count))
-    ends = np.append(starts[1:], sorted_labels.size)
     maxima = np.zeros(count, np.float64)
-    filled = ends > starts
-    if np.any(filled):
-        maxima[filled] = np.maximum.reduceat(sorted_values, starts[filled])
+    flat_labels = labels.ravel()
+    nz = flat_labels > 0
+    if np.any(nz):
+        np.maximum.at(maxima, flat_labels[nz], values.ravel()[nz])
     return maxima
 
 
@@ -547,6 +629,30 @@ def _label_mean(
     sums = np.bincount(flat_labels, weights=values.ravel().astype(np.float64), minlength=count)
     counts = np.bincount(flat_labels, minlength=count)
     return sums / np.maximum(counts, 1)
+
+
+def _component_metrics(
+    candidate: np.ndarray, light: np.ndarray
+) -> tuple[int, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None:
+    """Connected components, stroke thickness and mean lightness for a candidate mask."""
+    if not np.any(candidate):
+        return None
+    binary = candidate.astype(np.uint8)
+    count, labels, stats, centroids = cv2.connectedComponentsWithStats(
+        binary, connectivity=8
+    )
+    labels = np.asarray(labels, dtype=np.int32)
+    if count <= 1:
+        return None
+    # Distance transform with a background border: outside the crop counts as
+    # background, so a component that touches the crop border still reports its
+    # real stroke width instead of the distance to the crop edge.
+    padded = np.zeros((candidate.shape[0] + 2, candidate.shape[1] + 2), np.uint8)
+    padded[1:-1, 1:-1] = binary
+    distance = cv2.distanceTransform(padded, cv2.DIST_L2, 5)[1:-1, 1:-1]
+    thickness = 2.0 * _label_max(distance, labels, count)
+    mean_light = _label_mean(light, labels, count)
+    return count, labels, stats, centroids, thickness, mean_light
 
 
 def _reject_tone_dots(
@@ -589,31 +695,23 @@ def _reject_tone_dots(
 
 
 def _classify_ink_components(
-    candidate: np.ndarray, light: np.ndarray, paper_level: float
+    candidate: np.ndarray,
+    light: np.ndarray,
+    paper_level: float,
+    *,
+    metrics: tuple[int, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None,
 ) -> np.ndarray:
     """Drop line art, periodic tone dots and mid-tone structure from a candidate mask."""
-    if not np.any(candidate):
+    resolved = metrics if metrics is not None else _component_metrics(candidate, light)
+    if resolved is None:
         return np.zeros_like(candidate, bool)
-    count, labels, stats, _centroids = cv2.connectedComponentsWithStats(
-        candidate.astype(np.uint8), connectivity=8
-    )
-    labels = np.asarray(labels, dtype=np.int32)
-    if count <= 1:
-        return np.zeros_like(candidate, bool)
-    # Distance transform with a background border: outside the crop counts as
-    # background, so a component that touches the crop border still reports its
-    # real stroke width instead of the distance to the crop edge.
-    padded = np.zeros((candidate.shape[0] + 2, candidate.shape[1] + 2), np.uint8)
-    padded[1:-1, 1:-1] = candidate.astype(np.uint8)
-    distance = cv2.distanceTransform(padded, cv2.DIST_L2, 5)[1:-1, 1:-1]
-    thickness = 2.0 * _label_max(distance, labels, count)
+    _count, labels, stats, _centroids, thickness, mean_light = resolved
     areas = stats[:, cv2.CC_STAT_AREA].astype(np.float64)
     widths = stats[:, cv2.CC_STAT_WIDTH].astype(np.float64)
     heights = stats[:, cv2.CC_STAT_HEIGHT].astype(np.float64)
     lefts = stats[:, cv2.CC_STAT_LEFT].astype(np.float64)
     tops = stats[:, cv2.CC_STAT_TOP].astype(np.float64)
     roi_height, roi_width = candidate.shape
-    mean_light = _label_mean(light, labels, count)
     touches_edge = (
         (lefts <= 0)
         | (tops <= 0)
@@ -659,7 +757,12 @@ def _classify_ink_components(
     return keep[labels]
 
 
-def _tone_dot_mask(candidate: np.ndarray, light: np.ndarray) -> np.ndarray:
+def _tone_dot_mask(
+    candidate: np.ndarray,
+    light: np.ndarray,
+    *,
+    metrics: tuple[int, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None,
+) -> np.ndarray:
     """Pixels belonging to a periodic tone-dot population inside a candidate mask.
 
     Dot rejection is a population decision, so it runs once on every ink
@@ -667,23 +770,14 @@ def _tone_dot_mask(candidate: np.ndarray, light: np.ndarray) -> np.ndarray:
     with the lettering's own colour.
     """
     empty = np.zeros_like(candidate, bool)
-    if not np.any(candidate):
+    resolved = metrics if metrics is not None else _component_metrics(candidate, light)
+    if resolved is None:
         return empty
-    count, labels, stats, centroids = cv2.connectedComponentsWithStats(
-        candidate.astype(np.uint8), connectivity=8
-    )
-    labels = np.asarray(labels, dtype=np.int32)
-    if count <= 1:
-        return empty
-    padded = np.zeros((candidate.shape[0] + 2, candidate.shape[1] + 2), np.uint8)
-    padded[1:-1, 1:-1] = candidate.astype(np.uint8)
-    distance = cv2.distanceTransform(padded, cv2.DIST_L2, 5)[1:-1, 1:-1]
-    thickness = 2.0 * _label_max(distance, labels, count)
+    _count, labels, stats, centroids, thickness, mean_light = resolved
     areas = stats[:, cv2.CC_STAT_AREA].astype(np.float64)
     widths = stats[:, cv2.CC_STAT_WIDTH].astype(np.float64)
     heights = stats[:, cv2.CC_STAT_HEIGHT].astype(np.float64)
     fill = areas / np.maximum(1.0, widths * heights)
-    mean_light = _label_mean(light, labels, count)
     dot_like = (
         (thickness <= THIN_STROKE_LIMIT)
         & (areas <= DOT_MAX_AREA)
@@ -748,26 +842,33 @@ def _grow_outline_bands(
     grown = mask.astype(bool).copy()
     if not grown.any():
         return grown
-    lightness = roi.astype(np.float32).mean(axis=2)
+    if roi.dtype == np.uint8:
+        lightness = (
+            roi[:, :, 0].astype(np.uint16) + roi[:, :, 1] + roi[:, :, 2]
+        ) * np.float32(1.0 / 3.0)
+    else:
+        lightness = roi.astype(np.float32).mean(axis=2)
+    k3 = np.ones((3, 3), np.uint8)
+    k7 = np.ones((7, 7), np.uint8)
     inner_kernel = np.ones((RING_BACKGROUND_INNER, RING_BACKGROUND_INNER), np.uint8)
-    outer_kernel = np.ones((RING_BACKGROUND_OUTER, RING_BACKGROUND_OUTER), np.uint8)
+    outer_step = RING_BACKGROUND_OUTER - RING_BACKGROUND_INNER + 1
+    outer_step_kernel = np.ones((outer_step, outer_step), np.uint8)
     level: float | None = None
     texture_level: float | None = None
     for _step in range(max(0, max_radius)):
         binary = grown.astype(np.uint8)
-        shell = cv2.dilate(binary, np.ones((3, 3), np.uint8)).astype(bool) & ~grown
+        shell = cv2.dilate(binary, k3).astype(bool) & ~grown
         if not shell.any():
             break
         if level is None:
             # Lock the ring level on a slightly wider band: the first shell
             # alone is mostly glyph antialiasing, which would lock growth onto
             # a mid grey instead of the ring itself.
-            level_band = (
-                cv2.dilate(binary, np.ones((7, 7), np.uint8)).astype(bool) & ~grown
-            )
+            level_band = cv2.dilate(binary, k7).astype(bool) & ~grown
             level = _dominant_level(lightness[level_band if level_band.any() else shell])
-            inner = cv2.dilate(binary, inner_kernel).astype(bool)
-            outer = cv2.dilate(binary, outer_kernel).astype(bool)
+            inner_u8 = cv2.dilate(binary, inner_kernel)
+            inner = inner_u8.astype(bool)
+            outer = cv2.dilate(inner_u8, outer_step_kernel).astype(bool)
             background = outer & ~inner
             if not background.any():
                 break
@@ -851,20 +952,33 @@ def _cover_halo(
         halo &= ~excluded
     if not halo.any():
         return grown
-    values = roi.astype(np.float32)
     filled = roi.copy()
     filled[grown] = np.clip(np.rint(paper.rgb), 0, 255).astype(np.uint8)
     background = cv2.blur(filled.astype(np.float32), (7, 7))
-    accepted = np.zeros(grown.shape, bool)
+    hy, hx = np.nonzero(halo)
+    vals = roi[hy, hx].astype(np.float32)
+    bg = background[hy, hx]
+    val_minus_bg = vals - bg
+    accepted = np.zeros(hy.size, dtype=bool)
+    min_norm = np.float32(HALO_MIN_CONTRAST * HALO_MIN_CONTRAST)
     for colour in ink_colours:
-        difference = colour.astype(np.float32) - background
-        norm = (difference * difference).sum(axis=2)
-        covered = norm > HALO_MIN_CONTRAST * HALO_MIN_CONTRAST
+        diff = colour.astype(np.float32) - bg
+        norm = diff[:, 0] * diff[:, 0] + diff[:, 1] * diff[:, 1] + diff[:, 2] * diff[:, 2]
+        covered = norm > min_norm
         if not np.any(covered):
             continue
-        alpha = ((values - background) * difference).sum(axis=2) / np.maximum(norm, 1.0)
+        dot = (
+            val_minus_bg[:, 0] * diff[:, 0]
+            + val_minus_bg[:, 1] * diff[:, 1]
+            + val_minus_bg[:, 2] * diff[:, 2]
+        )
+        alpha = dot / np.maximum(norm, np.float32(1.0))
         accepted |= covered & (alpha >= HALO_ALPHA_MIN)
-    return grown | (halo & accepted)
+    if not np.any(accepted):
+        return grown
+    result = grown.copy()
+    result[hy[accepted], hx[accepted]] = True
+    return result
 
 
 def _core_colours(
@@ -961,28 +1075,43 @@ def _compute_glyph_mask_for_block(
     block: TextBlock,
 ) -> tuple[np.ndarray, Box]:
     height, width = image.shape[:2]
-    x1, y1, x2, y2 = [int(value) for value in block.xyxy]
+    bx1, by1, bx2, by2 = [int(value) for value in block.xyxy]
     padding = 2
-    x1, y1 = max(0, x1 - padding), max(0, y1 - padding)
-    x2, y2 = min(width, x2 + padding), min(height, y2 + padding)
+    x1, y1 = max(0, bx1 - padding), max(0, by1 - padding)
+    x2, y2 = min(width, bx2 + padding), min(height, by2 + padding)
     if x2 <= x1 or y2 <= y1:
         return np.zeros((0, 0), dtype=np.uint8), (x1, y1, x2, y2)
 
     roi = image[y1:y2, x1:x2]
-    paper = _paper_estimate(image, int_box(block.xyxy))
-    lab_f = cv2.cvtColor(roi, cv2.COLOR_RGB2LAB).astype(np.float32)
+    roi_lab = cv2.cvtColor(roi, cv2.COLOR_RGB2LAB)
+    ix1, iy1 = max(0, bx1), max(0, by1)
+    ix2, iy2 = min(width, bx2), min(height, by2)
+    inside_lab = (
+        roi_lab[iy1 - y1 : iy2 - y1, ix1 - x1 : ix2 - x1]
+        if ix2 - ix1 >= 4 and iy2 - iy1 >= 4
+        else None
+    )
+    paper = _paper_estimate(image, (bx1, by1, bx2, by2), inside_lab=inside_lab)
+    lab_f = roi_lab.astype(np.float32)
     lab_f[..., 1:] -= 128.0
     populations = _ink_populations(roi, paper, lab_f=lab_f)
     if not populations:
         return np.zeros(roi.shape[:2], dtype=np.uint8), (x1, y1, x2, y2)
 
     light = lab_f[..., 0]
-    cores = np.zeros(roi.shape[:2], bool)
-    union = np.zeros(roi.shape[:2], bool)
-    for candidate, _colour in populations:
-        union |= candidate
-        cores |= _classify_ink_components(candidate, light, paper.rgb.mean())
-    tone_dots = _tone_dot_mask(union, light)
+    paper_mean = float(paper.rgb.mean())
+    if len(populations) == 1:
+        union = populations[0][0]
+        shared_metrics = _component_metrics(union, light)
+        cores = _classify_ink_components(union, light, paper_mean, metrics=shared_metrics)
+        tone_dots = _tone_dot_mask(union, light, metrics=shared_metrics)
+    else:
+        cores = np.zeros(roi.shape[:2], bool)
+        union = np.zeros(roi.shape[:2], bool)
+        for candidate, _colour in populations:
+            union |= candidate
+            cores |= _classify_ink_components(candidate, light, paper_mean)
+        tone_dots = _tone_dot_mask(union, light)
     cores &= ~tone_dots
     tone = _tone_dot_bodies(light, tone_dots)
     cores &= ~tone
@@ -1075,6 +1204,8 @@ def _flood_interior(
     paper: _Paper,
     detector_bounds: Box | None,
     ink_pixels: np.ndarray | None = None,
+    *,
+    gray: np.ndarray | None = None,
 ) -> tuple[np.ndarray | None, str]:
     """Seeded flood fill over paper, bounded by structure, with leak rejection.
 
@@ -1086,7 +1217,8 @@ def _flood_interior(
     """
     roi_height, roi_width = roi.shape[:2]
     light, channel_a, channel_b = _lab_channels(roi)
-    gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
+    if gray is None:
+        gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
     blurred = cv2.GaussianBlur(gray, (3, 3), 0)
     otsu_threshold, _binary = cv2.threshold(
         blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
@@ -1153,7 +1285,9 @@ def _flood_interior(
     seed_labels = seed_labels[~np.isin(seed_labels, border_labels)]
     if seed_labels.size == 0:
         return None, INTERIOR_LEAK
-    interior = np.isin(labels, seed_labels)
+    keep_seed = np.zeros(count, dtype=bool)
+    keep_seed[seed_labels] = True
+    interior = keep_seed[labels]
     area = float(np.count_nonzero(interior))
     if area < max(64.0, INTERIOR_MIN_AREA_FRACTION * text_area):
         return None, INTERIOR_SMALL
@@ -1225,7 +1359,10 @@ def _flood_interior(
 
 
 def _contour_interior(
-    roi: np.ndarray, local_text: tuple[int, int, int, int]
+    roi: np.ndarray,
+    local_text: tuple[int, int, int, int],
+    *,
+    gray: np.ndarray | None = None,
 ) -> tuple[np.ndarray | None, str]:
     """The previous smallest-closed-contour interior search, with its reasons.
 
@@ -1233,13 +1370,19 @@ def _contour_interior(
     rectangle (which can open the outline where lettering touches it) and
     rejects contours that reach the crop border.
     """
-    gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
+    if gray is None:
+        gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
     roi_height, roi_width = gray.shape
     structure_gray = gray.copy()
     sx1, sy1 = max(0, local_text[0]), max(0, local_text[1])
     sx2, sy2 = min(roi_width, local_text[2]), min(roi_height, local_text[3])
     if sx2 > sx1 and sy2 > sy1:
-        structure_gray[sy1:sy2, sx1:sx2] = int(np.percentile(gray, 90))
+        fill_level = (
+            int(_uint8_percentile(gray, 90.0))
+            if gray.dtype == np.uint8
+            else int(np.percentile(gray, 90))
+        )
+        structure_gray[sy1:sy2, sx1:sx2] = fill_level
     blurred = cv2.GaussianBlur(structure_gray, (3, 3), 0)
     otsu_threshold, _binary = cv2.threshold(
         blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
@@ -1350,12 +1493,18 @@ def _compute_bubble_interior_details(
     overlap = overlap_slices(bounds, glyph_bounds)
     if overlap is not None and glyphs.size:
         ink_pixels[overlap[0]] = glyphs[overlap[1]] > 0
+    gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
     flooded, flood_reason = _flood_interior(
-        roi, local_text, paper, detector_bounds, ink_pixels if np.any(ink_pixels) else None
+        roi,
+        local_text,
+        paper,
+        detector_bounds,
+        ink_pixels if np.any(ink_pixels) else None,
+        gray=gray,
     )
     if flooded is not None:
         return InteriorResult(flooded, bounds, "flood", INTERIOR_OK)
-    contour, contour_reason = _contour_interior(roi, local_text)
+    contour, contour_reason = _contour_interior(roi, local_text, gray=gray)
     if contour is not None:
         return InteriorResult(contour, bounds, "contour", INTERIOR_OK)
     # The flood is the primary method, so its diagnosis is the one reported;

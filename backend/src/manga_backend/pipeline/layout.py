@@ -6,6 +6,7 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
+import cv2
 import numpy as np
 
 from manga_backend.pipeline.regions import (
@@ -81,8 +82,9 @@ def _page_paper_mask(image: np.ndarray) -> np.ndarray:
         ]
     )
     paper = np.median(ring, axis=0)
-    difference = np.abs(image.astype(np.int16) - paper).max(axis=2)
-    return difference <= _PAPER_TOLERANCE
+    lower = np.ceil(paper - _PAPER_TOLERANCE).clip(0, 255).astype(np.uint8)
+    upper = np.floor(paper + _PAPER_TOLERANCE).clip(0, 255).astype(np.uint8)
+    return cv2.inRange(image, lower, upper) > 0
 
 
 def _gutter_bands(region_mask: np.ndarray, axis: int) -> list[tuple[int, int]]:

@@ -10,7 +10,12 @@ import numpy as np
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
-from manga_backend.utils.device import create_onnx_session, get_device, get_onnx_providers
+from manga_backend.utils.device import (
+    create_onnx_session,
+    get_device,
+    get_onnx_providers,
+    resolve_onnx_model_path,
+)
 from test_support import writable_temp_directory
 from manga_backend.utils.download import (
     MANGA_OCR_REPO,
@@ -206,6 +211,28 @@ class DeviceUtilityTests(unittest.TestCase):
                     cpu_count=8,
                 )
                 self.assertEqual(opts.intra_op_num_threads, 4)
+
+    def test_resolve_onnx_model_path_prefers_fp16_sidecar_on_cuda_only(self):
+        with writable_temp_directory() as tmpdir:
+            fp32 = Path(tmpdir, "encoder_model.onnx")
+            fp16 = Path(tmpdir, "encoder_model.fp16.onnx")
+            fp32.write_bytes(b"fp32")
+            fp16.write_bytes(b"fp16")
+
+            with patch.dict("os.environ", {"ORT_DISABLE_FP16": ""}):
+                self.assertEqual(
+                    resolve_onnx_model_path(fp32, ["CUDAExecutionProvider", "CPUExecutionProvider"]),
+                    str(fp16),
+                )
+                self.assertEqual(
+                    resolve_onnx_model_path(fp32, ["CPUExecutionProvider"]),
+                    fp32,
+                )
+            with patch.dict("os.environ", {"ORT_DISABLE_FP16": "1"}):
+                self.assertEqual(
+                    resolve_onnx_model_path(fp32, ["CUDAExecutionProvider"]),
+                    fp32,
+                )
 
 
 class TextBlockUtilityTests(unittest.TestCase):

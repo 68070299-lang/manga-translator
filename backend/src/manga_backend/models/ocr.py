@@ -183,14 +183,17 @@ class OCREngine:
         if image is None or image.size == 0:
             raise ValueError("Empty image")
 
-        pil_img = Image.fromarray(image).convert("L").convert("RGB")
+        pil_img = Image.fromarray(image).convert("L")
         pil_img = pil_img.resize((224, 224), resample=Image.Resampling.BILINEAR)
 
-        arr = np.array(pil_img, dtype=np.float32) / 255.0
-        arr = (arr - 0.5) / 0.5
-
-        # (H, W, C) -> (1, C, H, W)
-        return arr.transpose((2, 0, 1))[np.newaxis, ...]
+        norm = np.asarray(pil_img, dtype=np.float32)
+        norm *= np.float32(2.0 / 255.0)
+        norm -= np.float32(1.0)
+        out = np.empty((1, 3, 224, 224), dtype=np.float32)
+        out[0, 0] = norm
+        out[0, 1] = norm
+        out[0, 2] = norm
+        return out
 
     @staticmethod
     def _supports_cuda_iobinding(session: ort.InferenceSession) -> bool:
@@ -230,13 +233,14 @@ class OCREngine:
             encoder.run_with_iobinding(enc_io)
             hidden_gpu = enc_io.get_outputs()[0]
             hidden_cpu: np.ndarray | None = None
+            alive = np.ones(batch_size, dtype=bool)
+            dec_io = decoder.io_binding()
+            dec_io.bind_ortvalue_input(self.decoder_encoder_input, hidden_gpu)
 
             for _ in range(max_length):
-                dec_io = decoder.io_binding()
                 dec_io.bind_cpu_input(
                     self.decoder_token_input, np.ascontiguousarray(active_tokens)
                 )
-                dec_io.bind_ortvalue_input(self.decoder_encoder_input, hidden_gpu)
                 dec_io.bind_output(self.decoder_output_name, "cpu")
                 decoder.run_with_iobinding(dec_io)
                 logits = np.asarray(dec_io.copy_outputs_to_cpu()[0])
@@ -244,23 +248,26 @@ class OCREngine:
                 active_tokens = np.concatenate(
                     [active_tokens, next_tokens[:, np.newaxis]], axis=1
                 )
-                unfinished = next_tokens != self.EOS_TOKEN
-                for position, (index, token) in enumerate(
-                    zip(active_indexes.tolist(), next_tokens.tolist())
-                ):
+                for index, token in zip(active_indexes.tolist(), next_tokens.tolist()):
+                    if not alive[index]:
+                        continue
                     sequences[index].append(token)
-                    if self._trim_runaway_repetition(sequences[index]):
-                        unfinished[position] = False
+                    if token == self.EOS_TOKEN or self._trim_runaway_repetition(
+                        sequences[index]
+                    ):
+                        alive[index] = False
 
-                if not unfinished.any():
+                if not alive.any():
                     break
-                if not unfinished.all():
-                    active_indexes = active_indexes[unfinished]
-                    active_tokens = active_tokens[unfinished]
+                active_alive = alive[active_indexes]
+                if int(active_alive.sum()) <= len(active_indexes) // 2:
+                    active_indexes = active_indexes[active_alive]
+                    active_tokens = active_tokens[active_alive]
                     if hidden_cpu is None:
                         hidden_cpu = np.asarray(hidden_gpu.numpy())
-                    hidden_cpu = np.ascontiguousarray(hidden_cpu[unfinished])
+                    hidden_cpu = np.ascontiguousarray(hidden_cpu[active_alive])
                     hidden_gpu = ort.OrtValue.ortvalue_from_numpy(hidden_cpu, "cuda", 0)
+                    dec_io.bind_ortvalue_input(self.decoder_encoder_input, hidden_gpu)
             return sequences
 
         encoder_hidden = np.asarray(encoder.run(None, {self.encoder_image_input: images})[0])

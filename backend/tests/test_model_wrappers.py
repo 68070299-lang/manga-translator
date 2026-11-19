@@ -530,7 +530,7 @@ class InpainterTileTests(unittest.TestCase):
         np.testing.assert_array_equal(result, image)
         self.assertIsNot(result, image)
 
-    def test_gpu_square_buckets_batch_mismatched_crops_into_one_run(self):
+    def test_gpu_square_buckets_reuse_consistent_shape_and_batch_size(self):
         rng = np.random.default_rng(7)
         image = rng.integers(0, 255, (1000, 1280, 3), dtype=np.uint8)
         mask = np.zeros((1000, 1280), dtype=np.uint8)
@@ -543,8 +543,8 @@ class InpainterTileTests(unittest.TestCase):
         inpainter.max_pixels = 1_000_000
         result = asyncio.run(inpainter.inpaint(image, mask))
 
-        self.assertEqual(inpainter.session.shapes, [(256, 256)])
-        self.assertEqual(inpainter.session.batch_sizes, [2])
+        self.assertEqual(inpainter.session.shapes, [(256, 256), (256, 256)])
+        self.assertEqual(inpainter.session.batch_sizes, [1, 1])
         np.testing.assert_array_equal(result[mask == 0], image[mask == 0])
         self.assertTrue(np.all(result[mask > 0] == 127))
 

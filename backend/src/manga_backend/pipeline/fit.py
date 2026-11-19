@@ -21,9 +21,6 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-import numpy as np
-from PIL import Image, ImageDraw
-
 from manga_backend.pipeline.fonts import FontObject, get_font_object
 from manga_backend.pipeline.linebreak import break_lines
 from manga_backend.pipeline.rooms import Band, Room, air_inset
@@ -105,26 +102,54 @@ def _size_candidates(target: int) -> list[int]:
     return sizes
 
 
+_FONT_WIDTH_CACHES: dict[tuple[str | None, int], tuple[FontObject, dict[str, float]]] = {}
+_MAX_CACHED_FONTS = 128
+_MAX_CACHED_STRINGS_PER_FONT = 4096
+
+
+def _shared_bbox_cache(font_path: str | None, size: int, font: FontObject) -> dict[str, float]:
+    key = (font_path, size)
+    entry = _FONT_WIDTH_CACHES.get(key)
+    if entry is not None and entry[0] is font:
+        cache = entry[1]
+        if len(cache) >= _MAX_CACHED_STRINGS_PER_FONT:
+            cache.clear()
+        return cache
+    if len(_FONT_WIDTH_CACHES) >= _MAX_CACHED_FONTS:
+        _FONT_WIDTH_CACHES.clear()
+    cache: dict[str, float] = {}
+    _FONT_WIDTH_CACHES[key] = (font, cache)
+    return cache
+
+
 class _Measurer:
     """Width measurement for one font size, cached per string."""
 
-    def __init__(self, font: FontObject, stroke_width: int) -> None:
+    def __init__(
+        self,
+        font: FontObject,
+        stroke_width: int,
+        bbox_cache: dict[str, float] | None = None,
+    ) -> None:
         self._font = font
-        self._stroke = stroke_width
-        self._probe = Image.new("L", (1, 1), 0)
-        self._draw = ImageDraw.Draw(self._probe)
-        self._cache: dict[str, float] = {}
+        self._stroke_pad = stroke_width * 2.0
+        self._bbox_cache: dict[str, float] = {} if bbox_cache is None else bbox_cache
 
     def __call__(self, value: str) -> float:
-        cached = self._cache.get(value)
-        if cached is not None:
-            return cached
         if not value:
             return 0.0
+        cached = self._bbox_cache.get(value)
+        if cached is not None:
+            return cached + self._stroke_pad
         box = self._font.getbbox(value)
-        width = float(box[2] - box[0]) + self._stroke * 2.0 if box else 0.0
-        self._cache[value] = width
-        return width
+        base = float(box[2] - box[0]) if box else 0.0
+        self._bbox_cache[value] = base
+        return base + self._stroke_pad
+
+
+def _measurer_for(font_path: str | None, size: int, stroke_width: int) -> _Measurer:
+    font = get_font_object(font_path, size)
+    return _Measurer(font, stroke_width, _shared_bbox_cache(font_path, size, font))
 
 
 def _bands_for(
@@ -132,9 +157,9 @@ def _bands_for(
     size: int,
     count: int,
     line_spacing: float,
-    spans: np.ndarray | None = None,
+    spans: object = None,
 ) -> list[Band]:
-    return room.eroded(air_inset(size)).bands(size, count, line_spacing, spans=spans)
+    return room.eroded(air_inset(size)).bands(size, count, line_spacing, spans=spans)  # type: ignore[arg-type]
 
 
 def _fit_at_size(
@@ -149,8 +174,7 @@ def _fit_at_size(
 ) -> FitResult | None:
     """Best line count for one size, or None when the size cannot be set."""
     stroke = min(base_stroke, max(0, int(round(size * 0.15))))
-    font = get_font_object(font_path, size)
-    measure = _Measurer(font, stroke)
+    measure = _measurer_for(font_path, size, stroke)
     air = air_inset(size)
     room_height = room.height - air * 2
     if room_height < size:
@@ -275,8 +299,7 @@ def room_capacity(
     """
     size = max(1, int(size))
     stroke = min(base_stroke_width, max(0, int(round(size * 0.15))))
-    font = get_font_object(font_path, size)
-    measure = _Measurer(font, stroke)
+    measure = _measurer_for(font_path, size, stroke)
     advance = sum(measure(char) for char in CAPACITY_ALPHABET) / len(CAPACITY_ALPHABET)
     if advance <= 0:
         return 0

@@ -123,6 +123,12 @@ def break_lines(
     word_parts: list[int] = []
     widest = max(widths)
     for word, unit in enumerate(units):
+        if measure(unit) <= widest:
+            word_parts.append(1)
+            chunks.append(unit)
+            chunk_word.append(word)
+            chunk_part.append(0)
+            continue
         parts = split_oversized_unit(unit, widest, measure)
         word_parts.append(len(parts))
         for index, part in enumerate(parts):

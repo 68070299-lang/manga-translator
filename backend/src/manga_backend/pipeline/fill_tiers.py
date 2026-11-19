@@ -102,7 +102,7 @@ class FillDecision:
 
 
 def _binary(values: np.ndarray) -> np.ndarray:
-    return np.where(values > 0, np.uint8(255), np.uint8(0))
+    return (values > 0).astype(np.uint8)
 
 
 def _grow(values: np.ndarray, radius: int) -> np.ndarray:
@@ -140,14 +140,15 @@ def sample_sets(
         # itself carries the bubble outline's residue, which no tier should
         # have to reproduce.
         inner = _shrink(m, BAND_WIDTH)
-        core = _shrink(m, 2 * BAND_WIDTH)
+        core = _shrink(inner, BAND_WIDTH)
         band = (inner & ~core) & ~off
         return band, core & ~off, np.zeros_like(m)
 
     near = _grow(m, FRINGE_RADIUS)
-    band_edge = _grow(m, FRINGE_RADIUS + BAND_WIDTH)
+    band_edge = _grow(near, BAND_WIDTH)
     band = (band_edge & ~near) & ~off
-    ring = (_grow(m, RING_RADIUS) & ~band_edge) & ~off
+    ring_outer = _grow(band_edge, RING_RADIUS - FRINGE_RADIUS - BAND_WIDTH)
+    ring = (ring_outer & ~band_edge) & ~off
     return band, ring, near
 
 
@@ -245,32 +246,37 @@ def _lattice_vectors(gray: np.ndarray, known: np.ndarray) -> list[tuple[int, int
         return []
     window = known.astype(np.float32)
     values = gray.astype(np.float32) - float(np.mean(gray[known]))
-    padded = np.zeros((height * 2, width * 2), np.float32)
-    weight = np.zeros((height * 2, width * 2), np.float32)
+    # Padding to >= height + max_period prevents circular wraparound for all
+    # tested shifts in [-max_period, +max_period] while using optimal FFT sizes.
+    fft_h = cv2.getOptimalDFTSize(height + max_period)
+    fft_w = cv2.getOptimalDFTSize(width + max_period)
+    padded = np.zeros((fft_h, fft_w), np.float32)
+    weight = np.zeros((fft_h, fft_w), np.float32)
     padded[:height, :width] = values * window
     weight[:height, :width] = window
 
     values_fft = np.fft.rfft2(padded)
     weight_fft = np.fft.rfft2(weight)
-    numerator = np.fft.irfft2(values_fft * np.conj(values_fft), s=(height * 2, width * 2))
-    denominator = np.fft.irfft2(weight_fft * np.conj(weight_fft), s=(height * 2, width * 2))
+    numerator = np.fft.irfft2(values_fft * np.conj(values_fft), s=(fft_h, fft_w))
+    denominator = np.fft.irfft2(weight_fft * np.conj(weight_fft), s=(fft_h, fft_w))
     variance = float(numerator[0, 0]) / max(float(denominator[0, 0]), 1.0)
     if variance <= 1.0:
         return []
     known_count = int(np.count_nonzero(known))
     min_overlap = max(24.0, 0.2 * known_count)
 
-    shifts: list[tuple[int, int, float]] = []
-    for dy in range(-max_period, max_period + 1):
-        for dx in range(-max_period, max_period + 1):
-            if abs(dy) + abs(dx) < 2:
-                continue
-            overlap = float(denominator[dy, dx])
-            if overlap < min_overlap:
-                continue
-            score = float(numerator[dy, dx]) / (variance * overlap)
-            if score >= MIN_LATTICE_PEAK_R:
-                shifts.append((dy, dx, score))
+    ys = np.arange(-max_period, max_period + 1)
+    xs = np.arange(-max_period, max_period + 1)
+    sub_num = numerator[np.ix_(ys, xs)]
+    sub_den = denominator[np.ix_(ys, xs)]
+    valid = (np.abs(ys)[:, None] + np.abs(xs)[None, :] >= 2) & (sub_den >= min_overlap)
+    inv_denom = np.where(valid, 1.0 / np.maximum(variance * sub_den, 1e-12), 0.0)
+    scores = np.where(valid, sub_num * inv_denom, -np.inf)
+    hits_y, hits_x = np.nonzero(scores >= MIN_LATTICE_PEAK_R)
+    shifts: list[tuple[int, int, float]] = [
+        (int(ys[iy]), int(xs[ix]), float(scores[iy, ix]))
+        for iy, ix in zip(hits_y.tolist(), hits_x.tolist())
+    ]
     # Strongest peaks first. A harmonic of the true period (2x the vector,
     # say) can outscore the fundamental, but the lattice it generates is a
     # sparse sublattice that fails the held-out band — so the router tries
@@ -359,6 +365,70 @@ def _lattice_offsets(
     return ordered[:MAX_LATTICE_OFFSETS]
 
 
+def _lattice_paint_1d(
+    crop: np.ndarray,
+    known: np.ndarray,
+    rem_y: np.ndarray,
+    rem_x: np.ndarray,
+    offsets: list[tuple[int, int]],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Copy target coordinates from known pixels at lattice translates without 2D copies."""
+    height, width = crop.shape[:2]
+    empty_i = np.empty(0, dtype=np.intp)
+    if rem_y.size == 0:
+        return empty_i, empty_i, np.empty((0, crop.shape[2]), dtype=np.uint8), empty_i, empty_i
+
+    out_y: list[np.ndarray] = []
+    out_x: list[np.ndarray] = []
+    out_rgb: list[np.ndarray] = []
+    for dy, dx in offsets:
+        if rem_y.size == 0:
+            break
+        source_y = rem_y + dy
+        source_x = rem_x + dx
+        inside = (
+            (source_y >= 0) & (source_y < height) & (source_x >= 0) & (source_x < width)
+        )
+        if inside.all():
+            ok = known[source_y, source_x]
+            if ok.any():
+                out_y.append(rem_y[ok])
+                out_x.append(rem_x[ok])
+                out_rgb.append(crop[source_y[ok], source_x[ok]])
+                if ok.all():
+                    rem_y = empty_i
+                    rem_x = empty_i
+                    break
+                keep = ~ok
+                rem_y = rem_y[keep]
+                rem_x = rem_x[keep]
+        elif inside.any():
+            idx = np.flatnonzero(inside)
+            sy = source_y[idx]
+            sx = source_x[idx]
+            ok = known[sy, sx]
+            if ok.any():
+                hit = idx[ok]
+                out_y.append(rem_y[hit])
+                out_x.append(rem_x[hit])
+                out_rgb.append(crop[sy[ok], sx[ok]])
+                keep = np.ones(rem_y.size, dtype=bool)
+                keep[hit] = False
+                rem_y = rem_y[keep]
+                rem_x = rem_x[keep]
+    if not out_y:
+        return empty_i, empty_i, np.empty((0, crop.shape[2]), dtype=np.uint8), rem_y, rem_x
+    if len(out_y) == 1:
+        return out_y[0], out_x[0], out_rgb[0], rem_y, rem_x
+    return (
+        np.concatenate(out_y),
+        np.concatenate(out_x),
+        np.concatenate(out_rgb, axis=0),
+        rem_y,
+        rem_x,
+    )
+
+
 def _lattice_paint(
     crop: np.ndarray,
     known: np.ndarray,
@@ -370,32 +440,13 @@ def _lattice_paint(
     Returns the predicted values (uint8, zero where unfilled) and the boolean
     set of targets no lattice translate could reach in this pass.
     """
-    height, width = crop.shape[:2]
     predicted = np.zeros(crop.shape, np.uint8)
     rem_y, rem_x = np.nonzero(targets)
     if rem_y.size == 0:
         return predicted, np.zeros_like(targets)
-    for dy, dx in offsets:
-        if rem_y.size == 0:
-            break
-        source_y = rem_y + dy
-        source_x = rem_x + dx
-        inside = (
-            (source_y >= 0) & (source_y < height) & (source_x >= 0) & (source_x < width)
-        )
-        if not inside.any():
-            continue
-        idx = np.flatnonzero(inside)
-        sy = source_y[idx]
-        sx = source_x[idx]
-        ok = known[sy, sx]
-        if ok.any():
-            hit = idx[ok]
-            predicted[rem_y[hit], rem_x[hit]] = crop[sy[ok], sx[ok]]
-            keep = np.ones(rem_y.size, dtype=bool)
-            keep[hit] = False
-            rem_y = rem_y[keep]
-            rem_x = rem_x[keep]
+    fy, fx, rgb, rem_y, rem_x = _lattice_paint_1d(crop, known, rem_y, rem_x, offsets)
+    if fy.size:
+        predicted[fy, fx] = rgb
     remaining = np.zeros_like(targets)
     if rem_y.size:
         remaining[rem_y, rem_x] = True
@@ -444,20 +495,25 @@ def _verify_lattice(
     vectors = _lattice_vectors(gray, known)
     if not vectors:
         return None
-    band_count = int(np.count_nonzero(band))
+    band_y, band_x = np.nonzero(band)
+    band_count = int(band_y.size)
     if band_count == 0:
         return None
+    max_unfilled = (1.0 - MIN_BAND_COVERAGE) * band_count
     for primary, secondary in _lattice_attempts(vectors):
         offsets = _lattice_offsets((primary, secondary), reach)
         if not offsets:
             continue
-        predicted, unfilled = _lattice_paint(crop, known, band, offsets)
-        if np.count_nonzero(unfilled) > (1.0 - MIN_BAND_COVERAGE) * band_count:
+        fy, fx, rgb, rem_y, _rem_x = _lattice_paint_1d(crop, known, band_y, band_x, offsets)
+        if rem_y.size > max_unfilled or fy.size == 0:
             continue
-        measured = band & ~unfilled
-        error = _selected_error(
-            predicted[measured].astype(np.float64), crop, measured, trim=LATTICE_TRIM_FRACTION
-        )
+        actual = crop[fy, fx].astype(np.float64)
+        per_pixel = np.abs(rgb.astype(np.float64) - actual).mean(axis=1)
+        keep = max(1, int(np.ceil((1.0 - LATTICE_TRIM_FRACTION) * per_pixel.size)))
+        if keep < per_pixel.size:
+            error = float(np.partition(per_pixel, keep - 1)[:keep].mean())
+        else:
+            error = float(per_pixel.mean())
         if error <= LATTICE_MAX_ERROR:
             return error, offsets
     return None
@@ -481,20 +537,20 @@ def _apply_lattice(
     ) if offsets else 1.0
     rounds = int(np.clip(np.ceil(reach / (MAX_LATTICE_SHELL * shortest)), 1, MAX_LATTICE_ROUNDS))
     predicted = np.zeros(crop.shape, np.uint8)
-    targets = mask.astype(bool).copy()
+    rem_y, rem_x = np.nonzero(mask)
     sources = known.copy()
     for _round in range(rounds):
-        if not targets.any():
+        if rem_y.size == 0:
             break
-        round_predicted, remaining = _lattice_paint(crop, sources, targets, offsets)
-        filled_now = targets & ~remaining
-        if not filled_now.any():
+        fy, fx, rgb, rem_y, rem_x = _lattice_paint_1d(crop, sources, rem_y, rem_x, offsets)
+        if fy.size == 0:
             break
-        predicted[filled_now] = round_predicted[filled_now]
-        sources |= filled_now
-        targets = remaining
-    stragglers = int(np.count_nonzero(targets))
+        predicted[fy, fx] = rgb
+        sources[fy, fx] = True
+    stragglers = int(rem_y.size)
     if stragglers:
+        targets = np.zeros(mask.shape, dtype=bool)
+        targets[rem_y, rem_x] = True
         _nearest_known_fill(predicted, crop, sources, targets)
     return predicted, stragglers
 

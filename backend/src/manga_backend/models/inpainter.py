@@ -290,6 +290,12 @@ class Inpainter:
             self.max_pixels or "unlimited",
         )
 
+    def _is_cuda_session(self) -> bool:
+        get_providers = getattr(self.session, "get_providers", None)
+        return callable(get_providers) and cast(list[str], get_providers())[:1] == [
+            "CUDAExecutionProvider"
+        ]
+
     def _arena_release_options(self) -> ort.RunOptions | None:
         """Run options that hand the GPU arena's free memory back after a run.
 
@@ -297,15 +303,24 @@ class Inpainter:
         cannot reuse the blocks of the previous size, so without this the arena
         grows with each size until the GPU is full and everything slows down.
         """
-        get_providers = getattr(self.session, "get_providers", None)
-        if not callable(get_providers) or cast(list[str], get_providers())[:1] != [
-            "CUDAExecutionProvider"
-        ]:
+        if not self._is_cuda_session():
             return None
 
         options = ort.RunOptions()
         options.add_run_config_entry("memory.enable_memory_arena_shrinkage", "gpu:0")
         return options
+
+    async def warm_up(self) -> None:
+        """Prime the primary (1, 256, 256) cuDNN plan once on GPU."""
+        if self.session is None or self.device == "cpu" or not self._is_cuda_session():
+            return
+        side = GPU_CROP_BUCKETS[0]
+        if self.max_pixels is not None and side * side > self.max_pixels:
+            return
+        dummy_img = np.zeros((1, side, side, 3), dtype=np.uint8)
+        dummy_mask = np.zeros((1, side, side), dtype=np.uint8)
+        async with self._inference_lock:
+            await asyncio.to_thread(self._run_model, dummy_img, dummy_mask, False)
 
     async def inpaint(self, image: np.ndarray, mask: np.ndarray) -> np.ndarray:
         """Inpaint an RGB image where the (H, W) mask is set; other pixels are kept."""
@@ -388,7 +403,9 @@ class Inpainter:
                     (region, region.image, region.generation_mask, None)
                 )
 
-        # One batched run per crop shape (and per device pixel budget).
+        # On GPU, ONNX Runtime caches cuDNN plans for a single (B, H, W) shape
+        # and pays ~0.35s whenever B changes across pages, so bucketed GPU runs
+        # keep a fixed batch size of 1 to stay warm across pages.
         runs: list[
             tuple[
                 np.ndarray,
@@ -397,11 +414,12 @@ class Inpainter:
             ]
         ] = []
         for (height, width), group in batches.items():
-            per_run = (
-                len(group)
-                if self.max_pixels is None
-                else max(1, self.max_pixels // (height * width))
-            )
+            if use_gpu_buckets:
+                per_run = 1
+            elif self.max_pixels is None:
+                per_run = len(group)
+            else:
+                per_run = max(1, self.max_pixels // (height * width))
             for start in range(0, len(group), per_run):
                 chunk = group[start : start + per_run]
                 runs.append(
@@ -490,11 +508,14 @@ class Inpainter:
         if session is None:
             raise RuntimeError("Inpainting model not initialized")
         session_inputs = session.get_inputs()
+        img_tensor = np.ascontiguousarray(images.transpose(0, 3, 1, 2), dtype=np.float32)
+        img_tensor *= np.float32(1.0 / 255.0)
+        mask_tensor = np.ascontiguousarray(
+            (masks > 0).astype(np.float32)[:, np.newaxis, ...]
+        )
         inputs = {
-            session_inputs[0].name: (images.astype(np.float32) / 255.0).transpose(
-                0, 3, 1, 2
-            ),
-            session_inputs[1].name: (masks > 0).astype(np.float32)[:, np.newaxis, ...],
+            session_inputs[0].name: img_tensor,
+            session_inputs[1].name: mask_tensor,
         }
         if release_memory and self._release_options is not None:
             output = np.asarray(session.run(None, inputs, self._release_options)[0])
