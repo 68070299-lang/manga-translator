@@ -1,19 +1,17 @@
 # Baselines
 
 Four runs of `scripts/eval_pipeline.py` on `eval/corpus.json` (11 pages), made
-on commit `c0e8b15088aa` (clean tree). That commit is **WP7, shape-aware
-typesetting**: the rectangle fit is gone. Each render region gets a *room* -
-the WP5 bubble interior eroded by an air inset that scales with the font
-size, or, for free text, the largest blank rectangle the fill left around the
-block - lines are laid out by a Knuth-Plass-style dynamic program over
-per-line band widths, and the size is anchored to the source lettering's
-measured em, harmonised to one lettering size per page, with no 16 px
-ceiling. The ad-hoc overflow rescue is replaced by the free-space rooms.
-Masks, the router (tiers 0-2) and the crop-LaMa/FLUX model tier are
-unchanged: every mask and quality row below is byte-identical to the WP5
-baselines. Each folder holds `run.json` and `summary.md`; the labels inside
-still read `wp7-gate8` / `wp7-base-*` (the runs these folders were copied
-from). No images are committed.
+on commit `add7f0beeb5e` (clean tree, `git_dirty: false`) on `integrate/wp1-wp7`.
+That commit is the **integrated WP1–WP7 line**: WP1 harness diagnostics, WP2
+crop-only LaMa + mask-union composite, WP4 verified fill-tier router, WP5
+ink-structure masks + seeded flood-fill bubble interiors, WP7 shape-aware
+typesetting, WP6a reading order + bubble-level translation units, WP6b numbered
+page context + per-unit length budgets + concurrent erasing, and WP3 pre-render
+residual check with Step 6 moved off the production path into the harness. Each
+folder holds `run.json` (schema v3) and `summary.md` copied from
+`eval/runs/base-<route>`. No images are committed. See the final section below
+for the integrated WP1–WP7 numbers and deltas against the prior WP6a-merge
+baselines; the middle sections preserve the earlier WP5/WP7/WP6a/WP6b notes.
 
 | Folder | Flags | What it measures |
 | --- | --- | --- |
@@ -43,10 +41,10 @@ uv run --project backend --locked python scripts/eval_pipeline.py --compare eval
   the 3 private pages in `eval/pages/`. Synthetic lettering used MS Gothic.
 - **Clean trees.** Each run went to `eval/runs/base-<route>` with a clean
   tree, then the artifacts were copied here, so every `run.json` records
-  `git_commit 0c09aec693d5` and `git_dirty false`.
+  `git_commit add7f0beeb5e` and `git_dirty false`.
 - **Inpainter: LaMa stands in for FLUX.** ComfyUI was not running, so the
-  3 model-queued blocks on the FLUX route fell back to `lama_large`
-  (`fallback_pages` 2; the other 9 pages needed no model at all). Read the
+  5 model-queued blocks on the FLUX route fell back to `lama_large`
+  (`fallback_pages` 3; the other 8 pages needed no model at all). Read the
   `*-default` runs as "FLUX route with LaMa fill".
 - **Detector: RT-DETR only.** The AnimeText YOLO weights are gated and not on
   disk; `--mask-mode rectangular` emulates that mask path on RT-DETR boxes.
@@ -403,3 +401,60 @@ against both candidate endpoints returned HTTP 403 for the configured model.
 concurrency saving are therefore unmeasured; the budgets and the one re-ask are
 unit-tested and the per-unit numbers are recorded. A refreshed key makes
 `--translator local` runs work with no code change.
+
+## Integrated WP1–WP7 baselines (`add7f0beeb5e`, 2026-11-19)
+
+`wp3/residual-check` (`c57f247`) was merged into the `wp6b/page-context` line
+(`00ed914`) on `integrate/wp1-wp7` at `add7f0beeb5e`, bringing every work
+package (WP1, WP2, WP3, WP4, WP5, WP6a, WP6b, WP7) onto one branch off
+`publish/rewrite-modern-stack`. All four baseline routes were regenerated on the
+clean merged tree (`git_commit add7f0beeb5e`, `git_dirty false`, 11 pages,
+schema version 3).
+
+### All four routes at `add7f0beeb5e`
+
+| Metric | `rtdetr-default` | `rtdetr-lama` | `rect-masks-default` | `rect-masks-lama` |
+| --- | --- | --- | --- | --- |
+| Masked px | 169,217 | 169,217 | 169,217 | 914,650 |
+| Px changed outside mask | 0 | 0 | 0 | 0 |
+| Tiers (flat / smooth / lattice / model) | 44 / 1 / 35 / 5 | 44 / 1 / 35 / 5 | 44 / 1 / 35 / 5 | 16 / 1 / 41 / 27 |
+| Residual check: escalated / second flags | 2 / 0 | 2 / 0 | 2 / 0 | 1 / 0 |
+| Pre-render flag agreement (overall / in-mask) | 0.64 / 0.80 | 0.64 / 0.80 | 0.64 / 0.80 | 0.857 / 0.857 |
+| Pre-render flag false positives | 0 | 0 | 0 | 0 |
+| Synthetic residual ink (in / out of mask) | 1.8% (0.5% / 1.4%) | 1.8% (0.5% / 1.4%) | 1.8% (0.5% / 1.4%) | 2.2% (1.0% / 1.2%) |
+| Synthetic ink-mask recall | 98.0% | 98.0% | 98.0% | 98.7% |
+| Synthetic tone holes / over-erased px | 684 / 364 | 684 / 364 | 684 / 364 | 163 / 707 |
+| Translate budgets (units / mean / min) | 89 / 31.9 / 6 | 89 / 31.9 / 6 | 89 / 31.9 / 6 | 89 / 31.9 / 6 |
+| Render: shrink / below-min / overflow / unfit | 27 / 6 / 0 / 0 | 27 / 6 / 0 / 0 | 27 / 6 / 0 / 0 | 25 / 6 / 0 / 0 |
+| Render font spread (all / dialogue) | 2.182 / 1.8 | 2.182 / 1.8 | 2.182 / 1.8 | 2.091 / 1.7 |
+| Rendered ink outside bubble interior (px) | 0 | 0 | 0 | 0 |
+| Harness re-OCR CJK (Step 6 / kana-kanji) | 14.6% / 14.9% | 14.6% / 14.9% | 14.6% / 14.9% | 24.7% / 25.3% |
+| Production `timings.verify` (s) | 0.0 | 0.0 | 0.0 | 0.0 |
+| Harness `timings.verify_harness` (s) | 25.097 | 23.985 | 21.673 | 25.976 |
+| Seconds per page | 3.992 | 3.997 | 3.764 | 7.147 |
+
+### Summary of deltas vs the WP6a-merge baselines
+
+- **Synthetic quality and typesetting are unchanged.** Every synthetic quality
+  row (residual ink, in/out split, recall, MAE, tone holes, over-erase,
+  px-outside-mask) and every WP7 render row (shrink, below-min, overflow,
+  unfit, font spread, rendered ink outside bubble) is byte-identical across all
+  four routes.
+- **WP3 pre-render residual check is active across all routes.** On the three
+  contour routes, two real-page ghost-halftone lattice blocks on
+  `real-single-page-01` escalate to the model (`model` 3 -> 5, `lattice` 37 ->
+  35, `masked_px` 169,214 -> 169,217, `fallback_pages` 2 -> 3 on default); on
+  `rect-masks-lama`, one real-page block escalates (`model` 26 -> 27,
+  `masked_px` 914,494 -> 914,650). Zero false positives and zero second flags
+  across all routes.
+- **Harness re-OCR CJK dropped on all four routes.** Contour routes:
+  `16.9% -> 14.6%` (kana/kanji `17.2% -> 14.9%`); `rect-masks-lama`:
+  `25.8% -> 24.7%` (kana/kanji `26.4% -> 25.3%`), driven by the escalated
+  `real-single-page-01` fills.
+- **Production latency dropped ~1.1 s/page on the contour routes**
+  (`5.107 -> 3.992 s/page` on `rtdetr-default`; `7.764 -> 7.147 s/page` on
+  `rect-masks-lama`) with production `timings.verify` at `0.0 s` (the ~25 s
+  re-OCR pass now runs in the harness outside the page timer).
+- **WP6b translate budget rows are now populated in all four committed
+  baselines** (89 units budgeted, mean 31.9 chars, min 6). Real-translator
+  rows remain blocked on a refreshed API key.

@@ -1,9 +1,9 @@
 {
-  "schema_version": 2,
-  "label": "merge-identity",
-  "created_utc": "2026-11-18T14:36:50Z",
+  "schema_version": 3,
+  "label": "base-rtdetr-default",
+  "created_utc": "2026-11-19T15:28:33Z",
   "config": {
-    "label": "merge-identity",
+    "label": "base-rtdetr-default",
     "detector": "rtdetr",
     "mask_mode": "auto",
     "inpainter": "flux2_klein_lanpaint",
@@ -73,7 +73,29 @@
             "mask_px": 1405,
             "band_px": 2782,
             "ring_px": 6393,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              442,
+              86,
+              616,
+              299
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1405,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -83,7 +105,29 @@
             "mask_px": 1404,
             "band_px": 2732,
             "ring_px": 4414,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              98,
+              97,
+              241,
+              272
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1404,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -93,7 +137,29 @@
             "mask_px": 2547,
             "band_px": 3867,
             "ring_px": 7050,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              409,
+              606,
+              621,
+              856
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 2547,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -103,7 +169,29 @@
             "mask_px": 425,
             "band_px": 866,
             "ring_px": 2491,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              110,
+              656,
+              220,
+              792
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 425,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           }
         ],
         "mask_px": 5781,
@@ -120,6 +208,25 @@
         "changed_outside_mask_px": 0,
         "changed_inside_mask_px": 5781,
         "model_changed_outside_mask_px": 0
+      },
+      "translate": {
+        "units": 4,
+        "budget_chars": [
+          64,
+          38,
+          102,
+          27
+        ],
+        "budgeted": 4,
+        "budget_chars_min": 27,
+        "budget_chars_max": 102,
+        "budget_chars_mean": 57.8,
+        "budget_chars_total": 231,
+        "page_image": false,
+        "requests": 0,
+        "reask_units": 0,
+        "reask_shortened": 0,
+        "reask_failed": false
       },
       "render": {
         "regions": 4,
@@ -151,6 +258,26 @@
         "rendered_checked": 4,
         "kana_kanji": 0
       },
+      "residual_flag": {
+        "escalated_blocks": 0,
+        "second_flags": 0,
+        "mask_grown_px": 0,
+        "scored_blocks": 4,
+        "flagged_blocks": 0,
+        "truth_blocks": 0,
+        "truth_residual_px": 0,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "true_negatives": 4,
+        "agreement": 1.0,
+        "in_mask_truth_blocks": 0,
+        "in_mask_true_positives": 0,
+        "in_mask_false_positives": 0,
+        "in_mask_false_negatives": 0,
+        "in_mask_true_negatives": 4,
+        "in_mask_agreement": 1.0
+      },
       "truth": {
         "boxes": 4,
         "recall": 1.0,
@@ -169,15 +296,16 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.9167,
-        "ocr": 0.668,
+        "detect": 0.7583,
+        "ocr": 0.7514,
         "translate": 0.0001,
-        "mask": 0.1908,
+        "mask": 0.2188,
         "inpaint_model": 0.0,
-        "render": 0.3159,
-        "verify": 0.8605,
-        "total": 3.0102,
-        "other": 0.0582
+        "render": 0.3443,
+        "verify": 0.0,
+        "verify_harness": 0.9536,
+        "total": 2.1858,
+        "other": 0.1129
       }
     },
     {
@@ -225,7 +353,29 @@
             "mask_px": 2118,
             "band_px": 3779,
             "ring_px": 7941,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              391,
+              268,
+              605,
+              565
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 2118,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -235,7 +385,29 @@
             "mask_px": 1015,
             "band_px": 1927,
             "ring_px": 4111,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              116,
+              206,
+              303,
+              444
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1015,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           }
         ],
         "mask_px": 3133,
@@ -254,6 +426,23 @@
         "changed_outside_mask_px": 0,
         "changed_inside_mask_px": 3133,
         "model_changed_outside_mask_px": 0
+      },
+      "translate": {
+        "units": 2,
+        "budget_chars": [
+          94,
+          87
+        ],
+        "budgeted": 2,
+        "budget_chars_min": 87,
+        "budget_chars_max": 94,
+        "budget_chars_mean": 90.5,
+        "budget_chars_total": 181,
+        "page_image": false,
+        "requests": 0,
+        "reask_units": 0,
+        "reask_shortened": 0,
+        "reask_failed": false
       },
       "render": {
         "regions": 2,
@@ -281,6 +470,26 @@
         "rendered_checked": 2,
         "kana_kanji": 0
       },
+      "residual_flag": {
+        "escalated_blocks": 0,
+        "second_flags": 0,
+        "mask_grown_px": 0,
+        "scored_blocks": 2,
+        "flagged_blocks": 0,
+        "truth_blocks": 0,
+        "truth_residual_px": 0,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "true_negatives": 2,
+        "agreement": 1.0,
+        "in_mask_truth_blocks": 0,
+        "in_mask_true_positives": 0,
+        "in_mask_false_positives": 0,
+        "in_mask_false_negatives": 0,
+        "in_mask_true_negatives": 2,
+        "in_mask_agreement": 1.0
+      },
       "truth": {
         "boxes": 2,
         "recall": 1.0,
@@ -299,15 +508,16 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.7144,
-        "ocr": 0.4911,
+        "detect": 0.9668,
+        "ocr": 0.6436,
         "translate": 0.0,
-        "mask": 0.1093,
+        "mask": 0.1589,
         "inpaint_model": 0.0,
-        "render": 0.5571,
-        "verify": 0.5499,
-        "total": 2.4496,
-        "other": 0.0278
+        "render": 0.723,
+        "verify": 0.0,
+        "verify_harness": 0.5429,
+        "total": 3.047,
+        "other": 0.5547
       }
     },
     {
@@ -360,7 +570,29 @@
             "mask_px": 2744,
             "band_px": 3980,
             "ring_px": 7641,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              489,
+              151,
+              633,
+              334
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 2744,
+            "residual_best_iou": 0.0179,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -370,7 +602,29 @@
             "mask_px": 990,
             "band_px": 1095,
             "ring_px": 2891,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              98,
+              550,
+              213,
+              594
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 990,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -380,7 +634,29 @@
             "mask_px": 11562,
             "band_px": 1748,
             "ring_px": 5382,
-            "reason": "smooth"
+            "reason": "smooth",
+            "block_bbox": [
+              467,
+              661,
+              572,
+              817
+            ],
+            "initial_tier": 1,
+            "initial_tier_name": "smooth",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 11562,
+            "residual_best_iou": 0.001,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           }
         ],
         "mask_px": 15296,
@@ -399,6 +675,24 @@
         "changed_outside_mask_px": 0,
         "changed_inside_mask_px": 14478,
         "model_changed_outside_mask_px": 0
+      },
+      "translate": {
+        "units": 3,
+        "budget_chars": [
+          81,
+          46,
+          42
+        ],
+        "budgeted": 3,
+        "budget_chars_min": 42,
+        "budget_chars_max": 81,
+        "budget_chars_mean": 56.3,
+        "budget_chars_total": 169,
+        "page_image": false,
+        "requests": 0,
+        "reask_units": 0,
+        "reask_shortened": 0,
+        "reask_failed": false
       },
       "render": {
         "regions": 3,
@@ -428,6 +722,26 @@
         "rendered_checked": 3,
         "kana_kanji": 0
       },
+      "residual_flag": {
+        "escalated_blocks": 0,
+        "second_flags": 0,
+        "mask_grown_px": 0,
+        "scored_blocks": 3,
+        "flagged_blocks": 0,
+        "truth_blocks": 1,
+        "truth_residual_px": 2,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 1,
+        "true_negatives": 2,
+        "agreement": 0.6667,
+        "in_mask_truth_blocks": 0,
+        "in_mask_true_positives": 0,
+        "in_mask_false_positives": 0,
+        "in_mask_false_negatives": 0,
+        "in_mask_true_negatives": 3,
+        "in_mask_agreement": 1.0
+      },
       "truth": {
         "boxes": 3,
         "recall": 1.0,
@@ -446,15 +760,16 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.6632,
-        "ocr": 0.5273,
+        "detect": 0.9372,
+        "ocr": 0.545,
         "translate": 0.0001,
-        "mask": 0.1854,
+        "mask": 0.2646,
         "inpaint_model": 0.0,
-        "render": 0.0489,
-        "verify": 0.5983,
-        "total": 2.076,
-        "other": 0.0528
+        "render": 0.0508,
+        "verify": 0.0,
+        "verify_harness": 0.7147,
+        "total": 1.8619,
+        "other": 0.0642
       }
     },
     {
@@ -501,7 +816,29 @@
             "mask_px": 7667,
             "band_px": 3198,
             "ring_px": 7543,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              519,
+              182,
+              618,
+              465
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 7667,
+            "residual_best_iou": 0.4737,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -511,7 +848,29 @@
             "mask_px": 8489,
             "band_px": 4268,
             "ring_px": 11620,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              70,
+              488,
+              435,
+              605
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 8489,
+            "residual_best_iou": 0.1316,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           }
         ],
         "mask_px": 16156,
@@ -530,6 +889,23 @@
         "changed_outside_mask_px": 0,
         "changed_inside_mask_px": 14534,
         "model_changed_outside_mask_px": 0
+      },
+      "translate": {
+        "units": 2,
+        "budget_chars": [
+          72,
+          115
+        ],
+        "budgeted": 2,
+        "budget_chars_min": 72,
+        "budget_chars_max": 115,
+        "budget_chars_mean": 93.5,
+        "budget_chars_total": 187,
+        "page_image": false,
+        "requests": 0,
+        "reask_units": 0,
+        "reask_shortened": 0,
+        "reask_failed": false
       },
       "render": {
         "regions": 2,
@@ -557,6 +933,26 @@
         "rendered_checked": 2,
         "kana_kanji": 0
       },
+      "residual_flag": {
+        "escalated_blocks": 0,
+        "second_flags": 0,
+        "mask_grown_px": 0,
+        "scored_blocks": 2,
+        "flagged_blocks": 0,
+        "truth_blocks": 2,
+        "truth_residual_px": 177,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 2,
+        "true_negatives": 0,
+        "agreement": 0.0,
+        "in_mask_truth_blocks": 0,
+        "in_mask_true_positives": 0,
+        "in_mask_false_positives": 0,
+        "in_mask_false_negatives": 0,
+        "in_mask_true_negatives": 2,
+        "in_mask_agreement": 1.0
+      },
       "truth": {
         "boxes": 2,
         "recall": 1.0,
@@ -575,15 +971,16 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.7909,
-        "ocr": 0.3539,
-        "translate": 0.0001,
-        "mask": 0.2873,
+        "detect": 0.6604,
+        "ocr": 0.3686,
+        "translate": 0.0,
+        "mask": 0.3789,
         "inpaint_model": 0.0,
-        "render": 0.0253,
-        "verify": 0.3868,
-        "total": 1.8788,
-        "other": 0.0345
+        "render": 0.0264,
+        "verify": 0.0,
+        "verify_harness": 0.4649,
+        "total": 1.4769,
+        "other": 0.0426
       }
     },
     {
@@ -631,7 +1028,29 @@
             "mask_px": 1156,
             "band_px": 1911,
             "ring_px": 4622,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              231,
+              705,
+              398,
+              764
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1156,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -641,7 +1060,29 @@
             "mask_px": 2170,
             "band_px": 3858,
             "ring_px": 6839,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              206,
+              937,
+              430,
+              1032
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 2170,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -651,7 +1092,29 @@
             "mask_px": 743,
             "band_px": 1282,
             "ring_px": 2985,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              261,
+              1974,
+              378,
+              2031
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 743,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -661,7 +1124,29 @@
             "mask_px": 1340,
             "band_px": 2288,
             "ring_px": 5052,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              247,
+              2186,
+              389,
+              2283
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1340,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           }
         ],
         "mask_px": 5409,
@@ -678,6 +1163,25 @@
         "changed_outside_mask_px": 0,
         "changed_inside_mask_px": 5409,
         "model_changed_outside_mask_px": 0
+      },
+      "translate": {
+        "units": 4,
+        "budget_chars": [
+          35,
+          81,
+          26,
+          74
+        ],
+        "budgeted": 4,
+        "budget_chars_min": 26,
+        "budget_chars_max": 81,
+        "budget_chars_mean": 54.0,
+        "budget_chars_total": 216,
+        "page_image": false,
+        "requests": 0,
+        "reask_units": 0,
+        "reask_shortened": 0,
+        "reask_failed": false
       },
       "render": {
         "regions": 4,
@@ -709,6 +1213,26 @@
         "rendered_checked": 4,
         "kana_kanji": 0
       },
+      "residual_flag": {
+        "escalated_blocks": 0,
+        "second_flags": 0,
+        "mask_grown_px": 0,
+        "scored_blocks": 4,
+        "flagged_blocks": 0,
+        "truth_blocks": 0,
+        "truth_residual_px": 0,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "true_negatives": 4,
+        "agreement": 1.0,
+        "in_mask_truth_blocks": 0,
+        "in_mask_true_positives": 0,
+        "in_mask_false_positives": 0,
+        "in_mask_false_negatives": 0,
+        "in_mask_true_negatives": 4,
+        "in_mask_agreement": 1.0
+      },
       "truth": {
         "boxes": 4,
         "recall": 1.0,
@@ -727,15 +1251,16 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.9674,
-        "ocr": 0.6608,
-        "translate": 0.0,
-        "mask": 0.1348,
+        "detect": 0.79,
+        "ocr": 1.2828,
+        "translate": 0.0001,
+        "mask": 0.2529,
         "inpaint_model": 0.0,
-        "render": 0.2645,
-        "verify": 0.7168,
-        "total": 2.8587,
-        "other": 0.1144
+        "render": 0.3809,
+        "verify": 0.0,
+        "verify_harness": 0.9223,
+        "total": 2.8774,
+        "other": 0.1707
       }
     },
     {
@@ -788,7 +1313,29 @@
             "mask_px": 3163,
             "band_px": 3885,
             "ring_px": 7247,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              486,
+              153,
+              632,
+              338
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 3163,
+            "residual_best_iou": 0.0171,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -798,7 +1345,29 @@
             "mask_px": 9126,
             "band_px": 4377,
             "ring_px": 10709,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              82,
+              79,
+              391,
+              172
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 9126,
+            "residual_best_iou": 0.0956,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -808,7 +1377,29 @@
             "mask_px": 857,
             "band_px": 1180,
             "ring_px": 2666,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              98,
+              550,
+              211,
+              592
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 857,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -818,7 +1409,29 @@
             "mask_px": 1806,
             "band_px": 1818,
             "ring_px": 3838,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              480,
+              650,
+              595,
+              746
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1806,
+            "residual_best_iou": 0.0389,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           }
         ],
         "mask_px": 14952,
@@ -837,6 +1450,25 @@
         "changed_outside_mask_px": 0,
         "changed_inside_mask_px": 10183,
         "model_changed_outside_mask_px": 0
+      },
+      "translate": {
+        "units": 4,
+        "budget_chars": [
+          81,
+          80,
+          36,
+          28
+        ],
+        "budgeted": 4,
+        "budget_chars_min": 28,
+        "budget_chars_max": 81,
+        "budget_chars_mean": 56.2,
+        "budget_chars_total": 225,
+        "page_image": false,
+        "requests": 0,
+        "reask_units": 0,
+        "reask_shortened": 0,
+        "reask_failed": false
       },
       "render": {
         "regions": 4,
@@ -868,6 +1500,26 @@
         "rendered_checked": 4,
         "kana_kanji": 0
       },
+      "residual_flag": {
+        "escalated_blocks": 0,
+        "second_flags": 0,
+        "mask_grown_px": 0,
+        "scored_blocks": 4,
+        "flagged_blocks": 0,
+        "truth_blocks": 3,
+        "truth_residual_px": 311,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 3,
+        "true_negatives": 1,
+        "agreement": 0.25,
+        "in_mask_truth_blocks": 3,
+        "in_mask_true_positives": 0,
+        "in_mask_false_positives": 0,
+        "in_mask_false_negatives": 3,
+        "in_mask_true_negatives": 1,
+        "in_mask_agreement": 0.25
+      },
       "truth": {
         "boxes": 4,
         "recall": 1.0,
@@ -886,15 +1538,16 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.7778,
-        "ocr": 0.6593,
-        "translate": 0.0001,
-        "mask": 0.3147,
+        "detect": 0.7582,
+        "ocr": 0.7851,
+        "translate": 0.0022,
+        "mask": 0.4907,
         "inpaint_model": 0.0,
-        "render": 0.0393,
-        "verify": 0.8147,
-        "total": 2.6498,
-        "other": 0.0439
+        "render": 0.0535,
+        "verify": 0.0,
+        "verify_harness": 1.1483,
+        "total": 2.1641,
+        "other": 0.0744
       }
     },
     {
@@ -945,7 +1598,29 @@
             "mask_px": 1622,
             "band_px": 3122,
             "ring_px": 5789,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              487,
+              110,
+              575,
+              252
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1622,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -955,7 +1630,29 @@
             "mask_px": 1339,
             "band_px": 2475,
             "ring_px": 5035,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              132,
+              116,
+              207,
+              246
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1339,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -965,7 +1662,29 @@
             "mask_px": 25460,
             "band_px": 2040,
             "ring_px": 6552,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              451,
+              647,
+              580,
+              837
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 25460,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           }
         ],
         "mask_px": 28421,
@@ -982,6 +1701,24 @@
         "changed_outside_mask_px": 0,
         "changed_inside_mask_px": 6982,
         "model_changed_outside_mask_px": 0
+      },
+      "translate": {
+        "units": 3,
+        "budget_chars": [
+          49,
+          30,
+          72
+        ],
+        "budgeted": 3,
+        "budget_chars_min": 30,
+        "budget_chars_max": 72,
+        "budget_chars_mean": 50.3,
+        "budget_chars_total": 151,
+        "page_image": false,
+        "requests": 0,
+        "reask_units": 0,
+        "reask_shortened": 0,
+        "reask_failed": false
       },
       "render": {
         "regions": 3,
@@ -1011,6 +1748,26 @@
         "rendered_checked": 3,
         "kana_kanji": 2
       },
+      "residual_flag": {
+        "escalated_blocks": 0,
+        "second_flags": 0,
+        "mask_grown_px": 0,
+        "scored_blocks": 3,
+        "flagged_blocks": 0,
+        "truth_blocks": 1,
+        "truth_residual_px": 40,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 1,
+        "true_negatives": 2,
+        "agreement": 0.6667,
+        "in_mask_truth_blocks": 1,
+        "in_mask_true_positives": 0,
+        "in_mask_false_positives": 0,
+        "in_mask_false_negatives": 1,
+        "in_mask_true_negatives": 2,
+        "in_mask_agreement": 0.6667
+      },
       "truth": {
         "boxes": 4,
         "recall": 1.0,
@@ -1029,15 +1786,16 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 0.785,
-        "ocr": 0.556,
+        "detect": 0.7119,
+        "ocr": 0.7843,
         "translate": 0.0001,
-        "mask": 0.2635,
+        "mask": 0.4355,
         "inpaint_model": 0.0,
-        "render": 0.2695,
-        "verify": 0.5621,
-        "total": 2.4886,
-        "other": 0.0524
+        "render": 0.3677,
+        "verify": 0.0,
+        "verify_harness": 0.6482,
+        "total": 2.3691,
+        "other": 0.0696
       }
     },
     {
@@ -1087,7 +1845,29 @@
             "mask_px": 2570,
             "band_px": 3764,
             "ring_px": 7042,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              409,
+              187,
+              674,
+              247
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 2586,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1097,7 +1877,29 @@
             "mask_px": 6819,
             "band_px": 10169,
             "ring_px": 20365,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              149,
+              75,
+              311,
+              415
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 6819,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -1107,7 +1909,29 @@
             "mask_px": 380,
             "band_px": 778,
             "ring_px": 2317,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              497,
+              553,
+              579,
+              639
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 380,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           }
         ],
         "mask_px": 9769,
@@ -1126,6 +1950,24 @@
         "changed_outside_mask_px": 0,
         "changed_inside_mask_px": 9769,
         "model_changed_outside_mask_px": 0
+      },
+      "translate": {
+        "units": 3,
+        "budget_chars": [
+          38,
+          64,
+          22
+        ],
+        "budgeted": 3,
+        "budget_chars_min": 22,
+        "budget_chars_max": 64,
+        "budget_chars_mean": 41.3,
+        "budget_chars_total": 124,
+        "page_image": false,
+        "requests": 0,
+        "reask_units": 0,
+        "reask_shortened": 0,
+        "reask_failed": false
       },
       "render": {
         "regions": 3,
@@ -1155,6 +1997,26 @@
         "rendered_checked": 3,
         "kana_kanji": 0
       },
+      "residual_flag": {
+        "escalated_blocks": 0,
+        "second_flags": 0,
+        "mask_grown_px": 0,
+        "scored_blocks": 3,
+        "flagged_blocks": 0,
+        "truth_blocks": 2,
+        "truth_residual_px": 77,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 2,
+        "true_negatives": 1,
+        "agreement": 0.3333,
+        "in_mask_truth_blocks": 1,
+        "in_mask_true_positives": 0,
+        "in_mask_false_positives": 0,
+        "in_mask_false_negatives": 1,
+        "in_mask_true_negatives": 2,
+        "in_mask_agreement": 0.6667
+      },
       "truth": {
         "boxes": 3,
         "recall": 1.0,
@@ -1173,15 +2035,16 @@
         "glyph_source": "msgothic.ttc"
       },
       "timings": {
-        "detect": 1.0274,
-        "ocr": 0.5687,
-        "translate": 0.0001,
-        "mask": 0.1085,
+        "detect": 0.829,
+        "ocr": 0.6157,
+        "translate": 0.0,
+        "mask": 0.2022,
         "inpaint_model": 0.0,
-        "render": 0.1637,
-        "verify": 0.644,
-        "total": 2.5701,
-        "other": 0.0577
+        "render": 0.2301,
+        "verify": 0.0,
+        "verify_harness": 0.8699,
+        "total": 1.9375,
+        "other": 0.0605
       }
     },
     {
@@ -1218,11 +2081,12 @@
           "other": 0,
           "skipped": 0
         },
-        "white_fill_blocks": 13,
-        "model_blocks": 0,
+        "white_fill_blocks": 12,
+        "model_blocks": 1,
         "tier_counts": {
           "flat": 6,
-          "lattice": 7
+          "lattice": 6,
+          "model": 1
         },
         "fill_decisions": [
           {
@@ -1233,7 +2097,29 @@
             "mask_px": 2528,
             "band_px": 2276,
             "ring_px": 4965,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              419,
+              42,
+              508,
+              154
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 2599,
+            "residual_best_iou": 0.25,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -1243,7 +2129,29 @@
             "mask_px": 295,
             "band_px": 497,
             "ring_px": 1746,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              350,
+              39,
+              388,
+              99
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 295,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1253,7 +2161,29 @@
             "mask_px": 2305,
             "band_px": 2015,
             "ring_px": 5659,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              271,
+              100,
+              338,
+              210
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 2305,
+            "residual_best_iou": 0.0083,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -1263,7 +2193,29 @@
             "mask_px": 245,
             "band_px": 593,
             "ring_px": 1713,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              264,
+              254,
+              290,
+              325
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 245,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1273,7 +2225,29 @@
             "mask_px": 804,
             "band_px": 1273,
             "ring_px": 3236,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              180,
+              39,
+              231,
+              111
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 804,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -1283,7 +2257,29 @@
             "mask_px": 594,
             "band_px": 1250,
             "ring_px": 2845,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              39,
+              43,
+              82,
+              136
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 654,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1293,7 +2289,29 @@
             "mask_px": 2921,
             "band_px": 1224,
             "ring_px": 3672,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              204,
+              198,
+              243,
+              333
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 2921,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1303,7 +2321,29 @@
             "mask_px": 1010,
             "band_px": 1088,
             "ring_px": 3091,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              106,
+              209,
+              178,
+              259
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1010,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1313,17 +2353,67 @@
             "mask_px": 2080,
             "band_px": 1841,
             "ring_px": 3973,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              32,
+              198,
+              107,
+              331
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 2080,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 0.3718,
-            "mask_px": 5378,
+            "tier": 4,
+            "tier_name": "model",
+            "band_error": null,
+            "mask_px": 5380,
             "band_px": 3374,
             "ring_px": 5912,
-            "reason": "lattice"
+            "reason": "band-error",
+            "block_bbox": [
+              417,
+              388,
+              528,
+              492
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": true,
+            "residual_px": 160,
+            "residual_reference_px": 5378,
+            "residual_best_iou": 0.9667,
+            "residual_components": 5,
+            "flag_reason": "residue",
+            "escalated": true,
+            "escalation_tier": 4,
+            "escalation_tier_name": "model",
+            "escalation_grown_px": 2,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0,
+            "escalation_bounds": [
+              415,
+              386,
+              530,
+              494
+            ]
           },
           {
             "strategy": "glyph",
@@ -1333,7 +2423,29 @@
             "mask_px": 516,
             "band_px": 977,
             "ring_px": 2911,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              60,
+              402,
+              112,
+              510
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 516,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1343,7 +2455,29 @@
             "mask_px": 2016,
             "band_px": 2423,
             "ring_px": 6241,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              453,
+              524,
+              506,
+              765
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 2016,
+            "residual_best_iou": 0.2609,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1353,12 +2487,34 @@
             "mask_px": 5036,
             "band_px": 4801,
             "ring_px": 7828,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              20,
+              525,
+              109,
+              727
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 5036,
+            "residual_best_iou": 0.2881,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           }
         ],
-        "mask_px": 25728,
-        "white_fill_px": 24780,
-        "mask_fraction": 0.048592,
+        "mask_px": 25730,
+        "white_fill_px": 20063,
+        "mask_fraction": 0.048595,
         "suppressed_composites": 1,
         "reason_codes": {
           "flood_leak": 2,
@@ -1367,12 +2523,41 @@
       },
       "inpaint": {
         "requested": "flux2_klein_lanpaint",
-        "used": "flux2_klein_lanpaint",
-        "fallback": false,
-        "strategy": "fill_tiers",
+        "used": "lama_large",
+        "fallback": true,
+        "strategy": "model",
         "changed_outside_mask_px": 0,
-        "changed_inside_mask_px": 24780,
+        "changed_inside_mask_px": 25411,
         "model_changed_outside_mask_px": 0
+      },
+      "translate": {
+        "units": 14,
+        "budget_chars": [
+          32,
+          20,
+          30,
+          12,
+          16,
+          27,
+          12,
+          15,
+          24,
+          30,
+          24,
+          32,
+          24,
+          50
+        ],
+        "budgeted": 14,
+        "budget_chars_min": 12,
+        "budget_chars_max": 50,
+        "budget_chars_mean": 24.9,
+        "budget_chars_total": 348,
+        "page_image": false,
+        "requests": 0,
+        "reask_units": 0,
+        "reask_shortened": 0,
+        "reask_failed": false
       },
       "render": {
         "regions": 13,
@@ -1418,21 +2603,42 @@
       "verify": {
         "ran": true,
         "checked": 14,
-        "step6_flagged": 5,
+        "step6_flagged": 3,
         "rendered_checked": 14,
-        "kana_kanji": 5
+        "kana_kanji": 3
+      },
+      "residual_flag": {
+        "escalated_blocks": 1,
+        "second_flags": 0,
+        "mask_grown_px": 2,
+        "scored_blocks": 0,
+        "flagged_blocks": 1,
+        "truth_blocks": 0,
+        "truth_residual_px": 0,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "true_negatives": 0,
+        "agreement": null,
+        "in_mask_truth_blocks": 0,
+        "in_mask_true_positives": 0,
+        "in_mask_false_positives": 0,
+        "in_mask_false_negatives": 0,
+        "in_mask_true_negatives": 0,
+        "in_mask_agreement": null
       },
       "truth": null,
       "timings": {
-        "detect": 0.7735,
-        "ocr": 2.6257,
-        "translate": 0.0002,
-        "mask": 0.4254,
-        "inpaint_model": 0.0,
-        "render": 0.4421,
-        "verify": 3.9355,
-        "total": 8.2375,
-        "other": 0.0351
+        "detect": 0.8651,
+        "ocr": 3.7032,
+        "translate": 0.0001,
+        "mask": 0.646,
+        "inpaint_model": 1.2151,
+        "render": 0.2392,
+        "verify": 0.0,
+        "verify_harness": 4.8056,
+        "total": 6.7234,
+        "other": 0.0547
       }
     },
     {
@@ -1470,12 +2676,12 @@
           "other": 0,
           "skipped": 0
         },
-        "white_fill_blocks": 21,
-        "model_blocks": 1,
+        "white_fill_blocks": 20,
+        "model_blocks": 2,
         "tier_counts": {
           "flat": 8,
-          "lattice": 13,
-          "model": 1
+          "lattice": 12,
+          "model": 2
         },
         "fill_decisions": [
           {
@@ -1486,7 +2692,29 @@
             "mask_px": 1618,
             "band_px": 2786,
             "ring_px": 5986,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              907,
+              111,
+              996,
+              249
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1837,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1496,7 +2724,29 @@
             "mask_px": 424,
             "band_px": 468,
             "ring_px": 1232,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              1211,
+              364,
+              1239,
+              427
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 424,
+            "residual_best_iou": 0.2692,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1506,7 +2756,29 @@
             "mask_px": 1191,
             "band_px": 977,
             "ring_px": 2042,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              1210,
+              313,
+              1238,
+              427
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1191,
+            "residual_best_iou": 0.1182,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1516,7 +2788,29 @@
             "mask_px": 1460,
             "band_px": 598,
             "ring_px": 1727,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              1209,
+              512,
+              1239,
+              575
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1460,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -1526,7 +2820,29 @@
             "mask_px": 1175,
             "band_px": 1356,
             "ring_px": 2931,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              1148,
+              305,
+              1199,
+              409
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1200,
+            "residual_best_iou": 0.1667,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1536,7 +2852,29 @@
             "mask_px": 559,
             "band_px": 1197,
             "ring_px": 2983,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              986,
+              342,
+              1033,
+              409
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 559,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1546,7 +2884,29 @@
             "mask_px": 1927,
             "band_px": 2600,
             "ring_px": 6718,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              855,
+              400,
+              919,
+              548
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1927,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -1556,7 +2916,29 @@
             "mask_px": 184,
             "band_px": 382,
             "ring_px": 1535,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              728,
+              773,
+              765,
+              819
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 184,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1566,7 +2948,29 @@
             "mask_px": 602,
             "band_px": 1140,
             "ring_px": 3317,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              485,
+              94,
+              527,
+              169
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 602,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1576,7 +2980,29 @@
             "mask_px": 562,
             "band_px": 1315,
             "ring_px": 3096,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              446,
+              125,
+              484,
+              198
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 562,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -1586,7 +3012,29 @@
             "mask_px": 1183,
             "band_px": 1678,
             "ring_px": 3098,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              329,
+              122,
+              387,
+              215
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1236,
+            "residual_best_iou": 0.4375,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1596,7 +3044,29 @@
             "mask_px": 874,
             "band_px": 1204,
             "ring_px": 3931,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              192,
+              28,
+              238,
+              116
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 874,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -1606,7 +3076,29 @@
             "mask_px": 1544,
             "band_px": 2257,
             "ring_px": 4249,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              468,
+              427,
+              532,
+              544
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1628,
+            "residual_best_iou": 0.4324,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1616,7 +3108,29 @@
             "mask_px": 2962,
             "band_px": 805,
             "ring_px": 2835,
-            "reason": "band-error"
+            "reason": "band-error",
+            "block_bbox": [
+              419,
+              465,
+              455,
+              541
+            ],
+            "initial_tier": 4,
+            "initial_tier_name": "model",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 0,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -1626,7 +3140,29 @@
             "mask_px": 543,
             "band_px": 1299,
             "ring_px": 2234,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              359,
+              436,
+              401,
+              514
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 609,
+            "residual_best_iou": 0.377,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1636,17 +3172,67 @@
             "mask_px": 765,
             "band_px": 1417,
             "ring_px": 3899,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              203,
+              408,
+              259,
+              495
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 765,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
-            "tier": 2,
-            "tier_name": "lattice",
-            "band_error": 0.6753,
-            "mask_px": 974,
+            "tier": 4,
+            "tier_name": "model",
+            "band_error": null,
+            "mask_px": 975,
             "band_px": 880,
             "ring_px": 2607,
-            "reason": "lattice"
+            "reason": "band-error",
+            "block_bbox": [
+              24,
+              444,
+              71,
+              510
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": true,
+            "residual_px": 89,
+            "residual_reference_px": 974,
+            "residual_best_iou": 0.9706,
+            "residual_components": 4,
+            "flag_reason": "residue",
+            "escalated": true,
+            "escalation_tier": 4,
+            "escalation_tier_name": "model",
+            "escalation_grown_px": 1,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0,
+            "escalation_bounds": [
+              30,
+              442,
+              71,
+              504
+            ]
           },
           {
             "strategy": "glyph",
@@ -1656,7 +3242,29 @@
             "mask_px": 1060,
             "band_px": 2061,
             "ring_px": 4662,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              509,
+              638,
+              560,
+              741
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1060,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1666,7 +3274,29 @@
             "mask_px": 324,
             "band_px": 964,
             "ring_px": 2924,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              422,
+              708,
+              457,
+              786
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 324,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1676,7 +3306,29 @@
             "mask_px": 176,
             "band_px": 426,
             "ring_px": 1670,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              118,
+              692,
+              142,
+              728
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 176,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1686,7 +3338,29 @@
             "mask_px": 919,
             "band_px": 1762,
             "ring_px": 4091,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              75,
+              718,
+              128,
+              829
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 919,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1696,12 +3370,34 @@
             "mask_px": 230,
             "band_px": 490,
             "ring_px": 1890,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              291,
+              855,
+              366,
+              881
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 230,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           }
         ],
-        "mask_px": 20837,
-        "white_fill_px": 17126,
-        "mask_fraction": 0.01863,
+        "mask_px": 20838,
+        "white_fill_px": 16160,
+        "mask_fraction": 0.018631,
         "suppressed_composites": 1,
         "reason_codes": {
           "flood_leak": 10,
@@ -1714,8 +3410,48 @@
         "fallback": true,
         "strategy": "model",
         "changed_outside_mask_px": 0,
-        "changed_inside_mask_px": 20077,
+        "changed_inside_mask_px": 20086,
         "model_changed_outside_mask_px": 0
+      },
+      "translate": {
+        "units": 25,
+        "budget_chars": [
+          39,
+          6,
+          9,
+          8,
+          14,
+          16,
+          40,
+          6,
+          20,
+          12,
+          12,
+          28,
+          15,
+          20,
+          21,
+          12,
+          18,
+          20,
+          20,
+          15,
+          20,
+          12,
+          6,
+          28,
+          6
+        ],
+        "budgeted": 25,
+        "budget_chars_min": 6,
+        "budget_chars_max": 40,
+        "budget_chars_mean": 16.9,
+        "budget_chars_total": 423,
+        "page_image": false,
+        "requests": 0,
+        "reask_units": 0,
+        "reask_shortened": 0,
+        "reask_failed": false
       },
       "render": {
         "regions": 22,
@@ -1783,17 +3519,38 @@
         "rendered_checked": 23,
         "kana_kanji": 5
       },
+      "residual_flag": {
+        "escalated_blocks": 1,
+        "second_flags": 0,
+        "mask_grown_px": 1,
+        "scored_blocks": 0,
+        "flagged_blocks": 1,
+        "truth_blocks": 0,
+        "truth_residual_px": 0,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "true_negatives": 0,
+        "agreement": null,
+        "in_mask_truth_blocks": 0,
+        "in_mask_true_positives": 0,
+        "in_mask_false_positives": 0,
+        "in_mask_false_negatives": 0,
+        "in_mask_true_negatives": 0,
+        "in_mask_agreement": null
+      },
       "truth": null,
       "timings": {
-        "detect": 0.8617,
-        "ocr": 4.5912,
-        "translate": 0.0002,
-        "mask": 0.7302,
-        "inpaint_model": 1.2372,
-        "render": 0.8487,
-        "verify": 5.7019,
-        "total": 14.0951,
-        "other": 0.124
+        "detect": 0.8123,
+        "ocr": 6.0731,
+        "translate": 0.0003,
+        "mask": 0.8917,
+        "inpaint_model": 0.5781,
+        "render": 0.6245,
+        "verify": 0.0,
+        "verify_harness": 7.5612,
+        "total": 9.055,
+        "other": 0.075
       }
     },
     {
@@ -1847,7 +3604,29 @@
             "mask_px": 891,
             "band_px": 2005,
             "ring_px": 4830,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              1148,
+              46,
+              1199,
+              144
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 891,
+            "residual_best_iou": 0.2547,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -1857,7 +3636,29 @@
             "mask_px": 325,
             "band_px": 655,
             "ring_px": 1785,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              1155,
+              242,
+              1183,
+              310
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 365,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1867,7 +3668,29 @@
             "mask_px": 1406,
             "band_px": 2225,
             "ring_px": 4646,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              1033,
+              124,
+              1087,
+              238
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1406,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1877,7 +3700,29 @@
             "mask_px": 1027,
             "band_px": 2462,
             "ring_px": 5399,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              925,
+              175,
+              981,
+              285
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1027,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1887,7 +3732,29 @@
             "mask_px": 129,
             "band_px": 284,
             "ring_px": 1275,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              824,
+              53,
+              855,
+              84
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 129,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1897,7 +3764,29 @@
             "mask_px": 509,
             "band_px": 1239,
             "ring_px": 3407,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              785,
+              68,
+              823,
+              169
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 509,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1907,7 +3796,29 @@
             "mask_px": 707,
             "band_px": 1798,
             "ring_px": 4710,
-            "reason": "band-error"
+            "reason": "band-error",
+            "block_bbox": [
+              933,
+              341,
+              979,
+              440
+            ],
+            "initial_tier": 4,
+            "initial_tier_name": "model",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 0,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1917,7 +3828,29 @@
             "mask_px": 129,
             "band_px": 276,
             "ring_px": 1233,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              788,
+              403,
+              814,
+              432
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 129,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1927,7 +3860,29 @@
             "mask_px": 955,
             "band_px": 1868,
             "ring_px": 4625,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              726,
+              414,
+              785,
+              505
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 955,
+            "residual_best_iou": 0.0465,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1937,7 +3892,29 @@
             "mask_px": 428,
             "band_px": 783,
             "ring_px": 2315,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              669,
+              463,
+              706,
+              525
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 428,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1947,7 +3924,29 @@
             "mask_px": 1280,
             "band_px": 3805,
             "ring_px": 4729,
-            "reason": "band-error"
+            "reason": "band-error",
+            "block_bbox": [
+              1056,
+              751,
+              1220,
+              791
+            ],
+            "initial_tier": 4,
+            "initial_tier_name": "model",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 0,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -1957,7 +3956,29 @@
             "mask_px": 1089,
             "band_px": 1357,
             "ring_px": 2974,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              668,
+              698,
+              717,
+              812
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1107,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1967,7 +3988,29 @@
             "mask_px": 1338,
             "band_px": 2661,
             "ring_px": 6229,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              417,
+              53,
+              480,
+              187
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1338,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1977,7 +4020,29 @@
             "mask_px": 691,
             "band_px": 1531,
             "ring_px": 4227,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              246,
+              210,
+              286,
+              312
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 691,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1987,7 +4052,29 @@
             "mask_px": 799,
             "band_px": 1591,
             "ring_px": 3843,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              195,
+              229,
+              240,
+              336
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 799,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -1997,7 +4084,29 @@
             "mask_px": 1082,
             "band_px": 2388,
             "ring_px": 4785,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              76,
+              197,
+              135,
+              295
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1082,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -2007,7 +4116,29 @@
             "mask_px": 2383,
             "band_px": 3954,
             "ring_px": 7261,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              430,
+              394,
+              506,
+              562
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 2383,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -2017,7 +4148,29 @@
             "mask_px": 2005,
             "band_px": 789,
             "ring_px": 2582,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              384,
+              493,
+              419,
+              559
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 2136,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -2027,7 +4180,29 @@
             "mask_px": 1082,
             "band_px": 1886,
             "ring_px": 4370,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              237,
+              472,
+              292,
+              577
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1082,
+            "residual_best_iou": 0.1333,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "bubble-clipped-glyph",
@@ -2037,7 +4212,29 @@
             "mask_px": 265,
             "band_px": 465,
             "ring_px": 1619,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              176,
+              386,
+              207,
+              441
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 265,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -2047,7 +4244,29 @@
             "mask_px": 1004,
             "band_px": 1877,
             "ring_px": 4360,
-            "reason": "lattice"
+            "reason": "lattice",
+            "block_bbox": [
+              55,
+              398,
+              105,
+              491
+            ],
+            "initial_tier": 2,
+            "initial_tier_name": "lattice",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1004,
+            "residual_best_iou": 0.0333,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -2057,7 +4276,29 @@
             "mask_px": 174,
             "band_px": 477,
             "ring_px": 1803,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              48,
+              535,
+              73,
+              586
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 174,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -2067,7 +4308,29 @@
             "mask_px": 140,
             "band_px": 451,
             "ring_px": 1521,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              28,
+              592,
+              62,
+              628
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 140,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -2077,7 +4340,29 @@
             "mask_px": 2026,
             "band_px": 1945,
             "ring_px": 3785,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              453,
+              659,
+              544,
+              773
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 2026,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           },
           {
             "strategy": "glyph",
@@ -2087,7 +4372,29 @@
             "mask_px": 1868,
             "band_px": 2765,
             "ring_px": 4148,
-            "reason": "flat"
+            "reason": "flat",
+            "block_bbox": [
+              330,
+              661,
+              426,
+              779
+            ],
+            "initial_tier": 0,
+            "initial_tier_name": "flat",
+            "residual_flag": false,
+            "residual_px": 0,
+            "residual_reference_px": 1868,
+            "residual_best_iou": 0.0,
+            "residual_components": 0,
+            "flag_reason": "",
+            "escalated": false,
+            "escalation_tier": null,
+            "escalation_tier_name": null,
+            "escalation_grown_px": 0,
+            "escalation_band_error": null,
+            "second_flag": false,
+            "second_residual_px": 0,
+            "second_residual_iou": 0.0
           }
         ],
         "mask_px": 23732,
@@ -2107,6 +4414,46 @@
         "changed_outside_mask_px": 0,
         "changed_inside_mask_px": 23319,
         "model_changed_outside_mask_px": 0
+      },
+      "translate": {
+        "units": 25,
+        "budget_chars": [
+          24,
+          9,
+          28,
+          24,
+          9,
+          15,
+          18,
+          6,
+          20,
+          30,
+          42,
+          16,
+          35,
+          18,
+          18,
+          30,
+          50,
+          10,
+          24,
+          10,
+          24,
+          12,
+          16,
+          42,
+          49
+        ],
+        "budgeted": 25,
+        "budget_chars_min": 6,
+        "budget_chars_max": 50,
+        "budget_chars_mean": 23.2,
+        "budget_chars_total": 579,
+        "page_image": false,
+        "requests": 0,
+        "reask_units": 0,
+        "reask_shortened": 0,
+        "reask_failed": false
       },
       "render": {
         "regions": 25,
@@ -2180,17 +4527,38 @@
         "rendered_checked": 25,
         "kana_kanji": 3
       },
+      "residual_flag": {
+        "escalated_blocks": 0,
+        "second_flags": 0,
+        "mask_grown_px": 0,
+        "scored_blocks": 0,
+        "flagged_blocks": 0,
+        "truth_blocks": 0,
+        "truth_residual_px": 0,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "true_negatives": 0,
+        "agreement": null,
+        "in_mask_truth_blocks": 0,
+        "in_mask_true_positives": 0,
+        "in_mask_false_positives": 0,
+        "in_mask_false_negatives": 0,
+        "in_mask_true_negatives": 0,
+        "in_mask_agreement": null
+      },
       "truth": null,
       "timings": {
-        "detect": 0.9664,
-        "ocr": 4.358,
+        "detect": 0.789,
+        "ocr": 5.4344,
         "translate": 0.0003,
-        "mask": 0.8837,
-        "inpaint_model": 0.9517,
-        "render": 1.1061,
-        "verify": 5.4692,
-        "total": 13.86,
-        "other": 0.1246
+        "mask": 1.7372,
+        "inpaint_model": 1.0295,
+        "render": 1.1103,
+        "verify": 0.0,
+        "verify_harness": 6.4658,
+        "total": 10.212,
+        "other": 0.1113
       }
     }
   ],
@@ -2205,20 +4573,20 @@
     },
     "cjk_residue": {
       "step6_checked": 89,
-      "step6_flagged": 15,
-      "step6_rate": 0.1685,
+      "step6_flagged": 13,
+      "step6_rate": 0.1461,
       "rendered_checked": 87,
-      "kana_kanji": 15,
-      "kana_kanji_rate": 0.1724
+      "kana_kanji": 13,
+      "kana_kanji_rate": 0.1494
     },
     "inpaint": {
       "changed_outside_mask_px": 0,
       "pages_changed_outside_mask": 0,
       "model_changed_outside_mask_px": 0,
-      "fallback_pages": 2,
+      "fallback_pages": 3,
       "used": {
-        "flux2_klein_lanpaint": 9,
-        "lama_large": 2
+        "flux2_klein_lanpaint": 8,
+        "lama_large": 3
       }
     },
     "mask": {
@@ -2233,20 +4601,32 @@
         "bubble-clipped-glyph": 30,
         "glyph": 55
       },
-      "white_fill_blocks": 82,
-      "model_blocks": 3,
+      "white_fill_blocks": 80,
+      "model_blocks": 5,
       "tier_counts": {
         "flat": 44,
-        "lattice": 37,
-        "model": 3,
+        "lattice": 35,
+        "model": 5,
         "smooth": 1
       },
       "suppressed_composites": 2,
-      "mask_px": 169214,
+      "mask_px": 169217,
       "reason_codes": {
         "flood_leak": 35,
         "text_free": 20
       }
+    },
+    "translate": {
+      "units": 89,
+      "budgeted": 89,
+      "budget_chars_min": 6,
+      "budget_chars_max": 115,
+      "budget_chars_mean": 31.9,
+      "page_image": 0,
+      "requests": 0,
+      "reask_units": 0,
+      "reask_shortened": 0,
+      "reask_failed": 0
     },
     "render": {
       "regions": 85,
@@ -2276,18 +4656,39 @@
       "over_erased_px": 364,
       "touched_away_px": 4068
     },
-    "timings": {
-      "detect": 9.244,
-      "ocr": 16.06,
-      "translate": 0.001,
-      "mask": 3.634,
-      "inpaint_model": 2.189,
-      "render": 4.081,
-      "verify": 20.24,
-      "other": 0.725,
-      "total": 56.174
+    "residual_flag": {
+      "escalated_blocks": 2,
+      "second_flags": 0,
+      "mask_grown_px": 3,
+      "scored_blocks": 25,
+      "flagged_blocks": 2,
+      "truth_blocks": 9,
+      "truth_residual_px": 607,
+      "true_positives": 0,
+      "false_positives": 0,
+      "false_negatives": 9,
+      "true_negatives": 16,
+      "in_mask_truth_blocks": 5,
+      "in_mask_true_positives": 0,
+      "in_mask_false_positives": 0,
+      "in_mask_false_negatives": 5,
+      "in_mask_true_negatives": 20,
+      "agreement": 0.64,
+      "in_mask_agreement": 0.8
     },
-    "seconds_per_page": 5.107,
+    "timings": {
+      "detect": 8.878,
+      "ocr": 20.987,
+      "translate": 0.003,
+      "mask": 5.677,
+      "inpaint_model": 2.823,
+      "render": 4.151,
+      "verify": 0.0,
+      "verify_harness": 25.097,
+      "other": 1.391,
+      "total": 43.91
+    },
+    "seconds_per_page": 3.992,
     "by_tag": {
       "adversarial": {
         "pages": {
@@ -2340,6 +4741,18 @@
             "text_free": 2
           }
         },
+        "translate": {
+          "units": 10,
+          "budgeted": 10,
+          "budget_chars_min": 22,
+          "budget_chars_max": 81,
+          "budget_chars_mean": 50.0,
+          "page_image": 0,
+          "requests": 0,
+          "reask_units": 0,
+          "reask_shortened": 0,
+          "reask_failed": 0
+        },
         "render": {
           "regions": 10,
           "shrink_events": 0,
@@ -2368,18 +4781,39 @@
           "over_erased_px": 364,
           "touched_away_px": 364
         },
-        "timings": {
-          "detect": 2.59,
-          "ocr": 1.784,
-          "translate": 0.0,
-          "mask": 0.687,
-          "inpaint_model": 0.0,
-          "render": 0.473,
-          "verify": 2.021,
-          "other": 0.154,
-          "total": 7.708
+        "residual_flag": {
+          "escalated_blocks": 0,
+          "second_flags": 0,
+          "mask_grown_px": 0,
+          "scored_blocks": 10,
+          "flagged_blocks": 0,
+          "truth_blocks": 6,
+          "truth_residual_px": 428,
+          "true_positives": 0,
+          "false_positives": 0,
+          "false_negatives": 6,
+          "true_negatives": 4,
+          "in_mask_truth_blocks": 5,
+          "in_mask_true_positives": 0,
+          "in_mask_false_positives": 0,
+          "in_mask_false_negatives": 5,
+          "in_mask_true_negatives": 5,
+          "agreement": 0.4,
+          "in_mask_agreement": 0.5
         },
-        "seconds_per_page": 2.569
+        "timings": {
+          "detect": 2.299,
+          "ocr": 2.185,
+          "translate": 0.002,
+          "mask": 1.128,
+          "inpaint_model": 0.0,
+          "render": 0.651,
+          "verify": 0.0,
+          "verify_harness": 2.666,
+          "other": 0.204,
+          "total": 6.471
+        },
+        "seconds_per_page": 2.157
       },
       "bookwalker": {
         "pages": {
@@ -2419,19 +4853,31 @@
             "bubble-clipped-glyph": 10,
             "glyph": 37
           },
-          "white_fill_blocks": 44,
-          "model_blocks": 3,
+          "white_fill_blocks": 43,
+          "model_blocks": 4,
           "tier_counts": {
             "flat": 21,
-            "lattice": 23,
-            "model": 3
+            "lattice": 22,
+            "model": 4
           },
           "suppressed_composites": 1,
-          "mask_px": 44569,
+          "mask_px": 44570,
           "reason_codes": {
             "flood_leak": 30,
             "text_free": 7
           }
+        },
+        "translate": {
+          "units": 50,
+          "budgeted": 50,
+          "budget_chars_min": 6,
+          "budget_chars_max": 50,
+          "budget_chars_mean": 20.1,
+          "page_image": 0,
+          "requests": 0,
+          "reask_units": 0,
+          "reask_shortened": 0,
+          "reask_failed": 0
         },
         "render": {
           "regions": 47,
@@ -2461,18 +4907,39 @@
           "over_erased_px": 0,
           "touched_away_px": 0
         },
-        "timings": {
-          "detect": 1.828,
-          "ocr": 8.949,
-          "translate": 0.001,
-          "mask": 1.614,
-          "inpaint_model": 2.189,
-          "render": 1.955,
-          "verify": 11.171,
-          "other": 0.249,
-          "total": 27.955
+        "residual_flag": {
+          "escalated_blocks": 1,
+          "second_flags": 0,
+          "mask_grown_px": 1,
+          "scored_blocks": 0,
+          "flagged_blocks": 1,
+          "truth_blocks": 0,
+          "truth_residual_px": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "false_negatives": 0,
+          "true_negatives": 0,
+          "in_mask_truth_blocks": 0,
+          "in_mask_true_positives": 0,
+          "in_mask_false_positives": 0,
+          "in_mask_false_negatives": 0,
+          "in_mask_true_negatives": 0,
+          "agreement": null,
+          "in_mask_agreement": null
         },
-        "seconds_per_page": 13.977
+        "timings": {
+          "detect": 1.601,
+          "ocr": 11.508,
+          "translate": 0.001,
+          "mask": 2.629,
+          "inpaint_model": 1.608,
+          "render": 1.735,
+          "verify": 0.0,
+          "verify_harness": 14.027,
+          "other": 0.186,
+          "total": 19.267
+        },
+        "seconds_per_page": 9.633
       },
       "conjoined-bubbles": {
         "pages": {
@@ -2513,19 +4980,31 @@
             "bubble-clipped-glyph": 10,
             "glyph": 39
           },
-          "white_fill_blocks": 46,
-          "model_blocks": 3,
+          "white_fill_blocks": 45,
+          "model_blocks": 4,
           "tier_counts": {
             "flat": 23,
-            "lattice": 23,
-            "model": 3
+            "lattice": 22,
+            "model": 4
           },
           "suppressed_composites": 1,
-          "mask_px": 47702,
+          "mask_px": 47703,
           "reason_codes": {
             "flood_leak": 32,
             "text_free": 7
           }
+        },
+        "translate": {
+          "units": 52,
+          "budgeted": 52,
+          "budget_chars_min": 6,
+          "budget_chars_max": 94,
+          "budget_chars_mean": 22.8,
+          "page_image": 0,
+          "requests": 0,
+          "reask_units": 0,
+          "reask_shortened": 0,
+          "reask_failed": 0
         },
         "render": {
           "regions": 49,
@@ -2555,18 +5034,39 @@
           "over_erased_px": 0,
           "touched_away_px": 0
         },
-        "timings": {
-          "detect": 2.542,
-          "ocr": 9.44,
-          "translate": 0.001,
-          "mask": 1.723,
-          "inpaint_model": 2.189,
-          "render": 2.512,
-          "verify": 11.721,
-          "other": 0.276,
-          "total": 30.405
+        "residual_flag": {
+          "escalated_blocks": 1,
+          "second_flags": 0,
+          "mask_grown_px": 1,
+          "scored_blocks": 2,
+          "flagged_blocks": 1,
+          "truth_blocks": 0,
+          "truth_residual_px": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "false_negatives": 0,
+          "true_negatives": 2,
+          "in_mask_truth_blocks": 0,
+          "in_mask_true_positives": 0,
+          "in_mask_false_positives": 0,
+          "in_mask_false_negatives": 0,
+          "in_mask_true_negatives": 2,
+          "agreement": 1.0,
+          "in_mask_agreement": 1.0
         },
-        "seconds_per_page": 10.135
+        "timings": {
+          "detect": 2.568,
+          "ocr": 12.151,
+          "translate": 0.001,
+          "mask": 2.788,
+          "inpaint_model": 1.608,
+          "render": 2.458,
+          "verify": 0.0,
+          "verify_harness": 14.57,
+          "other": 0.741,
+          "total": 22.314
+        },
+        "seconds_per_page": 7.438
       },
       "horizontal-text": {
         "pages": {
@@ -2620,6 +5120,18 @@
             "text_free": 4
           }
         },
+        "translate": {
+          "units": 17,
+          "budgeted": 17,
+          "budget_chars_min": 22,
+          "budget_chars_max": 81,
+          "budget_chars_mean": 52.0,
+          "page_image": 0,
+          "requests": 0,
+          "reask_units": 0,
+          "reask_shortened": 0,
+          "reask_failed": 0
+        },
         "render": {
           "regions": 17,
           "shrink_events": 0,
@@ -2648,18 +5160,39 @@
           "over_erased_px": 364,
           "touched_away_px": 4068
         },
-        "timings": {
-          "detect": 4.221,
-          "ocr": 2.972,
-          "translate": 0.0,
-          "mask": 1.007,
-          "inpaint_model": 0.0,
-          "render": 0.786,
-          "verify": 3.336,
-          "other": 0.321,
-          "total": 12.643
+        "residual_flag": {
+          "escalated_blocks": 0,
+          "second_flags": 0,
+          "mask_grown_px": 0,
+          "scored_blocks": 17,
+          "flagged_blocks": 0,
+          "truth_blocks": 7,
+          "truth_residual_px": 430,
+          "true_positives": 0,
+          "false_positives": 0,
+          "false_negatives": 7,
+          "true_negatives": 10,
+          "in_mask_truth_blocks": 5,
+          "in_mask_true_positives": 0,
+          "in_mask_false_positives": 0,
+          "in_mask_false_negatives": 5,
+          "in_mask_true_negatives": 12,
+          "agreement": 0.5882,
+          "in_mask_agreement": 0.7059
         },
-        "seconds_per_page": 2.529
+        "timings": {
+          "detect": 4.026,
+          "ocr": 4.013,
+          "translate": 0.003,
+          "mask": 1.646,
+          "inpaint_model": 0.0,
+          "render": 1.083,
+          "verify": 0.0,
+          "verify_harness": 4.303,
+          "other": 0.439,
+          "total": 11.21
+        },
+        "seconds_per_page": 2.242
       },
       "light-on-dark": {
         "pages": {
@@ -2712,6 +5245,18 @@
             "text_free": 2
           }
         },
+        "translate": {
+          "units": 3,
+          "budgeted": 3,
+          "budget_chars_min": 42,
+          "budget_chars_max": 81,
+          "budget_chars_mean": 56.3,
+          "page_image": 0,
+          "requests": 0,
+          "reask_units": 0,
+          "reask_shortened": 0,
+          "reask_failed": 0
+        },
         "render": {
           "regions": 3,
           "shrink_events": 0,
@@ -2740,18 +5285,39 @@
           "over_erased_px": 0,
           "touched_away_px": 3704
         },
-        "timings": {
-          "detect": 0.663,
-          "ocr": 0.527,
-          "translate": 0.0,
-          "mask": 0.185,
-          "inpaint_model": 0.0,
-          "render": 0.049,
-          "verify": 0.598,
-          "other": 0.053,
-          "total": 2.076
+        "residual_flag": {
+          "escalated_blocks": 0,
+          "second_flags": 0,
+          "mask_grown_px": 0,
+          "scored_blocks": 3,
+          "flagged_blocks": 0,
+          "truth_blocks": 1,
+          "truth_residual_px": 2,
+          "true_positives": 0,
+          "false_positives": 0,
+          "false_negatives": 1,
+          "true_negatives": 2,
+          "in_mask_truth_blocks": 0,
+          "in_mask_true_positives": 0,
+          "in_mask_false_positives": 0,
+          "in_mask_false_negatives": 0,
+          "in_mask_true_negatives": 3,
+          "agreement": 0.6667,
+          "in_mask_agreement": 1.0
         },
-        "seconds_per_page": 2.076
+        "timings": {
+          "detect": 0.937,
+          "ocr": 0.545,
+          "translate": 0.0,
+          "mask": 0.265,
+          "inpaint_model": 0.0,
+          "render": 0.051,
+          "verify": 0.0,
+          "verify_harness": 0.715,
+          "other": 0.064,
+          "total": 1.862
+        },
+        "seconds_per_page": 1.862
       },
       "narration": {
         "pages": {
@@ -2764,19 +5330,20 @@
         },
         "cjk_residue": {
           "step6_checked": 21,
-          "step6_flagged": 5,
-          "step6_rate": 0.2381,
+          "step6_flagged": 3,
+          "step6_rate": 0.1429,
           "rendered_checked": 21,
-          "kana_kanji": 5,
-          "kana_kanji_rate": 0.2381
+          "kana_kanji": 3,
+          "kana_kanji_rate": 0.1429
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
           "pages_changed_outside_mask": 0,
           "model_changed_outside_mask_px": 0,
-          "fallback_pages": 0,
+          "fallback_pages": 1,
           "used": {
-            "flux2_klein_lanpaint": 3
+            "flux2_klein_lanpaint": 2,
+            "lama_large": 1
           }
         },
         "mask": {
@@ -2791,19 +5358,32 @@
             "bubble-clipped-glyph": 7,
             "glyph": 13
           },
-          "white_fill_blocks": 20,
-          "model_blocks": 0,
+          "white_fill_blocks": 19,
+          "model_blocks": 1,
           "tier_counts": {
             "flat": 8,
-            "lattice": 11,
+            "lattice": 10,
+            "model": 1,
             "smooth": 1
           },
           "suppressed_composites": 1,
-          "mask_px": 55976,
+          "mask_px": 55978,
           "reason_codes": {
             "flood_leak": 2,
             "text_free": 11
           }
+        },
+        "translate": {
+          "units": 21,
+          "budgeted": 21,
+          "budget_chars_min": 12,
+          "budget_chars_max": 81,
+          "budget_chars_mean": 35.3,
+          "page_image": 0,
+          "requests": 0,
+          "reask_units": 0,
+          "reask_shortened": 0,
+          "reask_failed": 0
         },
         "render": {
           "regions": 20,
@@ -2833,18 +5413,39 @@
           "over_erased_px": 0,
           "touched_away_px": 3704
         },
-        "timings": {
-          "detect": 2.215,
-          "ocr": 3.812,
-          "translate": 0.0,
-          "mask": 0.925,
-          "inpaint_model": 0.0,
-          "render": 0.53,
-          "verify": 5.349,
-          "other": 0.132,
-          "total": 12.963
+        "residual_flag": {
+          "escalated_blocks": 1,
+          "second_flags": 0,
+          "mask_grown_px": 2,
+          "scored_blocks": 7,
+          "flagged_blocks": 1,
+          "truth_blocks": 4,
+          "truth_residual_px": 313,
+          "true_positives": 0,
+          "false_positives": 0,
+          "false_negatives": 4,
+          "true_negatives": 3,
+          "in_mask_truth_blocks": 3,
+          "in_mask_true_positives": 0,
+          "in_mask_false_positives": 0,
+          "in_mask_false_negatives": 3,
+          "in_mask_true_negatives": 4,
+          "agreement": 0.4286,
+          "in_mask_agreement": 0.5714
         },
-        "seconds_per_page": 4.321
+        "timings": {
+          "detect": 2.561,
+          "ocr": 5.033,
+          "translate": 0.002,
+          "mask": 1.401,
+          "inpaint_model": 1.215,
+          "render": 0.343,
+          "verify": 0.0,
+          "verify_harness": 6.669,
+          "other": 0.193,
+          "total": 10.749
+        },
+        "seconds_per_page": 3.583
       },
       "sfx": {
         "pages": {
@@ -2857,20 +5458,20 @@
         },
         "cjk_residue": {
           "step6_checked": 70,
-          "step6_flagged": 13,
-          "step6_rate": 0.1857,
+          "step6_flagged": 11,
+          "step6_rate": 0.1571,
           "rendered_checked": 68,
-          "kana_kanji": 13,
-          "kana_kanji_rate": 0.1912
+          "kana_kanji": 11,
+          "kana_kanji_rate": 0.1618
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
           "pages_changed_outside_mask": 0,
           "model_changed_outside_mask_px": 0,
-          "fallback_pages": 2,
+          "fallback_pages": 3,
           "used": {
-            "flux2_klein_lanpaint": 3,
-            "lama_large": 2
+            "flux2_klein_lanpaint": 2,
+            "lama_large": 3
           }
         },
         "mask": {
@@ -2885,19 +5486,31 @@
             "bubble-clipped-glyph": 16,
             "glyph": 50
           },
-          "white_fill_blocks": 63,
-          "model_blocks": 3,
+          "white_fill_blocks": 61,
+          "model_blocks": 5,
           "tier_counts": {
             "flat": 28,
-            "lattice": 35,
-            "model": 3
+            "lattice": 33,
+            "model": 5
           },
           "suppressed_composites": 2,
-          "mask_px": 101405,
+          "mask_px": 101408,
           "reason_codes": {
             "flood_leak": 32,
             "text_free": 18
           }
+        },
+        "translate": {
+          "units": 70,
+          "budgeted": 70,
+          "budget_chars_min": 6,
+          "budget_chars_max": 115,
+          "budget_chars_mean": 25.2,
+          "page_image": 0,
+          "requests": 0,
+          "reask_units": 0,
+          "reask_shortened": 0,
+          "reask_failed": 0
         },
         "render": {
           "regions": 66,
@@ -2927,18 +5540,39 @@
           "over_erased_px": 0,
           "touched_away_px": 0
         },
-        "timings": {
-          "detect": 4.17,
-          "ocr": 12.588,
-          "translate": 0.001,
-          "mask": 2.641,
-          "inpaint_model": 2.189,
-          "render": 2.462,
-          "verify": 16.308,
-          "other": 0.362,
-          "total": 40.721
+        "residual_flag": {
+          "escalated_blocks": 2,
+          "second_flags": 0,
+          "mask_grown_px": 3,
+          "scored_blocks": 6,
+          "flagged_blocks": 2,
+          "truth_blocks": 5,
+          "truth_residual_px": 488,
+          "true_positives": 0,
+          "false_positives": 0,
+          "false_negatives": 5,
+          "true_negatives": 1,
+          "in_mask_truth_blocks": 3,
+          "in_mask_true_positives": 0,
+          "in_mask_false_positives": 0,
+          "in_mask_false_negatives": 3,
+          "in_mask_true_negatives": 3,
+          "agreement": 0.1667,
+          "in_mask_agreement": 0.5
         },
-        "seconds_per_page": 8.144
+        "timings": {
+          "detect": 3.885,
+          "ocr": 16.364,
+          "translate": 0.003,
+          "mask": 4.144,
+          "inpaint_model": 2.823,
+          "render": 2.054,
+          "verify": 0.0,
+          "verify_harness": 20.446,
+          "other": 0.358,
+          "total": 29.631
+        },
+        "seconds_per_page": 5.926
       },
       "textured-background": {
         "pages": {
@@ -2951,20 +5585,20 @@
         },
         "cjk_residue": {
           "step6_checked": 76,
-          "step6_flagged": 15,
-          "step6_rate": 0.1974,
+          "step6_flagged": 13,
+          "step6_rate": 0.1711,
           "rendered_checked": 74,
-          "kana_kanji": 15,
-          "kana_kanji_rate": 0.2027
+          "kana_kanji": 13,
+          "kana_kanji_rate": 0.1757
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
           "pages_changed_outside_mask": 0,
           "model_changed_outside_mask_px": 0,
-          "fallback_pages": 2,
+          "fallback_pages": 3,
           "used": {
-            "flux2_klein_lanpaint": 5,
-            "lama_large": 2
+            "flux2_klein_lanpaint": 4,
+            "lama_large": 3
           }
         },
         "mask": {
@@ -2979,20 +5613,32 @@
             "bubble-clipped-glyph": 20,
             "glyph": 52
           },
-          "white_fill_blocks": 69,
-          "model_blocks": 3,
+          "white_fill_blocks": 67,
+          "model_blocks": 5,
           "tier_counts": {
             "flat": 31,
-            "lattice": 37,
-            "model": 3,
+            "lattice": 35,
+            "model": 5,
             "smooth": 1
           },
           "suppressed_composites": 2,
-          "mask_px": 145122,
+          "mask_px": 145125,
           "reason_codes": {
             "flood_leak": 32,
             "text_free": 20
           }
+        },
+        "translate": {
+          "units": 76,
+          "budgeted": 76,
+          "budget_chars_min": 6,
+          "budget_chars_max": 115,
+          "budget_chars_mean": 27.4,
+          "page_image": 0,
+          "requests": 0,
+          "reask_units": 0,
+          "reask_shortened": 0,
+          "reask_failed": 0
         },
         "render": {
           "regions": 72,
@@ -3022,18 +5668,39 @@
           "over_erased_px": 0,
           "touched_away_px": 3704
         },
-        "timings": {
-          "detect": 5.619,
-          "ocr": 13.671,
-          "translate": 0.001,
-          "mask": 3.09,
-          "inpaint_model": 2.189,
-          "render": 2.78,
-          "verify": 17.468,
-          "other": 0.467,
-          "total": 45.286
+        "residual_flag": {
+          "escalated_blocks": 2,
+          "second_flags": 0,
+          "mask_grown_px": 3,
+          "scored_blocks": 12,
+          "flagged_blocks": 2,
+          "truth_blocks": 7,
+          "truth_residual_px": 530,
+          "true_positives": 0,
+          "false_positives": 0,
+          "false_negatives": 7,
+          "true_negatives": 5,
+          "in_mask_truth_blocks": 4,
+          "in_mask_true_positives": 0,
+          "in_mask_false_positives": 0,
+          "in_mask_false_negatives": 4,
+          "in_mask_true_negatives": 8,
+          "agreement": 0.4167,
+          "in_mask_agreement": 0.6667
         },
-        "seconds_per_page": 6.469
+        "timings": {
+          "detect": 5.534,
+          "ocr": 17.694,
+          "translate": 0.003,
+          "mask": 4.845,
+          "inpaint_model": 2.823,
+          "render": 2.472,
+          "verify": 0.0,
+          "verify_harness": 21.809,
+          "other": 0.492,
+          "total": 33.862
+        },
+        "seconds_per_page": 4.837
       },
       "vertical-text": {
         "pages": {
@@ -3046,20 +5713,20 @@
         },
         "cjk_residue": {
           "step6_checked": 83,
-          "step6_flagged": 15,
-          "step6_rate": 0.1807,
+          "step6_flagged": 13,
+          "step6_rate": 0.1566,
           "rendered_checked": 81,
-          "kana_kanji": 15,
-          "kana_kanji_rate": 0.1852
+          "kana_kanji": 13,
+          "kana_kanji_rate": 0.1605
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
           "pages_changed_outside_mask": 0,
           "model_changed_outside_mask_px": 0,
-          "fallback_pages": 2,
+          "fallback_pages": 3,
           "used": {
-            "flux2_klein_lanpaint": 7,
-            "lama_large": 2
+            "flux2_klein_lanpaint": 6,
+            "lama_large": 3
           }
         },
         "mask": {
@@ -3074,20 +5741,32 @@
             "bubble-clipped-glyph": 26,
             "glyph": 53
           },
-          "white_fill_blocks": 76,
-          "model_blocks": 3,
+          "white_fill_blocks": 74,
+          "model_blocks": 5,
           "tier_counts": {
             "flat": 40,
-            "lattice": 35,
-            "model": 3,
+            "lattice": 33,
+            "model": 5,
             "smooth": 1
           },
           "suppressed_composites": 2,
-          "mask_px": 147649,
+          "mask_px": 147652,
           "reason_codes": {
             "flood_leak": 35,
             "text_free": 18
           }
+        },
+        "translate": {
+          "units": 83,
+          "budgeted": 83,
+          "budget_chars_min": 6,
+          "budget_chars_max": 102,
+          "budget_chars_mean": 29.3,
+          "page_image": 0,
+          "requests": 0,
+          "reask_units": 0,
+          "reask_shortened": 0,
+          "reask_failed": 0
         },
         "render": {
           "regions": 79,
@@ -3117,18 +5796,39 @@
           "over_erased_px": 364,
           "touched_away_px": 4068
         },
-        "timings": {
-          "detect": 7.486,
-          "ocr": 15.045,
-          "translate": 0.001,
-          "mask": 3.212,
-          "inpaint_model": 2.189,
-          "render": 3.791,
-          "verify": 19.136,
-          "other": 0.577,
-          "total": 51.437
+        "residual_flag": {
+          "escalated_blocks": 2,
+          "second_flags": 0,
+          "mask_grown_px": 3,
+          "scored_blocks": 19,
+          "flagged_blocks": 2,
+          "truth_blocks": 7,
+          "truth_residual_px": 430,
+          "true_positives": 0,
+          "false_positives": 0,
+          "false_negatives": 7,
+          "true_negatives": 12,
+          "in_mask_truth_blocks": 5,
+          "in_mask_true_positives": 0,
+          "in_mask_false_positives": 0,
+          "in_mask_false_negatives": 5,
+          "in_mask_true_negatives": 14,
+          "agreement": 0.6316,
+          "in_mask_agreement": 0.7368
         },
-        "seconds_per_page": 5.715
+        "timings": {
+          "detect": 7.428,
+          "ocr": 19.336,
+          "translate": 0.003,
+          "mask": 5.046,
+          "inpaint_model": 2.823,
+          "render": 3.743,
+          "verify": 0.0,
+          "verify_harness": 23.71,
+          "other": 1.177,
+          "total": 39.556
+        },
+        "seconds_per_page": 4.395
       },
       "webtoon-strip": {
         "pages": {
@@ -3176,6 +5876,18 @@
           "mask_px": 5409,
           "reason_codes": {}
         },
+        "translate": {
+          "units": 4,
+          "budgeted": 4,
+          "budget_chars_min": 26,
+          "budget_chars_max": 81,
+          "budget_chars_mean": 54.0,
+          "page_image": 0,
+          "requests": 0,
+          "reask_units": 0,
+          "reask_shortened": 0,
+          "reask_failed": 0
+        },
         "render": {
           "regions": 4,
           "shrink_events": 0,
@@ -3204,18 +5916,39 @@
           "over_erased_px": 0,
           "touched_away_px": 0
         },
-        "timings": {
-          "detect": 0.967,
-          "ocr": 0.661,
-          "translate": 0.0,
-          "mask": 0.135,
-          "inpaint_model": 0.0,
-          "render": 0.265,
-          "verify": 0.717,
-          "other": 0.114,
-          "total": 2.859
+        "residual_flag": {
+          "escalated_blocks": 0,
+          "second_flags": 0,
+          "mask_grown_px": 0,
+          "scored_blocks": 4,
+          "flagged_blocks": 0,
+          "truth_blocks": 0,
+          "truth_residual_px": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "false_negatives": 0,
+          "true_negatives": 4,
+          "in_mask_truth_blocks": 0,
+          "in_mask_true_positives": 0,
+          "in_mask_false_positives": 0,
+          "in_mask_false_negatives": 0,
+          "in_mask_true_negatives": 4,
+          "agreement": 1.0,
+          "in_mask_agreement": 1.0
         },
-        "seconds_per_page": 2.859
+        "timings": {
+          "detect": 0.79,
+          "ocr": 1.283,
+          "translate": 0.0,
+          "mask": 0.253,
+          "inpaint_model": 0.0,
+          "render": 0.381,
+          "verify": 0.0,
+          "verify_harness": 0.922,
+          "other": 0.171,
+          "total": 2.877
+        },
+        "seconds_per_page": 2.877
       },
       "white-bubble": {
         "pages": {
@@ -3228,20 +5961,20 @@
         },
         "cjk_residue": {
           "step6_checked": 80,
-          "step6_flagged": 15,
-          "step6_rate": 0.1875,
+          "step6_flagged": 13,
+          "step6_rate": 0.1625,
           "rendered_checked": 78,
-          "kana_kanji": 15,
-          "kana_kanji_rate": 0.1923
+          "kana_kanji": 13,
+          "kana_kanji_rate": 0.1667
         },
         "inpaint": {
           "changed_outside_mask_px": 0,
           "pages_changed_outside_mask": 0,
           "model_changed_outside_mask_px": 0,
-          "fallback_pages": 2,
+          "fallback_pages": 3,
           "used": {
-            "flux2_klein_lanpaint": 6,
-            "lama_large": 2
+            "flux2_klein_lanpaint": 5,
+            "lama_large": 3
           }
         },
         "mask": {
@@ -3256,19 +5989,31 @@
             "bubble-clipped-glyph": 27,
             "glyph": 49
           },
-          "white_fill_blocks": 73,
-          "model_blocks": 3,
+          "white_fill_blocks": 71,
+          "model_blocks": 5,
           "tier_counts": {
             "flat": 42,
-            "lattice": 31,
-            "model": 3
+            "lattice": 29,
+            "model": 5
           },
           "suppressed_composites": 2,
-          "mask_px": 122810,
+          "mask_px": 122813,
           "reason_codes": {
             "flood_leak": 35,
             "text_free": 14
           }
+        },
+        "translate": {
+          "units": 80,
+          "budgeted": 80,
+          "budget_chars_min": 6,
+          "budget_chars_max": 102,
+          "budget_chars_mean": 28.2,
+          "page_image": 0,
+          "requests": 0,
+          "reask_units": 0,
+          "reask_shortened": 0,
+          "reask_failed": 0
         },
         "render": {
           "regions": 76,
@@ -3298,25 +6043,46 @@
           "over_erased_px": 364,
           "touched_away_px": 364
         },
-        "timings": {
-          "detect": 7.013,
-          "ocr": 14.519,
-          "translate": 0.001,
-          "mask": 2.846,
-          "inpaint_model": 2.189,
-          "render": 3.968,
-          "verify": 18.44,
-          "other": 0.594,
-          "total": 49.57
+        "residual_flag": {
+          "escalated_blocks": 2,
+          "second_flags": 0,
+          "mask_grown_px": 3,
+          "scored_blocks": 16,
+          "flagged_blocks": 2,
+          "truth_blocks": 3,
+          "truth_residual_px": 117,
+          "true_positives": 0,
+          "false_positives": 0,
+          "false_negatives": 3,
+          "true_negatives": 13,
+          "in_mask_truth_blocks": 2,
+          "in_mask_true_positives": 0,
+          "in_mask_false_positives": 0,
+          "in_mask_false_negatives": 2,
+          "in_mask_true_negatives": 14,
+          "agreement": 0.8125,
+          "in_mask_agreement": 0.875
         },
-        "seconds_per_page": 6.196
+        "timings": {
+          "detect": 6.522,
+          "ocr": 19.288,
+          "translate": 0.001,
+          "mask": 4.543,
+          "inpaint_model": 2.823,
+          "render": 4.02,
+          "verify": 0.0,
+          "verify_harness": 22.77,
+          "other": 1.209,
+          "total": 38.407
+        },
+        "seconds_per_page": 4.801
       }
     }
   },
   "environment": {
-    "git_commit": "c3f867915ec7",
+    "git_commit": "add7f0beeb5e",
     "git_dirty": false,
-    "python": "3.13.5",
+    "python": "3.12.11",
     "platform": "Windows 11 AMD64",
     "numpy": "2.5.1",
     "opencv": "5.0.0",
