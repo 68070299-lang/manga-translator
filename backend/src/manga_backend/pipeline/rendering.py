@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 from dataclasses import replace
 
+import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -336,7 +337,7 @@ def render_text(
     text_color: str = "#000000",
     border_color: str = "#ffffff",
     bg_color: str = "#ffffff",
-    bg_opacity: float = 0.9,
+    bg_opacity: float = 0.0,
     text_alignment: str = "center",
     text_direction: str = "auto",
     uppercase: bool = False,
@@ -450,16 +451,17 @@ def _draw_region(
         return
 
     layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(layer, "RGBA")
     if bg_alpha > 0:
-        background_box = [
-            max(0, region.x1 - left),
-            max(0, region.y1 - top),
-            min(width - 1, region.x2 - left - 1),
-            min(height - 1, region.y2 - top - 1),
-        ]
-        if background_box[2] >= background_box[0] and background_box[3] >= background_box[1]:
-            draw.rectangle(background_box, fill=(*background_rgb, bg_alpha))
+        _paint_adaptive_background(
+            layer,
+            room,
+            region,
+            left=left,
+            top=top,
+            background_rgb=background_rgb,
+            bg_alpha=bg_alpha,
+        )
+    draw = ImageDraw.Draw(layer, "RGBA")
 
     font = get_font_object(font_path, fit.size)
     if vertical:
@@ -502,6 +504,71 @@ def _draw_region(
             stroke_fill=border_rgb,
         )
     img.paste(layer, (left, top), layer)
+
+
+def _paint_adaptive_background(
+    layer: Image.Image,
+    room: Room,
+    region: TextBlock,
+    *,
+    left: int,
+    top: int,
+    background_rgb: RGB,
+    bg_alpha: int,
+) -> None:
+    """Paint a shape-aware, feathered backdrop clipped to ``room.mask``.
+
+    Dialogue bubbles follow their curved interior mask instead of drawing a
+    hard rectangle that pokes over bubble outlines; standalone boxes stay
+    clipped to the region's room with softly feathered edges.
+    """
+    width, height = layer.size
+    alpha_mask = np.zeros((height, width), dtype=np.uint8)
+    rx1, ry1, rx2, ry2 = room.bounds
+    if room.mask.size > 0 and rx2 > rx1 and ry2 > ry1:
+        dx1 = max(0, rx1 - left)
+        dy1 = max(0, ry1 - top)
+        dx2 = min(width, rx2 - left)
+        dy2 = min(height, ry2 - top)
+        if dx2 > dx1 and dy2 > dy1:
+            sx1 = dx1 - (rx1 - left)
+            sy1 = dy1 - (ry1 - top)
+            sx2 = sx1 + (dx2 - dx1)
+            sy2 = sy1 + (dy2 - dy1)
+            room_slice = room.mask[sy1:sy2, sx1:sx2]
+            alpha_mask[dy1:dy2, dx1:dx2] = np.where(room_slice > 0, 255, 0).astype(
+                np.uint8
+            )
+    if room.kind not in ("bubble", "bubble-split"):
+        # Free/box regions clip the backdrop to the text region so a large blank
+        # room does not tint surrounding panel art.
+        bx1 = max(0, region.x1 - left)
+        by1 = max(0, region.y1 - top)
+        bx2 = min(width, region.x2 - left)
+        by2 = min(height, region.y2 - top)
+        region_mask = np.zeros((height, width), dtype=np.uint8)
+        if bx2 > bx1 and by2 > by1:
+            region_mask[by1:by2, bx1:bx2] = 255
+        if np.any(alpha_mask):
+            alpha_mask = cv2.bitwise_and(alpha_mask, region_mask)
+        else:
+            alpha_mask = region_mask
+
+    if not np.any(alpha_mask):
+        return
+    # Soften only the outer boundary while preserving full opacity inside the
+    # shape and never bleeding outside the room mask.
+    blurred = cv2.GaussianBlur(alpha_mask, (5, 5), 0)
+    feathered = np.minimum(alpha_mask, blurred)
+    scaled = np.rint(feathered.astype(np.float32) * (bg_alpha / 255.0)).clip(0, 255).astype(
+        np.uint8
+    )
+    backdrop = np.empty((height, width, 4), dtype=np.uint8)
+    backdrop[:, :, 0] = background_rgb[0]
+    backdrop[:, :, 1] = background_rgb[1]
+    backdrop[:, :, 2] = background_rgb[2]
+    backdrop[:, :, 3] = scaled
+    layer.paste(Image.fromarray(backdrop, mode="RGBA"), (0, 0))
 
 
 def draw_vertical_text(

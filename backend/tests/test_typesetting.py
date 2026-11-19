@@ -393,6 +393,34 @@ class CeilingTests(unittest.TestCase):
         self.assertGreater(anchor_target(estimate, 16), 16)
         self.assertEqual(rooms[0].kind, "bubble")
 
+    def test_render_text_defaults_to_transparent_background(self):
+        image = np.full((120, 160, 3), 180, dtype=np.uint8)
+        block = TextBlock([20, 20, 140, 100], translated_text="HI")
+
+        rendered = render_text(image.copy(), [block])
+
+        # Corner inside the region box stays at the original gray tone (no white sticker).
+        self.assertEqual(tuple(int(v) for v in rendered[22, 22]), (180, 180, 180))
+
+    def test_explicit_bg_opacity_clips_to_bubble_room_shape(self):
+        image = np.zeros((200, 200, 3), dtype=np.uint8)
+        cv2.ellipse(image, (100, 100), (70, 70), 0, 0, 360, (255, 255, 255), -1)
+        cv2.ellipse(image, (100, 100), (70, 70), 0, 0, 360, (0, 0, 0), 3)
+        block = TextBlock([55, 70, 145, 130], translated_text="HI")
+        block.bubble_xyxy = [28, 28, 172, 172]
+
+        rendered = render_text(
+            image.copy(), [block], bg_color="#ff0000", bg_opacity=1.0
+        )
+
+        # Corner of bubble_xyxy sits outside the oval on black panel art: must stay black.
+        self.assertEqual(tuple(int(v) for v in rendered[34, 34]), (0, 0, 0))
+        # Pixel inside the oval interior receives the backdrop colour.
+        r, g, b = (int(v) for v in rendered[60, 100])
+        self.assertGreater(r, 200)
+        self.assertLess(g, 60)
+        self.assertLess(b, 60)
+
 
 if __name__ == "__main__":
     unittest.main()
