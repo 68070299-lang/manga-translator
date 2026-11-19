@@ -1336,6 +1336,27 @@ class PipelineRenderTests(unittest.TestCase):
         self.assertEqual(joined, "Hurryup!")
         self.assertTrue(any(line.endswith("-") for line in fit.lines))
 
+    def test_fit_shrinks_a_short_word_instead_of_splitting_it(self):
+        from manga_backend.pipeline import fonts as fonts_module
+
+        TranslationPipeline(device="cpu")
+        font_path = fonts_module.get_cached_font("english")
+
+        for text in ("Whoa!", "Ah!", "*Pant, pant*"):
+            with self.subTest(text=text):
+                fit = fit_text_in_room(
+                    box_room(TextBlock([0, 0, 48, 120])),
+                    text,
+                    font_path,
+                    target=16,
+                    base_stroke_width=2,
+                )
+                # "W-ho-a!" / "*P-ant," read as typos: the word shrinks whole.
+                self.assertFalse(fit.overflow)
+                self.assertGreaterEqual(fit.size, 10)
+                self.assertFalse(fit.hyphenated)
+                self.assertEqual(" ".join(fit.lines), text)
+
     def test_fit_scales_the_stroke_and_preserves_words(self):
         from manga_backend.pipeline import fonts as fonts_module
 

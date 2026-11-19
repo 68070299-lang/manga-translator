@@ -91,6 +91,75 @@ def split_oversized_unit(
     return chunks or [unit]
 
 
+# Proper hyphenation: only words with this many letters are split at all, and
+# each side of a break keeps at least MIN_PREFIX / MIN_SUFFIX letters
+# (punctuation does not count), so "Ah!", "Whoa!" or "Home..." are never cut.
+MIN_HYPHEN_WORD_LETTERS = 5
+
+
+def _letters(value: str) -> int:
+    return sum(1 for char in value if char.isalpha())
+
+
+def _has_syllable(part: str, *, word_end: bool) -> bool:
+    """Whether ``part`` holds a vowel sound of its own.
+
+    A trailing consonant + "e" is silent, so "me" in "Co-me" or "se" in
+    "Plea-se" is no syllable; "sh" in "sh-ould" has no vowel at all.
+    """
+    letters = [char for char in part if char.isalpha()]
+    if word_end and len(letters) > 1 and letters[-1] in "eE" and letters[-2] not in VOWELS:
+        letters = letters[:-1]
+    return any(char in VOWELS for char in letters)
+
+
+def _proper_break(word: str, index: int) -> bool:
+    """Whether ``word`` may be hyphenated before ``index`` by the usual rules."""
+    if not (word[index - 1].isalpha() and word[index].isalpha()):
+        return False
+    if _letters(word[:index]) < MIN_PREFIX or _letters(word[index:]) < MIN_SUFFIX:
+        return False
+    if not (
+        _has_syllable(word[:index], word_end=False) and _has_syllable(word[index:], word_end=True)
+    ):
+        return False
+    # Never inside a vowel pair ("Who-a"); consonant boundaries score higher.
+    return BREAK_SCORES[(word[index - 1] in VOWELS, word[index] in VOWELS)] > 0
+
+
+def split_at_proper_breaks(
+    unit: str, max_width: float, measure: Callable[[str], float]
+) -> list[str] | None:
+    """Split an oversized unit only at proper hyphenation points.
+
+    Returns None when the unit is too short to hyphenate or no proper break
+    leaves chunks that fit; the caller then shrinks the type instead.
+    """
+    if measure(unit) <= max_width:
+        return [unit]
+    if _letters(unit) < MIN_HYPHEN_WORD_LETTERS:
+        return None
+    budget = max(1.0, max_width - measure("-"))
+    remaining = unit
+    chunks: list[str] = []
+    while measure(remaining) > max_width:
+        fitting = [
+            index
+            for index in range(1, len(remaining))
+            if _proper_break(remaining, index) and measure(remaining[:index]) <= budget
+        ]
+        if not fitting:
+            return None
+        longest = fitting[-1]
+        # Within a few letters of the longest fit, prefer the conventional break.
+        nearby = [index for index in fitting if index >= longest - 3]
+        cut = max(nearby, key=lambda index: (_break_score(remaining, index), index))
+        chunks.append(remaining[:cut])
+        remaining = remaining[cut:]
+    chunks.append(remaining)
+    return chunks
+
+
 def break_lines(
     units: Sequence[str],
     band_widths: Sequence[float],
@@ -99,12 +168,17 @@ def break_lines(
     joiner: Callable[[Sequence[str]], str] | None = None,
     mode: str = "even",
     max_hyphen_run: int = 2,
+    strict_hyphenation: bool = False,
 ) -> BrokenLines | None:
     """Return the cheapest feasible breaking of ``units`` over the bands.
 
     ``mode`` is "even" (balanced, for dialogue: every line pays for its slack)
     or "ragged" (the last line is nearly free). Returns None when no layout
     fits, which is the caller's signal to try a smaller size.
+
+    With ``strict_hyphenation`` an oversized word is only split at proper
+    hyphenation points (``split_at_proper_breaks``); a word that has none
+    makes the layout infeasible instead of being cut anywhere.
     """
     if not units:
         return None
@@ -129,7 +203,13 @@ def break_lines(
             chunk_word.append(word)
             chunk_part.append(0)
             continue
-        parts = split_oversized_unit(unit, widest, measure)
+        if strict_hyphenation:
+            proper = split_at_proper_breaks(unit, widest, measure)
+            if proper is None:
+                return None
+            parts = proper
+        else:
+            parts = split_oversized_unit(unit, widest, measure)
         word_parts.append(len(parts))
         for index, part in enumerate(parts):
             chunks.append(part)
@@ -162,7 +242,9 @@ def break_lines(
             pieces.append(buffer)
         text = join(pieces)
         last = end - 1
-        if chunk_part[last] < word_parts[chunk_word[last]] - 1:
+        if chunk_part[last] < word_parts[chunk_word[last]] - 1 and not text.endswith(
+            ("-", "—", "–")
+        ):
             text += "-"
         return text
 

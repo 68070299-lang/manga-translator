@@ -74,14 +74,14 @@ def text_units(text: str) -> tuple[list[str], Callable[[Sequence[str]], str]]:
 
     units: list[str] = []
     for token in cleaned.split():
-        units.extend(re.findall(r".+?[—–](?=.)|.+", token))
+        units.extend(re.findall(r".+?[-—–](?=.)|.+", token))
     if not units:
         return [], (lambda parts: " ".join(parts))
 
     def join(parts: Sequence[str]) -> str:
         pieces: list[str] = []
         for part in parts:
-            if pieces and not pieces[-1].endswith(("—", "–")):
+            if pieces and not pieces[-1].endswith(("-", "—", "–")):
                 pieces.append(" ")
             pieces.append(part)
         return "".join(pieces)
@@ -171,6 +171,8 @@ def _fit_at_size(
     line_spacing: float,
     base_stroke: int,
     mode: str,
+    *,
+    strict_hyphenation: bool = False,
 ) -> FitResult | None:
     """Best line count for one size, or None when the size cannot be set."""
     stroke = min(base_stroke, max(0, int(round(size * 0.15))))
@@ -195,7 +197,14 @@ def _fit_at_size(
         widths = [band.width for band in bands]
         if min(widths) < minimum_band:
             continue
-        broken = break_lines(units, widths, measure, joiner=joiner, mode=mode)
+        broken = break_lines(
+            units,
+            widths,
+            measure,
+            joiner=joiner,
+            mode=mode,
+            strict_hyphenation=strict_hyphenation,
+        )
         if broken is None:
             # The consecutive-hyphen cap is a typographic preference; when it
             # is the only thing standing between this size and a layout, a
@@ -207,6 +216,7 @@ def _fit_at_size(
                 joiner=joiner,
                 mode=mode,
                 max_hyphen_run=MAX_LINES,
+                strict_hyphenation=strict_hyphenation,
             )
         if broken is None:
             continue
@@ -364,23 +374,30 @@ def fit_text_in_room(
         return FitResult(target, [], [], [], target, 0, False, False, mode, kind)
 
     result: FitResult | None = None
-    for factor in LEADING_FACTORS:
-        spacing = max(1.0, line_spacing * factor)
-        result = _search_size(
-            room,
-            str(text),
-            units,
-            joiner,
-            font_path,
-            target,
-            spacing,
-            base_stroke_width,
-            mode,
-            fixed_size,
-            kind,
-        )
-        if result.size >= MIN_READABLE_FONT_SIZE:
-            return result
+    # First pass: words are only hyphenated at proper points ("Hur-ry"), so
+    # short words like "Ah!" or "Whoa!" shrink whole instead of splitting
+    # into "A-h!" / "Wh-oa!". Only when no readable size can be set that way
+    # does the second pass cut words wherever they have to be cut.
+    for strict_hyphenation in (True, False):
+        for factor in LEADING_FACTORS:
+            spacing = max(1.0, line_spacing * factor)
+            candidate = _search_size(
+                room,
+                str(text),
+                units,
+                joiner,
+                font_path,
+                target,
+                spacing,
+                base_stroke_width,
+                mode,
+                fixed_size,
+                kind,
+                strict_hyphenation=strict_hyphenation,
+            )
+            if not candidate.overflow and candidate.size >= MIN_READABLE_FONT_SIZE:
+                return candidate
+            result = candidate
     assert result is not None
     return result
 
@@ -397,6 +414,8 @@ def _search_size(
     mode: str,
     fixed_size: bool,
     kind: str,
+    *,
+    strict_hyphenation: bool = False,
 ) -> FitResult:
     """Coarse-then-bisect downward search for the largest size that fits."""
     feasible: FitResult | None = None
@@ -412,6 +431,7 @@ def _search_size(
             line_spacing,
             base_stroke_width,
             mode,
+            strict_hyphenation=strict_hyphenation,
         )
         if result is not None:
             feasible = result
@@ -431,6 +451,7 @@ def _search_size(
             line_spacing,
             base_stroke_width,
             mode,
+            strict_hyphenation=strict_hyphenation,
         )
         if result is None:
             band = Band(
@@ -468,6 +489,7 @@ def _search_size(
             line_spacing,
             base_stroke_width,
             mode,
+            strict_hyphenation=strict_hyphenation,
         )
         if candidate is not None:
             feasible = candidate

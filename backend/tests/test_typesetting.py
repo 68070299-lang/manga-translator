@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 
 from manga_backend.pipeline.fit import fit_text_in_room, text_units
-from manga_backend.pipeline.linebreak import break_lines
+from manga_backend.pipeline.linebreak import break_lines, split_at_proper_breaks
 from manga_backend.pipeline.measure import (
     anchor_target,
     luminance,
@@ -233,6 +233,45 @@ class LineBreakTests(unittest.TestCase):
         )
 
         self.assertIsNone(broken)
+
+    def test_ascii_hyphen_breaks_carry_no_space_and_no_extra_hyphen(self):
+        units, joiner = text_units("ALL-YOU-CAN-EAT buffet")
+
+        self.assertEqual(units, ["ALL-", "YOU-", "CAN-", "EAT", "buffet"])
+        self.assertEqual(joiner(units), "ALL-YOU-CAN-EAT buffet")
+        broken = break_lines(units, [8.0, 8.0, 8.0], self.measure, joiner=joiner)
+        self.assertIsNotNone(broken)
+        assert broken is not None
+        self.assertEqual("".join(broken.lines), "ALL-YOU-CAN-EATbuffet")
+        for line in broken.lines:
+            self.assertNotIn("--", line)
+            self.assertFalse(line.startswith("-"))
+
+    def test_strict_hyphenation_never_splits_short_words(self):
+        for word in ("Ah!", "Whoa!", "Home...", "*Pant,", "pant*"):
+            with self.subTest(word=word):
+                self.assertIsNone(split_at_proper_breaks(word, 2.0, self.measure))
+                broken = break_lines(
+                    [word], [2.0, 2.0, 2.0], self.measure, strict_hyphenation=True
+                )
+                self.assertIsNone(broken)
+
+    def test_strict_hyphenation_uses_a_proper_break(self):
+        self.assertEqual(split_at_proper_breaks("Hurry", 4.0, self.measure), ["Hur", "ry"])
+        self.assertEqual(split_at_proper_breaks("listen", 4.0, self.measure), ["lis", "ten"])
+        # One-syllable words have no break: no vowel ("sh-ould") or a silent
+        # final e ("Co-me.", "plea-se!") on one side.
+        for word in ("should!!", "Come.", "please!"):
+            with self.subTest(word=word):
+                self.assertIsNone(split_at_proper_breaks(word, 4.0, self.measure))
+        # Never between a letter and punctuation, never inside a vowel pair.
+        chunks = split_at_proper_breaks("Hooray!", 5.0, self.measure)
+        self.assertIsNotNone(chunks)
+        assert chunks is not None
+        self.assertEqual("".join(chunks), "Hooray!")
+        for left, right in zip(chunks, chunks[1:]):
+            self.assertTrue(left[-1].isalpha() and right[0].isalpha())
+            self.assertFalse(left[-1] in "aeiouyAEIOUY" and right[0] in "aeiouyAEIOUY")
 
     def test_em_dash_breaks_carry_no_space(self):
         units, joiner = text_units("NICE—LIVING")
