@@ -26,8 +26,12 @@ tighter and more complete.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from typing import Any
+import threading
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
+from typing import Any, TypeVar
 
 import cv2
 import numpy as np
@@ -47,6 +51,104 @@ from manga_backend.utils.textblock import Box, TextBlock
 logger = logging.getLogger(__name__)
 
 Slices = tuple[slice, slice]
+
+
+_T = TypeVar("_T")
+
+
+@dataclass
+class _ImageAnalysisCache:
+    """Per-page thread-safe single-flight cache for read-only image analysis results."""
+
+    image: np.ndarray
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    glyphs: dict[tuple[Box, str], tuple[np.ndarray, Box]] = field(default_factory=dict)
+    glyph_inflight: dict[tuple[Box, str], threading.Event] = field(default_factory=dict)
+    interiors: dict[tuple[Box, Box | None, str], Any] = field(default_factory=dict)
+    interior_inflight: dict[tuple[Box, Box | None, str], threading.Event] = field(
+        default_factory=dict
+    )
+
+    def get_or_compute(
+        self,
+        store: dict[Any, _T],
+        inflight: dict[Any, threading.Event],
+        key: Any,
+        compute: Callable[[], _T],
+    ) -> _T:
+        while True:
+            with self.lock:
+                if key in store:
+                    return store[key]
+                wait_event = inflight.get(key)
+                if wait_event is None:
+                    done = threading.Event()
+                    inflight[key] = done
+                    break
+            wait_event.wait()
+        try:
+            value = compute()
+        except BaseException:
+            with self.lock:
+                inflight.pop(key, None)
+                done.set()
+            raise
+        with self.lock:
+            store[key] = value
+            inflight.pop(key, None)
+            done.set()
+        return value
+
+
+_ACTIVE_IMAGE_CACHE: ContextVar[_ImageAnalysisCache | None] = ContextVar(
+    "_ACTIVE_IMAGE_CACHE", default=None
+)
+
+
+@contextmanager
+def image_analysis_cache(
+    image: np.ndarray,
+    *,
+    precomputed_interiors: dict[tuple[Box, Box | None, str], Any] | None = None,
+) -> Iterator[None]:
+    """Share glyph and bubble-interior results across stages reading the same image."""
+    current = _ACTIVE_IMAGE_CACHE.get()
+    if current is not None and current.image is image:
+        yield
+        return
+    cache = _ImageAnalysisCache(image=image)
+    if precomputed_interiors:
+        cache.interiors.update(precomputed_interiors)
+    token = _ACTIVE_IMAGE_CACHE.set(cache)
+    try:
+        yield
+    finally:
+        _ACTIVE_IMAGE_CACHE.reset(token)
+
+
+def snapshot_cached_interiors(
+    image: np.ndarray,
+) -> dict[tuple[Box, Box | None, str], Any]:
+    """Return a shallow copy of bubble interiors cached for ``image``."""
+    cache = _current_cache(image)
+    if cache is None:
+        return {}
+    with cache.lock:
+        return dict(cache.interiors)
+
+
+def _current_cache(image: np.ndarray) -> _ImageAnalysisCache | None:
+    cache = _ACTIVE_IMAGE_CACHE.get()
+    return cache if cache is not None and cache.image is image else None
+
+
+def _lightness_mode(values: np.ndarray, bins: int) -> float:
+    """Mode of Lab lightness values in [0, 256), quantized into ``bins`` power-of-2 buckets."""
+    step = 256 // bins
+    shift = step.bit_length() - 1
+    clipped = np.clip(values.astype(np.int32), 0, 255)
+    counts = np.bincount(clipped >> shift, minlength=bins)
+    return float(int(np.argmax(counts[:bins])) * step + step * 0.5)
 
 # How far the router's context ring reaches beyond the block mask, and how
 # far inside a detector bubble box the sampling region stays.
@@ -238,26 +340,31 @@ def _paper_estimate(image: np.ndarray, box: Box) -> _Paper:
     ox2, oy2 = min(width, x2 + PAPER_RING_RADIUS), min(height, y2 + PAPER_RING_RADIUS)
     if ox2 <= ox1 or oy2 <= oy1:
         return _Paper(128.0, 0.0, 0.0, np.full(3, 128.0, np.float32))
-    ring = np.zeros((height, width), np.uint8)
-    ring[oy1:oy2, ox1:ox2] = 1
-    ring[max(0, y1 - 1) : min(height, y2 + 1), max(0, x1 - 1) : min(width, x2 + 1)] = 0
-    pixels = image[ring > 0]
+    patch = image[oy1:oy2, ox1:ox2]
+    ring = np.ones(patch.shape[:2], dtype=bool)
+    iy1 = max(0, y1 - 1) - oy1
+    iy2 = min(height, y2 + 1) - oy1
+    ix1 = max(0, x1 - 1) - ox1
+    ix2 = min(width, x2 + 1) - ox1
+    if iy2 > iy1 and ix2 > ix1:
+        ring[iy1:iy2, ix1:ix2] = False
+    pixels = patch[ring]
     if pixels.size == 0:
-        pixels = image[oy1:oy2, ox1:ox2].reshape(-1, image.shape[2])
+        pixels = patch.reshape(-1, image.shape[2])
     if pixels.size == 0:
         return _Paper(128.0, 0.0, 0.0, np.full(3, 128.0, np.float32))
-    light, channel_a, channel_b = _lab_channels(pixels.reshape(-1, 1, 3))
-    values = light.ravel()
-    histogram, edges = np.histogram(values, bins=64, range=(0.0, 256.0))
-    mode = float(edges[int(np.argmax(histogram))] + 2.0)
+    converted = cv2.cvtColor(pixels.reshape(-1, 1, 3), cv2.COLOR_RGB2LAB).reshape(-1, 3)
+    values = converted[:, 0].astype(np.float32)
+    mode = _lightness_mode(values, bins=64)
     near = np.abs(values - mode) <= PAPER_MODE_TOLERANCE
     if int(np.count_nonzero(near)) < max(8, int(0.25 * values.size)):
         near = np.ones(values.shape, bool)
     flat_pixels = pixels.reshape(-1, image.shape[2])
+    lab_median = np.median(converted[near], axis=0)
     paper = _Paper(
-        float(np.median(values[near])),
-        float(np.median(channel_a.ravel()[near])),
-        float(np.median(channel_b.ravel()[near])),
+        float(lab_median[0]),
+        float(lab_median[1]) - 128.0,
+        float(lab_median[2]) - 128.0,
         np.median(flat_pixels[near], axis=0).astype(np.float32),
     )
     return _block_island_paper(image, box, paper)
@@ -277,20 +384,20 @@ def _block_island_paper(image: np.ndarray, box: Box, paper: _Paper) -> _Paper:
     if x2 - x1 < 4 or y2 - y1 < 4:
         return paper
     inside = image[y1:y2, x1:x2].reshape(-1, image.shape[2])
-    light, channel_a, channel_b = _lab_channels(inside.reshape(-1, 1, 3))
-    values = light.ravel()
-    histogram, edges = np.histogram(values, bins=64, range=(0.0, 256.0))
-    mode = float(edges[int(np.argmax(histogram))] + 2.0)
+    converted = cv2.cvtColor(inside.reshape(-1, 1, 3), cv2.COLOR_RGB2LAB).reshape(-1, 3)
+    values = converted[:, 0].astype(np.float32)
+    mode = _lightness_mode(values, bins=64)
     share = float(np.count_nonzero(np.abs(values - mode) <= PAPER_MODE_TOLERANCE)) / max(
         1, values.size
     )
     if share < PAPER_ISLAND_SHARE or mode < paper.light + INK_MIN_DISTANCE:
         return paper
     selected = np.abs(values - mode) <= PAPER_MODE_TOLERANCE
+    lab_median = np.median(converted[selected], axis=0)
     return _Paper(
-        float(np.median(values[selected])),
-        float(np.median(channel_a.ravel()[selected])),
-        float(np.median(channel_b.ravel()[selected])),
+        float(lab_median[0]),
+        float(lab_median[1]) - 128.0,
+        float(lab_median[2]) - 128.0,
         np.median(inside[selected], axis=0).astype(np.float32),
     )
 
@@ -330,7 +437,10 @@ def _cluster_lab_centres(sample: np.ndarray, cluster_count: int) -> np.ndarray:
 
 
 def _ink_populations(
-    roi: np.ndarray, paper: _Paper
+    roi: np.ndarray,
+    paper: _Paper,
+    *,
+    lab_f: np.ndarray | None = None,
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """Cluster ROI colours in Lab and return one (mask, colour) per ink population.
 
@@ -343,10 +453,11 @@ def _ink_populations(
     screentone, say) can be absorbed by the paper cluster; every pixel far
     enough from the paper estimate is therefore a population as well.
     """
-    light, channel_a, channel_b = _lab_channels(roi)
-    features = np.stack(
-        [light.ravel(), channel_a.ravel(), channel_b.ravel()], axis=1
-    ).astype(np.float32)
+    if lab_f is None:
+        lab_f = cv2.cvtColor(roi, cv2.COLOR_RGB2LAB).astype(np.float32)
+        lab_f[..., 1:] -= 128.0
+    roi_shape = lab_f.shape[:2]
+    features = lab_f.reshape(-1, 3)
     if features.shape[0] < 24:
         return []
     stride = max(1, features.shape[0] // KMEANS_SAMPLES)
@@ -367,12 +478,15 @@ def _ink_populations(
         return []
     stacked = np.stack(merged)
     paper_point = np.array([paper.light, paper.channel_a, paper.channel_b], np.float32)
-    paper_distance = np.linalg.norm(features - paper_point, axis=1)
+    paper_diff = features - paper_point
+    paper_dist_sq = np.einsum("ij,ij->i", paper_diff, paper_diff)
     # Only darker-than-paper pixels join through this fallback. A bright
     # population far from the paper is a ring or halo candidate: adding it
     # here would bridge glyphs to surrounding texture before the shape rules
     # run, so bright rings are left to the band-growth pass instead.
-    faint = (paper_distance >= INK_MIN_DISTANCE) & (features[:, 0] < paper.light)
+    faint = (paper_dist_sq >= (INK_MIN_DISTANCE * INK_MIN_DISTANCE)) & (
+        features[:, 0] < paper.light
+    )
     paper_index = int(np.argmin(np.linalg.norm(stacked - paper_point, axis=1)))
     ink_indices = [
         index
@@ -381,10 +495,9 @@ def _ink_populations(
         and float(np.linalg.norm(merged[index] - merged[paper_index]))
         >= INK_MIN_DISTANCE
     ]
-    nearest = np.argmin(
-        np.linalg.norm(features[:, None, :] - stacked[None, :, :], axis=2), axis=1
-    )
-    flat_roi = roi.reshape(-1, roi.shape[2]).astype(np.float32)
+    diff = features[:, None, :] - stacked[None, :, :]
+    nearest = np.argmin(np.einsum("ijk,ijk->ij", diff, diff), axis=1)
+    flat_roi = roi.reshape(-1, roi.shape[2])
     populations: list[tuple[np.ndarray, np.ndarray]] = []
     claimed = np.zeros(features.shape[0], bool)
     for index in ink_indices:
@@ -394,7 +507,7 @@ def _ink_populations(
         claimed |= selected
         populations.append(
             (
-                selected.reshape(light.shape),
+                selected.reshape(roi_shape),
                 np.median(flat_roi[selected], axis=0).astype(np.float32),
             )
         )
@@ -402,7 +515,7 @@ def _ink_populations(
     if np.any(leftover):
         populations.append(
             (
-                leftover.reshape(light.shape),
+                leftover.reshape(roi_shape),
                 np.median(flat_roi[leftover], axis=0).astype(np.float32),
             )
         )
@@ -588,10 +701,7 @@ def _tone_dot_mask(candidate: np.ndarray, light: np.ndarray) -> np.ndarray:
 
 def _dominant_level(light_values: np.ndarray) -> float:
     """Mode of a lightness distribution, quantized to 8-level bins."""
-    histogram, edges = np.histogram(
-        light_values, bins=32, range=(0.0, 256.0)
-    )
-    return float(edges[int(np.argmax(histogram))] + 4.0)
+    return _lightness_mode(light_values, bins=32)
 
 
 def _ring_level_verdict(
@@ -834,6 +944,22 @@ def glyph_mask_for_block(
     block: TextBlock,
 ) -> tuple[np.ndarray, Box]:
     """Extract lettering ink: clustered cores, grown outline rings, unmixed halos."""
+    cache = _current_cache(image)
+    if cache is not None:
+        key = (int_box(block.xyxy), str(block.block_type))
+        return cache.get_or_compute(
+            cache.glyphs,
+            cache.glyph_inflight,
+            key,
+            lambda: _compute_glyph_mask_for_block(image, block),
+        )
+    return _compute_glyph_mask_for_block(image, block)
+
+
+def _compute_glyph_mask_for_block(
+    image: np.ndarray,
+    block: TextBlock,
+) -> tuple[np.ndarray, Box]:
     height, width = image.shape[:2]
     x1, y1, x2, y2 = [int(value) for value in block.xyxy]
     padding = 2
@@ -844,11 +970,13 @@ def glyph_mask_for_block(
 
     roi = image[y1:y2, x1:x2]
     paper = _paper_estimate(image, int_box(block.xyxy))
-    populations = _ink_populations(roi, paper)
+    lab_f = cv2.cvtColor(roi, cv2.COLOR_RGB2LAB).astype(np.float32)
+    lab_f[..., 1:] -= 128.0
+    populations = _ink_populations(roi, paper, lab_f=lab_f)
     if not populations:
         return np.zeros(roi.shape[:2], dtype=np.uint8), (x1, y1, x2, y2)
 
-    light = _lab_channels(roi)[0]
+    light = lab_f[..., 0]
     cores = np.zeros(roi.shape[:2], bool)
     union = np.zeros(roi.shape[:2], bool)
     for candidate, _colour in populations:
@@ -1182,6 +1310,27 @@ def _contour_interior(
 
 def bubble_interior_details(image: np.ndarray, block: TextBlock) -> InteriorResult:
     """Find the bubble interior around a text block: flood fill first, contour second."""
+    cache = _current_cache(image)
+    if cache is not None:
+        bubble_key: Box | None = None
+        if block.bubble_xyxy is not None:
+            try:
+                bubble_key = int_box(block.bubble_xyxy)
+            except (TypeError, ValueError):
+                bubble_key = None
+        key = (int_box(block.xyxy), bubble_key, str(block.block_type))
+        return cache.get_or_compute(
+            cache.interiors,
+            cache.interior_inflight,
+            key,
+            lambda: _compute_bubble_interior_details(image, block),
+        )
+    return _compute_bubble_interior_details(image, block)
+
+
+def _compute_bubble_interior_details(
+    image: np.ndarray, block: TextBlock
+) -> InteriorResult:
     window = _interior_window(image, block)
     if window is None:
         return InteriorResult(
@@ -1366,72 +1515,99 @@ def prepare_flux_inpainting(
     model_mask = np.zeros((height, width), dtype=np.uint8)
     decisions: list[dict[str, Any]] = []
 
-    routed = suppress_composite_render_regions(blocks)
-    entries: list[tuple[TextBlock, np.ndarray, Box, str]] = []
-    ink_union = np.zeros((height, width), dtype=np.uint8)
-    for block in routed:
-        # The renderer only sees the filled page, so the source lettering's
-        # size is measured here, on the original pixels (WP7 anchored sizes).
-        block.source_font_size = source_glyph_size(image, block)
-        mask_builder = (
-            rectangular_mask_for_block if rectangular else contour_safe_mask_for_block
-        )
-        local, bounds, strategy = mask_builder(image, block)
-        if local.size == 0 or not np.any(local):
-            logger.warning(
-                "Skipping fill block with no safe mask: %s (%s)",
-                block.xyxy.tolist(),
-                strategy,
+    with image_analysis_cache(image):
+        routed = suppress_composite_render_regions(blocks)
+        entries: list[tuple[TextBlock, np.ndarray, Box, str]] = []
+        ink_union = np.zeros((height, width), dtype=np.uint8)
+        for block in routed:
+            # The renderer only sees the filled page, so the source lettering's
+            # size is measured here, on the original pixels (WP7 anchored sizes).
+            if block.source_font_size is None:
+                block.source_font_size = source_glyph_size(image, block)
+            mask_builder = (
+                rectangular_mask_for_block if rectangular else contour_safe_mask_for_block
             )
-            decisions.append(
-                FillDecision(TIER_SKIPPED, None, 0, 0, 0, "no-safe-mask").as_dict(strategy)
+            local, bounds, strategy = mask_builder(image, block)
+            if local.size == 0 or not np.any(local):
+                logger.warning(
+                    "Skipping fill block with no safe mask: %s (%s)",
+                    block.xyxy.tolist(),
+                    strategy,
+                )
+                decisions.append(
+                    FillDecision(TIER_SKIPPED, None, 0, 0, 0, "no-safe-mask").as_dict(strategy)
+                )
+                continue
+            x1, y1, x2, y2 = bounds
+            target = ink_union[y1:y2, x1:x2]
+            np.maximum(target, local, out=target)
+            entries.append((block, local, bounds, strategy))
+
+        cache = _current_cache(image)
+
+        def _route_entry(
+            entry: tuple[TextBlock, np.ndarray, Box, str],
+        ) -> tuple[Box, dict[str, Any], np.ndarray | None, np.ndarray]:
+            block, local, bounds, strategy = entry
+            x1, y1, x2, y2 = bounds
+            cx1, cy1, cx2, cy2 = _router_crop(bounds, width, height)
+            crop = image[cy1:cy2, cx1:cx2]
+
+            local_mask = np.zeros(crop.shape[:2], dtype=np.uint8)
+            local_mask[y1 - cy1 : y2 - cy1, x1 - cx1 : x2 - cx1] = local
+            # Other blocks' ink is neither evidence nor a copy source: it is
+            # somebody else's job to erase it.
+            excluded = np.where(
+                local_mask > 0, 0, ink_union[cy1:cy2, cx1:cx2]
+            ).astype(np.uint8)
+
+            interior_mode = strategy == "bubble-interior"
+            valid = None
+            if not interior_mode and strategy in INTERIOR_STRATEGIES:
+                valid = _bubble_valid_region(block, (cx1, cy1, cx2, cy2), crop.shape)
+
+            # Reuse the glyph mask already extracted on the original image so
+            # the residual check does not run Lab/k-means extraction twice.
+            reference_mask: np.ndarray | None = None
+            if not rectangular and cache is not None:
+                key = (int_box(block.xyxy), str(block.block_type))
+                with cache.lock:
+                    cached_glyph = cache.glyphs.get(key)
+                if cached_glyph is not None:
+                    glyph_local, glyph_bounds = cached_glyph
+                    ref = np.zeros(crop.shape[:2], dtype=bool)
+                    overlap = overlap_slices((cx1, cy1, cx2, cy2), glyph_bounds)
+                    if overlap is not None and glyph_local.size:
+                        ref[overlap[0]] = glyph_local[overlap[1]] > 0
+                    reference_mask = ref
+
+            # Route, then re-run the ink extractor on the inpainted crop and
+            # escalate a flagged block once (research section 2.7).
+            decision, filled, model_local = route_block_fill_checked(
+                crop,
+                local_mask,
+                excluded,
+                interior_mode,
+                valid,
+                block=block,
+                origin=(cx1, cy1),
+                strategy=strategy,
+                reference_mask=reference_mask,
             )
-            continue
-        x1, y1, x2, y2 = bounds
-        target = ink_union[y1:y2, x1:x2]
-        np.maximum(target, local, out=target)
-        entries.append((block, local, bounds, strategy))
+            return (cx1, cy1, cx2, cy2), decision, filled, model_local
 
-    filled_count = 0
-    model_count = 0
-    for block, local, bounds, strategy in entries:
-        x1, y1, x2, y2 = bounds
-        cx1, cy1, cx2, cy2 = _router_crop(bounds, width, height)
-        crop = image[cy1:cy2, cx1:cx2]
-
-        local_mask = np.zeros(crop.shape[:2], dtype=np.uint8)
-        local_mask[y1 - cy1 : y2 - cy1, x1 - cx1 : x2 - cx1] = local
-        # Other blocks' ink is neither evidence nor a copy source: it is
-        # somebody else's job to erase it.
-        excluded = np.where(
-            local_mask > 0, 0, ink_union[cy1:cy2, cx1:cx2]
-        ).astype(np.uint8)
-
-        interior_mode = strategy == "bubble-interior"
-        valid = None
-        if not interior_mode and strategy in INTERIOR_STRATEGIES:
-            valid = _bubble_valid_region(block, (cx1, cy1, cx2, cy2), crop.shape)
-
-        # Route, then re-run the ink extractor on the inpainted crop and
-        # escalate a flagged block once (research section 2.7).
-        decision, filled, model_local = route_block_fill_checked(
-            crop,
-            local_mask,
-            excluded,
-            interior_mode,
-            valid,
-            block=block,
-            origin=(cx1, cy1),
-            strategy=strategy,
-        )
-        if filled is not None and decision["tier"] != TIER_MODEL:
-            cleaned[cy1:cy2, cx1:cx2] = filled
-            filled_count += 1
-        else:
-            target_crop = model_mask[cy1:cy2, cx1:cx2]
-            np.maximum(target_crop, model_local, out=target_crop)
-            model_count += 1
-        decisions.append(decision)
+        filled_count = 0
+        model_count = 0
+        for entry in entries:
+            (cx1, cy1, cx2, cy2), decision, filled, model_local = _route_entry(entry)
+            if filled is not None and decision["tier"] != TIER_MODEL:
+                cleaned[cy1:cy2, cx1:cx2] = filled
+                filled_count += 1
+            else:
+                target_crop = model_mask[cy1:cy2, cx1:cx2]
+                np.maximum(target_crop, model_local, out=target_crop)
+                model_count += 1
+            decisions.append(decision)
 
     logger.info(
         "Fill router: %s blocks filled by verified tiers; %s queued for the model",

@@ -372,27 +372,33 @@ def _lattice_paint(
     """
     height, width = crop.shape[:2]
     predicted = np.zeros(crop.shape, np.uint8)
-    ys, xs = np.nonzero(targets)
-    if ys.size == 0:
+    rem_y, rem_x = np.nonzero(targets)
+    if rem_y.size == 0:
         return predicted, np.zeros_like(targets)
-    pending = np.ones(ys.size, dtype=bool)
     for dy, dx in offsets:
-        if not pending.any():
+        if rem_y.size == 0:
             break
-        source_y = ys + dy
-        source_x = xs + dx
+        source_y = rem_y + dy
+        source_x = rem_x + dx
         inside = (
             (source_y >= 0) & (source_y < height) & (source_x >= 0) & (source_x < width)
         )
-        lookup_y = np.clip(source_y, 0, height - 1)
-        lookup_x = np.clip(source_x, 0, width - 1)
-        selected = pending & inside & known[lookup_y, lookup_x]
-        if selected.any():
-            target_y, target_x = ys[selected], xs[selected]
-            predicted[target_y, target_x] = crop[lookup_y[selected], lookup_x[selected]]
-            pending &= ~selected
+        if not inside.any():
+            continue
+        idx = np.flatnonzero(inside)
+        sy = source_y[idx]
+        sx = source_x[idx]
+        ok = known[sy, sx]
+        if ok.any():
+            hit = idx[ok]
+            predicted[rem_y[hit], rem_x[hit]] = crop[sy[ok], sx[ok]]
+            keep = np.ones(rem_y.size, dtype=bool)
+            keep[hit] = False
+            rem_y = rem_y[keep]
+            rem_x = rem_x[keep]
     remaining = np.zeros_like(targets)
-    remaining[ys[pending], xs[pending]] = True
+    if rem_y.size:
+        remaining[rem_y, rem_x] = True
     return predicted, remaining
 
 

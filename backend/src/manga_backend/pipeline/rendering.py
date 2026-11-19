@@ -36,7 +36,7 @@ from manga_backend.pipeline.layout import (
     build_render_regions,
     expand_short_standalone_regions,
 )
-from manga_backend.pipeline.masks import bubble_interior_details
+from manga_backend.pipeline.masks import bubble_interior_details, image_analysis_cache
 from manga_backend.pipeline.measure import (
     anchor_target,
     measure_block_colours,
@@ -345,23 +345,24 @@ def render_text(
 ) -> np.ndarray:
     """Render translated text onto the image with rooms and anchored sizes."""
     img = Image.fromarray(image).convert("RGBA")
-    infer_bubble_render_bounds(image, blocks)
-    infer_bubble_text_centers(image, blocks)
-    render_regions = build_render_regions(blocks, image.shape)
-    expand_short_standalone_regions(render_regions, image.shape)
+    with image_analysis_cache(image):
+        infer_bubble_render_bounds(image, blocks)
+        infer_bubble_text_centers(image, blocks)
+        render_regions = build_render_regions(blocks, image.shape)
+        expand_short_standalone_regions(render_regions, image.shape)
 
-    english_font_path = get_cached_font("english")
-    cjk_font_path = get_cached_font("cjk")
-    fallback_font_path = get_cached_font("fallback")
+        english_font_path = get_cached_font("english")
+        cjk_font_path = get_cached_font("cjk")
+        fallback_font_path = get_cached_font("fallback")
 
-    user_text_color = hex_to_rgb(text_color)
-    user_border_color = hex_to_rgb(border_color)
-    user_bg_color = hex_to_rgb(bg_color)
-    bg_alpha = int(bg_opacity * 255)
-    pil_align = text_alignment if text_alignment in ("left", "right") else "center"
-    base_stroke_width = max(0, int(border_size))
+        user_text_color = hex_to_rgb(text_color)
+        user_border_color = hex_to_rgb(border_color)
+        user_bg_color = hex_to_rgb(bg_color)
+        bg_alpha = int(bg_opacity * 255)
+        pil_align = text_alignment if text_alignment in ("left", "right") else "center"
+        base_stroke_width = max(0, int(border_size))
 
-    rooms = build_rooms(image, render_regions, blocks)
+        rooms = build_rooms(image, render_regions, blocks)
     targets = anchor_targets(render_regions, preferred_font_size, blocks)
     page_height, page_width = image.shape[:2]
 

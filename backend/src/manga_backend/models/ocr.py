@@ -56,13 +56,14 @@ class OCREngine:
         self.encoder_output_name = ""
         self.decoder_token_input = ""
         self.decoder_encoder_input = ""
+        self.decoder_output_name = ""
         self.expansion_percentage = 5
         self.model_dir = MODELS_CACHE_DIR / "manga_ocr"
         self.batch_size = self._resolve_batch_size()
         self._inference_lock = asyncio.Lock()
 
     def _resolve_batch_size(self) -> int:
-        default = 16 if self.device in {"cuda", "tensorrt", "directml", "dml"} else 4
+        default = 32 if self.device in {"cuda", "tensorrt", "directml", "dml"} else 4
         try:
             return max(1, int(os.getenv("MANGA_OCR_BATCH_SIZE", str(default))))
         except ValueError:
@@ -98,6 +99,8 @@ class OCREngine:
             decoder_inputs,
             ["encoder_hidden_states", "encoder_outputs", "encoder_last_hidden_state"],
         )
+        decoder_outputs = decoder.get_outputs()
+        self.decoder_output_name = decoder_outputs[0].name if decoder_outputs else ""
 
     @staticmethod
     def _find_name(names: Sequence[str], candidates: Sequence[str]) -> str:
@@ -189,16 +192,78 @@ class OCREngine:
         # (H, W, C) -> (1, C, H, W)
         return arr.transpose((2, 0, 1))[np.newaxis, ...]
 
+    @staticmethod
+    def _supports_cuda_iobinding(session: ort.InferenceSession) -> bool:
+        get_providers = getattr(session, "get_providers", None)
+        if not callable(get_providers):
+            return False
+        providers = get_providers()
+        return (
+            isinstance(providers, (list, tuple))
+            and bool(providers)
+            and providers[0] == "CUDAExecutionProvider"
+            and callable(getattr(session, "io_binding", None))
+            and callable(getattr(session, "run_with_iobinding", None))
+            and hasattr(ort, "OrtValue")
+        )
+
     def _generate_batch(self, images: np.ndarray, max_length: int = 300) -> list[list[int]]:
         """Greedy-decode multiple crops with one model launch per token step."""
         encoder, decoder = self.encoder, self.decoder
         if encoder is None or decoder is None:
             raise RuntimeError("OCR model not initialized")
-        encoder_hidden = np.asarray(encoder.run(None, {self.encoder_image_input: images})[0])
+        use_cuda_io = (
+            bool(self.encoder_output_name)
+            and bool(self.decoder_output_name)
+            and self._supports_cuda_iobinding(encoder)
+            and self._supports_cuda_iobinding(decoder)
+        )
         batch_size = int(images.shape[0])
         sequences = [[self.BOS_TOKEN] for _ in range(batch_size)]
         active_indexes = np.arange(batch_size)
         active_tokens = np.full((batch_size, 1), self.BOS_TOKEN, dtype=np.int64)
+
+        if use_cuda_io:
+            enc_io = encoder.io_binding()
+            enc_io.bind_cpu_input(self.encoder_image_input, np.ascontiguousarray(images))
+            enc_io.bind_output(self.encoder_output_name, "cuda")
+            encoder.run_with_iobinding(enc_io)
+            hidden_gpu = enc_io.get_outputs()[0]
+            hidden_cpu: np.ndarray | None = None
+
+            for _ in range(max_length):
+                dec_io = decoder.io_binding()
+                dec_io.bind_cpu_input(
+                    self.decoder_token_input, np.ascontiguousarray(active_tokens)
+                )
+                dec_io.bind_ortvalue_input(self.decoder_encoder_input, hidden_gpu)
+                dec_io.bind_output(self.decoder_output_name, "cpu")
+                decoder.run_with_iobinding(dec_io)
+                logits = np.asarray(dec_io.copy_outputs_to_cpu()[0])
+                next_tokens = np.argmax(logits[:, -1, :], axis=-1).astype(np.int64)
+                active_tokens = np.concatenate(
+                    [active_tokens, next_tokens[:, np.newaxis]], axis=1
+                )
+                unfinished = next_tokens != self.EOS_TOKEN
+                for position, (index, token) in enumerate(
+                    zip(active_indexes.tolist(), next_tokens.tolist())
+                ):
+                    sequences[index].append(token)
+                    if self._trim_runaway_repetition(sequences[index]):
+                        unfinished[position] = False
+
+                if not unfinished.any():
+                    break
+                if not unfinished.all():
+                    active_indexes = active_indexes[unfinished]
+                    active_tokens = active_tokens[unfinished]
+                    if hidden_cpu is None:
+                        hidden_cpu = np.asarray(hidden_gpu.numpy())
+                    hidden_cpu = np.ascontiguousarray(hidden_cpu[unfinished])
+                    hidden_gpu = ort.OrtValue.ortvalue_from_numpy(hidden_cpu, "cuda", 0)
+            return sequences
+
+        encoder_hidden = np.asarray(encoder.run(None, {self.encoder_image_input: images})[0])
         active_hidden = encoder_hidden
 
         for _ in range(max_length):

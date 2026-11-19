@@ -39,7 +39,11 @@ from manga_backend.pipeline.layout import (
     sort_reading_order,
     unit_source_text,
 )
-from manga_backend.pipeline.masks import prepare_flux_inpainting
+from manga_backend.pipeline.masks import (
+    image_analysis_cache,
+    prepare_flux_inpainting,
+    snapshot_cached_interiors,
+)
 from manga_backend.pipeline.measure import source_glyph_size
 from manga_backend.pipeline.ocr import blocks_from_payload, run_ocr
 from manga_backend.pipeline.page_context import (
@@ -322,100 +326,106 @@ class TranslationPipeline:
 
         # Step 4 starts here: masking needs only the detected boxes and the
         # OCR text, so the erase runs while the provider translates and the
-        # two are joined before rendering.
+        # two are joined before rendering. Both tasks read the same immutable
+        # original image, so they share one per-page glyph/bubble cache.
         erase_blocks = [block for block in blocks if erase_candidate(block)]
         inpaint_task: asyncio.Task[np.ndarray] | None = None
-        if render and inpainter and inpainter != "none":
-            logger.info("Step 4: Inpainting using %s (concurrent with translation)...", inpainter)
-            inpaint_task = asyncio.create_task(
-                self._inpaint(image, erase_blocks, inpainter, detector_type, result)
-            )
-
-        if translating:
-            # The length budget is the unit's room capacity at the page's
-            # lettering size, so it needs the source em the mask stage
-            # measures; measure it here first, on the same pixels and for the
-            # same blocks (the mask stage measures the identical value).
-            def prepare_page_context() -> PageContext:
-                for block in erase_blocks:
-                    if block.source_font_size is None:
-                        block.source_font_size = source_glyph_size(image, block)
-                return plan_page_context(
-                    image,
-                    units,
-                    blocks,
-                    preferred_font_size=int(render_options.get("preferred_font_size", 16)),
-                    line_spacing=float(render_options.get("line_spacing", 1.2)),
-                    stroke_width=float(render_options.get("border_size", 0.0)),
-                    auto_scale=bool(render_options.get("auto_scale", True)),
-                    text_direction=str(render_options.get("text_direction", "auto")),
+        with image_analysis_cache(image):
+            if render and inpainter and inpainter != "none":
+                logger.info("Step 4: Inpainting using %s (concurrent with translation)...", inpainter)
+                inpaint_task = asyncio.create_task(
+                    self._inpaint(image, erase_blocks, inpainter, detector_type, result)
                 )
 
-            # Rooms, font metrics and the flood fill are CPU work; keep them
-            # off the event loop while the erase runs beside them.
-            page_context = await asyncio.to_thread(prepare_page_context)
-            result["length_budgets"] = [
-                None if budget is None else budget.as_dict()
-                for budget in page_context.budgets
-            ]
-            # Only a route that can take an image part receives the page; the
-            # text-only routes keep the text-only prompt.
-            page_image = None
-            if supports_page_image(translator, model):
-                page_image, _marks = build_numbered_page(
-                    image, [unit_box(unit) for unit in units]
-                )
-            report = TranslationReport()
-            translated_units = await translate_texts(
-                unit_texts,
-                target_lang,
-                translator=translator,
-                api_key=api_key,
-                model=model,
-                local_llm_base_url=local_llm_base_url,
-                local_llm_api_key=local_llm_api_key,
-                budgets=page_context.character_budgets,
-                page_image=page_image,
-                fits=page_context.fits,
-                report=report,
-            )
-            result["translation_reasks"] = report.as_dict()
-        else:
-            translated_units = list(unit_texts)
-        for unit, unit_translation in zip(units, translated_units):
-            for block in unit:
-                block.translated_text = unit_translation
+            if translating:
+                # The length budget is the unit's room capacity at the page's
+                # lettering size, so it needs the source em the mask stage
+                # measures; measure it here first, on the same pixels and for the
+                # same blocks (the mask stage measures the identical value).
+                def prepare_page_context() -> PageContext:
+                    for block in erase_blocks:
+                        if block.source_font_size is None:
+                            block.source_font_size = source_glyph_size(image, block)
+                    return plan_page_context(
+                        image,
+                        units,
+                        blocks,
+                        preferred_font_size=int(render_options.get("preferred_font_size", 16)),
+                        line_spacing=float(render_options.get("line_spacing", 1.2)),
+                        stroke_width=float(render_options.get("border_size", 0.0)),
+                        auto_scale=bool(render_options.get("auto_scale", True)),
+                        text_direction=str(render_options.get("text_direction", "auto")),
+                    )
 
-        result["translated_texts"] = [block.translated_text for block in blocks]
+                # Rooms, font metrics and the flood fill are CPU work; keep them
+                # off the event loop while the erase runs beside them.
+                page_context = await asyncio.to_thread(prepare_page_context)
+                result["length_budgets"] = [
+                    None if budget is None else budget.as_dict()
+                    for budget in page_context.budgets
+                ]
+                # Only a route that can take an image part receives the page; the
+                # text-only routes keep the text-only prompt.
+                page_image = None
+                if supports_page_image(translator, model):
+                    page_image, _marks = build_numbered_page(
+                        image, [unit_box(unit) for unit in units]
+                    )
+                report = TranslationReport()
+                translated_units = await translate_texts(
+                    unit_texts,
+                    target_lang,
+                    translator=translator,
+                    api_key=api_key,
+                    model=model,
+                    local_llm_base_url=local_llm_base_url,
+                    local_llm_api_key=local_llm_api_key,
+                    budgets=page_context.character_budgets,
+                    page_image=page_image,
+                    fits=page_context.fits,
+                    report=report,
+                )
+                result["translation_reasks"] = report.as_dict()
+            else:
+                translated_units = list(unit_texts)
+            for unit, unit_translation in zip(units, translated_units):
+                for block in unit:
+                    block.translated_text = unit_translation
 
-        # Step 4 (join): the erase that started with translation finishes
-        # here. If the translation filter drops a block that the source-side
-        # rule erased (an empty translation), the mask is rebuilt for the
-        # smaller set so the page keeps that block's original lettering.
-        render_image = image.copy()
-        if inpaint_task is not None:
-            render_image = await inpaint_task
-            final_blocks = [block for block in blocks if erase_from_translation(block)]
-            if [id(block) for block in final_blocks] != [id(block) for block in erase_blocks]:
-                logger.info(
-                    "Step 4: The erase set changed after translation (%s -> %s blocks); "
-                    "rebuilding the mask",
-                    len(erase_blocks),
-                    len(final_blocks),
-                )
-                render_image = await self._inpaint(
-                    image, final_blocks, inpainter, detector_type, result
-                )
-        else:
-            logger.info("Step 4: Inpainting skipped")
+            result["translated_texts"] = [block.translated_text for block in blocks]
+
+            # Step 4 (join): the erase that started with translation finishes
+            # here. If the translation filter drops a block that the source-side
+            # rule erased (an empty translation), the mask is rebuilt for the
+            # smaller set so the page keeps that block's original lettering.
+            render_image = image.copy()
+            if inpaint_task is not None:
+                render_image = await inpaint_task
+                final_blocks = [block for block in blocks if erase_from_translation(block)]
+                if [id(block) for block in final_blocks] != [id(block) for block in erase_blocks]:
+                    logger.info(
+                        "Step 4: The erase set changed after translation (%s -> %s blocks); "
+                        "rebuilding the mask",
+                        len(erase_blocks),
+                        len(final_blocks),
+                    )
+                    render_image = await self._inpaint(
+                        image, final_blocks, inpainter, detector_type, result
+                    )
+            else:
+                logger.info("Step 4: Inpainting skipped")
+            cached_interiors = snapshot_cached_interiors(image)
 
         # Step 5: Render translated text
         if render:
             start_time = time.time()
             logger.info("Step 5: Rendering text...")
-            result["image"] = await asyncio.to_thread(
-                render_text, render_image, blocks, **render_options
-            )
+            with image_analysis_cache(
+                render_image, precomputed_interiors=cached_interiors
+            ):
+                result["image"] = await asyncio.to_thread(
+                    render_text, render_image, blocks, **render_options
+                )
             logger.info(
                 "Step 5 complete: Rendering finished in %.2fs", time.time() - start_time
             )

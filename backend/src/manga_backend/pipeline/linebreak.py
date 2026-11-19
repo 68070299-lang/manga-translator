@@ -192,16 +192,24 @@ def break_lines(
     ]
     dp[0][0][0] = 0.0
 
+    reachable: list[int] = [0]
     for line in range(1, line_count + 1):
         band = widths[line - 1]
         last = line == line_count
-        for end in range(1, unit_count + 1):
-            for start in range(end - 1, -1, -1):
+        next_reachable: set[int] = set()
+        max_end = unit_count - (line_count - line)
+        for start in reachable:
+            prev_row = dp[line - 1][start]
+            if last:
+                end_range = (unit_count,)
+            else:
+                end_range = range(start + 1, max_end + 1)
+            for end in end_range:
                 width = span_width(start, end)
-                if width > band and start < end - 1:
-                    # Adding more units only makes the segment wider.
-                    break
                 if width > band:
+                    if not last and end > start + 1:
+                        # Adding more units only makes the segment wider.
+                        break
                     continue
                 cost = segment_cost(width, band, last)
                 if cost is None:
@@ -210,8 +218,9 @@ def break_lines(
                 hyphenated = continues[start] if start > 0 else False
                 if ends_mid_word(end):
                     cost += HYPHEN_PENALTY
+                improved = False
                 for run in range(max_hyphen_run + 1):
-                    previous = dp[line - 1][start][run]
+                    previous = prev_row[run]
                     if previous == infinity:
                         continue
                     next_run = run + 1 if hyphenated else 0
@@ -221,6 +230,12 @@ def break_lines(
                     if total < dp[line][end][next_run]:
                         dp[line][end][next_run] = total
                         parents[line][end][next_run] = (start, run, end - start)
+                        improved = True
+                if improved:
+                    next_reachable.add(end)
+        if not next_reachable:
+            return None
+        reachable = sorted(next_reachable)
 
     best_run = min(range(max_hyphen_run + 1), key=lambda run: dp[line_count][unit_count][run])
     best_cost = dp[line_count][unit_count][best_run]

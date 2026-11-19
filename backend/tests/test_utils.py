@@ -112,6 +112,8 @@ class DeviceUtilityTests(unittest.TestCase):
                     {
                         "cudnn_conv_algo_search": "HEURISTIC",
                         "arena_extend_strategy": "kSameAsRequested",
+                        "cudnn_conv_use_max_workspace": "1",
+                        "do_copy_in_default_stream": "1",
                     },
                 ),
                 "CPUExecutionProvider",

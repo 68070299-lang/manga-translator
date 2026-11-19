@@ -132,23 +132,25 @@ def bubble_body_center(
     interior: np.ndarray, offset: tuple[int, int]
 ) -> list[float] | None:
     """Return the robust center of a bubble body while ignoring its tail."""
-    ys, xs = np.where(interior > 0)
-    if not len(xs):
+    mask = interior > 0
+    if not mask.any():
         return None
 
-    def median_center_of_long_spans(positions: np.ndarray, lines: np.ndarray) -> float:
-        centers = []
-        spans = []
-        for line in np.unique(lines):
-            line_positions = positions[lines == line]
-            centers.append((float(line_positions.min()) + float(line_positions.max()) + 1) / 2)
-            spans.append(len(line_positions))
-        cutoff = float(np.percentile(spans, 40))
-        return np.median([center for center, span in zip(centers, spans) if span >= cutoff])
+    def median_center_of_long_spans(grid: np.ndarray) -> float:
+        spans = grid.sum(axis=1)
+        nonempty = spans > 0
+        rows = grid[nonempty]
+        row_spans = spans[nonempty]
+        width = grid.shape[1]
+        first = rows.argmax(axis=1)
+        last = width - 1 - rows[:, ::-1].argmax(axis=1)
+        centers = (first.astype(np.float64) + last.astype(np.float64) + 1.0) / 2.0
+        cutoff = float(np.percentile(row_spans, 40))
+        return float(np.median(centers[row_spans >= cutoff]))
 
     return [
-        float(median_center_of_long_spans(xs, ys) + offset[0]),
-        float(median_center_of_long_spans(ys, xs) + offset[1]),
+        median_center_of_long_spans(mask) + offset[0],
+        median_center_of_long_spans(mask.T) + offset[1],
     ]
 
 

@@ -204,3 +204,32 @@ class BubbleInteriorTests(unittest.TestCase):
             masks._contour_interior(hug, (60, 60, 200, 200))[1],
             masks.INTERIOR_CONTOUR_AREA,
         )
+
+    def test_image_analysis_cache_deduplicates_and_snapshots_interiors(self):
+        from unittest.mock import patch
+
+        image, block = _bubble_page()
+        with patch.object(
+            masks,
+            "_compute_bubble_interior_details",
+            wraps=masks._compute_bubble_interior_details,
+        ) as spy_interior, patch.object(
+            masks,
+            "_compute_glyph_mask_for_block",
+            wraps=masks._compute_glyph_mask_for_block,
+        ) as spy_glyph:
+            with masks.image_analysis_cache(image):
+                first = masks.bubble_interior_details(image, block)
+                second = masks.bubble_interior_details(image, block)
+                masks.glyph_mask_for_block(image, block)
+                cached = masks.snapshot_cached_interiors(image)
+
+            self.assertEqual(spy_interior.call_count, 1)
+            self.assertEqual(spy_glyph.call_count, 1)
+            self.assertIs(first, second)
+
+            rendered = image.copy()
+            with masks.image_analysis_cache(rendered, precomputed_interiors=cached):
+                reused = masks.bubble_interior_details(rendered, block)
+            self.assertEqual(spy_interior.call_count, 1)
+            self.assertIs(reused, first)

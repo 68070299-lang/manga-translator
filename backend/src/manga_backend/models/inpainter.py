@@ -46,8 +46,80 @@ MIN_CROP_CONTEXT = 64
 # Rectangular block masks are component-sized, so an uncapped "glyph" would
 # balloon their crops to page scale; the cap keeps the margin reasonable.
 MAX_GLYPH_EXTENT = 128
+# Square crop buckets used on GPU so crops of varying sizes share a small set
+# of warm cuDNN plans and run together in one batched launch instead of paying
+# per-shape setup cost on every block.
+GPU_CROP_BUCKETS: tuple[int, ...] = (256, 384, 512, 640, 768, 1024)
 
 Span = tuple[int, int]
+
+
+def _gpu_bucket_size(height: int, width: int, max_pixels: int | None) -> int | None:
+    """Smallest square bucket that holds a crop and fits the GPU pixel budget."""
+    side = max(height, width)
+    for bucket in GPU_CROP_BUCKETS:
+        if side <= bucket:
+            if max_pixels is None or bucket * bucket <= max_pixels:
+                return bucket
+            return None
+    return None
+
+
+def _expand_crop_to_square(
+    page_image: np.ndarray,
+    page_mask: np.ndarray,
+    region: CropRegion,
+    size: int,
+) -> tuple[np.ndarray, np.ndarray, tuple[int, int, int, int]]:
+    """Expand a crop symmetrically on real page pixels up to ``(size, size)``.
+
+    Using real page pixels instead of border-reflecting a smaller crop gives
+    LaMa genuine surrounding art; reflect padding is only needed if the page
+    itself is smaller than the bucket side. Returns ``(image, mask, slice)``
+    where ``slice`` is ``(ox, oy, box_w, box_h)`` locating ``region.box``.
+    """
+    page_h, page_w = page_image.shape[:2]
+    bx0, by0, bx1, by1 = region.box
+    box_w = bx1 - bx0
+    box_h = by1 - by0
+    target_w = min(size, page_w)
+    target_h = min(size, page_h)
+    extra_w = max(0, target_w - box_w)
+    extra_h = max(0, target_h - box_h)
+
+    ex0 = bx0 - extra_w // 2
+    ex1 = ex0 + target_w
+    if ex0 < 0:
+        ex1 -= ex0
+        ex0 = 0
+    if ex1 > page_w:
+        ex0 = max(0, ex0 - (ex1 - page_w))
+        ex1 = page_w
+
+    ey0 = by0 - extra_h // 2
+    ey1 = ey0 + target_h
+    if ey0 < 0:
+        ey1 -= ey0
+        ey0 = 0
+    if ey1 > page_h:
+        ey0 = max(0, ey0 - (ey1 - page_h))
+        ey1 = page_h
+
+    crop_img = page_image[ey0:ey1, ex0:ex1]
+    crop_mask = page_mask[ey0:ey1, ex0:ex1]
+    ox = bx0 - ex0
+    oy = by0 - ey0
+
+    cur_h, cur_w = crop_img.shape[:2]
+    if cur_h < size or cur_w < size:
+        pad_h = size - cur_h
+        pad_w = size - cur_w
+        border = cv2.BORDER_REFLECT_101 if cur_h > 1 and cur_w > 1 else cv2.BORDER_REPLICATE
+        crop_img = cv2.copyMakeBorder(crop_img, 0, pad_h, 0, pad_w, border)
+        crop_mask = cv2.copyMakeBorder(
+            crop_mask, 0, pad_h, 0, pad_w, cv2.BORDER_CONSTANT, value=0
+        )
+    return crop_img, crop_mask, (ox, oy, box_w, box_h)
 
 
 @functools.lru_cache(maxsize=1)
@@ -281,16 +353,49 @@ class Inpainter:
             return image.copy()
 
         oversized: list[CropRegion] = []
-        batches: dict[tuple[int, int], list[CropRegion]] = {}
+        # Each entry holds (region, run_image, run_mask, optional (ox, oy, box_w, box_h)).
+        batches: dict[
+            tuple[int, int],
+            list[
+                tuple[
+                    CropRegion,
+                    np.ndarray,
+                    np.ndarray,
+                    tuple[int, int, int, int] | None,
+                ]
+            ],
+        ] = {}
+        use_gpu_buckets = self.device != "cpu"
         for region in regions:
             height, width = region.image.shape[:2]
             if self.max_pixels is not None and height * width > self.max_pixels:
                 oversized.append(region)
+                continue
+            bucket = (
+                _gpu_bucket_size(height, width, self.max_pixels)
+                if use_gpu_buckets
+                else None
+            )
+            if bucket is not None:
+                pad_img, pad_mask, box_slice = _expand_crop_to_square(
+                    image, binary, region, bucket
+                )
+                batches.setdefault((bucket, bucket), []).append(
+                    (region, pad_img, pad_mask, box_slice)
+                )
             else:
-                batches.setdefault((height, width), []).append(region)
+                batches.setdefault((height, width), []).append(
+                    (region, region.image, region.generation_mask, None)
+                )
 
         # One batched run per crop shape (and per device pixel budget).
-        runs: list[tuple[np.ndarray, np.ndarray, list[CropRegion]]] = []
+        runs: list[
+            tuple[
+                np.ndarray,
+                np.ndarray,
+                list[tuple[CropRegion, tuple[int, int, int, int] | None]],
+            ]
+        ] = []
         for (height, width), group in batches.items():
             per_run = (
                 len(group)
@@ -301,9 +406,9 @@ class Inpainter:
                 chunk = group[start : start + per_run]
                 runs.append(
                     (
-                        np.stack([region.image for region in chunk]),
-                        np.stack([region.generation_mask for region in chunk]),
-                        chunk,
+                        np.stack([item[1] for item in chunk]),
+                        np.stack([item[2] for item in chunk]),
+                        [(item[0], item[3]) for item in chunk],
                     )
                 )
         tiled_jobs = [
@@ -320,8 +425,16 @@ class Inpainter:
         result = image.copy()
         for images, masks, chunk in runs:
             filled = take_run(images, masks)
-            for index, region in enumerate(chunk):
-                result = stitch_region(result, filled[index], region, feather=0)
+            for index, (region, box_slice) in enumerate(chunk):
+                if box_slice is None:
+                    result = stitch_region(result, filled[index], region, feather=0)
+                else:
+                    ox, oy, box_w, box_h = box_slice
+                    bx0, by0, bx1, by1 = region.box
+                    commit = region.commit_mask > 0
+                    result[by0:by1, bx0:bx1][commit] = filled[index][
+                        oy : oy + box_h, ox : ox + box_w
+                    ][commit]
         for region, jobs in tiled_jobs:
             generated = self._inpaint_tiled_region(region, jobs, take_run)
             result = stitch_region(result, generated, region, feather=0)

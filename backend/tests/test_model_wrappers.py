@@ -530,6 +530,24 @@ class InpainterTileTests(unittest.TestCase):
         np.testing.assert_array_equal(result, image)
         self.assertIsNot(result, image)
 
+    def test_gpu_square_buckets_batch_mismatched_crops_into_one_run(self):
+        rng = np.random.default_rng(7)
+        image = rng.integers(0, 255, (1000, 1280, 3), dtype=np.uint8)
+        mask = np.zeros((1000, 1280), dtype=np.uint8)
+        # Two differently-sized regions that both fit inside the 256x256 GPU bucket.
+        mask[100:130, 200:240] = 255
+        mask[700:748, 900:920] = 255
+
+        inpainter = Inpainter(device="cuda")
+        inpainter.session = RecordingInpaintSession()
+        inpainter.max_pixels = 1_000_000
+        result = asyncio.run(inpainter.inpaint(image, mask))
+
+        self.assertEqual(inpainter.session.shapes, [(256, 256)])
+        self.assertEqual(inpainter.session.batch_sizes, [2])
+        np.testing.assert_array_equal(result[mask == 0], image[mask == 0])
+        self.assertTrue(np.all(result[mask > 0] == 127))
+
 
 class InpainterPixelLimitTests(unittest.TestCase):
     def resolve(self, device, total_gib, env=""):

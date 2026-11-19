@@ -342,6 +342,7 @@ def route_block_fill_checked(
     block: TextBlock,
     origin: tuple[int, int],
     strategy: str,
+    reference_mask: np.ndarray | None = None,
 ) -> tuple[dict[str, Any], np.ndarray | None, np.ndarray]:
     """Route one block, then run the pre-render residual check and escalate once.
 
@@ -380,11 +381,33 @@ def route_block_fill_checked(
         return _decision_dict(decision, strategy, extras), filled, model_mask
 
     roi = _block_roi(crop, block, origin)
-    reference = _ink_mask_in_crop(crop, block, origin) & roi
-    observation = measure_residue(
-        reference, _ink_mask_in_crop(filled, block, origin), roi
+    reference = (
+        (reference_mask.astype(bool) & roi)
+        if reference_mask is not None
+        else (_ink_mask_in_crop(crop, block, origin) & roi)
     )
     band_flag = _band_error_above_bound(decision)
+    mask_bool = mask.astype(bool)
+    skip_post_extract = False
+    if (
+        decision.tier == 0
+        and not band_flag
+        and mask_bool.any()
+        and int(np.count_nonzero(reference & ~mask_bool)) < MIN_RESIDUE_PX
+    ):
+        # A verified Tier-0 flat fill repaints every masked pixel with one
+        # uniform background colour within FLAT_MAX_ERROR of the ring; confirm
+        # the filled mask is actually uniform before skipping re-extraction.
+        masked_pixels = filled[mask_bool]
+        if np.array_equal(masked_pixels.min(axis=0), masked_pixels.max(axis=0)):
+            skip_post_extract = True
+
+    post_fill = (
+        np.zeros(filled.shape[:2], dtype=bool)
+        if skip_post_extract
+        else _ink_mask_in_crop(filled, block, origin)
+    )
+    observation = measure_residue(reference, post_fill, roi)
     extras.update(
         {
             "residual_px": observation.residual_px,

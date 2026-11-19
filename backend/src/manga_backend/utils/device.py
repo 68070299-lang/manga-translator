@@ -90,6 +90,8 @@ def cuda_provider_options() -> dict[str, Any]:
     return {
         "cudnn_conv_algo_search": search,
         "arena_extend_strategy": "kSameAsRequested",
+        "cudnn_conv_use_max_workspace": "1",
+        "do_copy_in_default_stream": "1",
     }
 
 
