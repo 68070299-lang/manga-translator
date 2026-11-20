@@ -37,7 +37,11 @@ from manga_backend.pipeline.layout import (
     build_render_regions,
     expand_short_standalone_regions,
 )
-from manga_backend.pipeline.masks import bubble_interior_details, image_analysis_cache
+from manga_backend.pipeline.masks import (
+    bubble_interior_details,
+    conjoined_interior_details,
+    image_analysis_cache,
+)
 from manga_backend.pipeline.measure import (
     anchor_target,
     measure_block_colours,
@@ -59,8 +63,9 @@ logger = logging.getLogger(__name__)
 # Dialogue regions whose bubbles are this close share one room candidate: a
 # conjoined outline is one shape with two lobes.
 CONJOINED_GAP_PX = 12
-# A split room must keep at least this share of the joined room for each lobe.
-CONJOINED_MIN_SHARE = 0.15
+# A split room must keep at least this share of the joined room for each lobe:
+# a small bump balloon ("あ" beside a big one) holds about an eighth of it.
+CONJOINED_MIN_SHARE = 0.08
 
 RGB = tuple[int, int, int]
 
@@ -122,7 +127,10 @@ def _boxes_touch(first: Box, second: Box, gap: int) -> bool:
 
 
 def _conjoined_rooms(
-    image: np.ndarray, regions: list[TextBlock], unresolved: list[int]
+    image: np.ndarray,
+    regions: list[TextBlock],
+    unresolved: list[int],
+    blocks: list[TextBlock] | None = None,
 ) -> dict[int, Room]:
     """Split a joined outline into one room per text group.
 
@@ -130,60 +138,120 @@ def _conjoined_rooms(
     window cuts the shared outline, so the flood leaks. The union window of the
     group contains the whole outline, and the resulting interior is split per
     text group by a hull-defect chord (seeded watershed as the fallback).
-    """
-    rooms: dict[int, Room] = {}
-    remaining = list(unresolved)
-    while remaining:
-        first = remaining.pop(0)
-        first_box = int_box(regions[first].bubble_xyxy or regions[first].xyxy)
-        group = [first]
-        for other in list(remaining):
-            other_box = int_box(regions[other].bubble_xyxy or regions[other].xyxy)
-            if _boxes_touch(first_box, other_box, CONJOINED_GAP_PX):
-                group.append(other)
-                remaining.remove(other)
-        if len(group) < 2:
-            continue
 
-        boxes = [int_box(regions[index].xyxy) for index in group]
-        bubbles = [int_box(regions[index].bubble_xyxy or regions[index].xyxy) for index in group]
-        union_text = (
-            min(box[0] for box in boxes),
-            min(box[1] for box in boxes),
-            max(box[2] for box in boxes),
-            max(box[3] for box in boxes),
-        )
-        union_bubble = (
-            min(box[0] for box in bubbles),
-            min(box[1] for box in bubbles),
-            max(box[2] for box in bubbles),
-            max(box[3] for box in bubbles),
-        )
+    With the source ``blocks``, the flood seeds from and crosses only the
+    members' own text: a region box spans its whole bubble, and the union of
+    those boxes covers the outline between the lobes.
+    """
+    height, width = image.shape[:2]
+    members_by_bubble: dict[Box, list[TextBlock]] = {}
+    for block in blocks or []:
+        if block.block_type != "text" or block.bubble_xyxy is None:
+            continue
+        key = int_box(clamp_xyxy(int_box(block.bubble_xyxy), width, height))
+        members_by_bubble.setdefault(key, []).append(block)
+    bubble_boxes = {
+        index: int_box(regions[index].bubble_xyxy or regions[index].xyxy) for index in unresolved
+    }
+    touching = {
+        index: [
+            other
+            for other in unresolved
+            if other != index
+            and _boxes_touch(bubble_boxes[index], bubble_boxes[other], CONJOINED_GAP_PX)
+        ]
+        for index in unresolved
+    }
+    rooms: dict[int, Room] = {}
+    seen: set[int] = set()
+    for start in unresolved:
+        if start in seen:
+            continue
+        # Every region that touches this one, transitively: a cloud's lobes
+        # can sit next to an unrelated balloon or SFX whose box touches one
+        # lobe, so the whole cluster is tried first, then each touching pair.
+        cluster = [start]
+        seen.add(start)
+        for index in cluster:
+            for other in touching[index]:
+                if other not in seen:
+                    seen.add(other)
+                    cluster.append(other)
+        if len(cluster) < 2:
+            continue
+        cluster.sort()
+        candidates = [cluster]
+        if len(cluster) > 2:
+            candidates += [
+                [first, second]
+                for position, first in enumerate(cluster)
+                for second in cluster[position + 1 :]
+                if second in touching[first]
+            ]
+        for group in candidates:
+            if any(index in rooms for index in group):
+                continue
+            lobes = _split_conjoined_group(image, regions, group, bubble_boxes, members_by_bubble)
+            if lobes is not None:
+                for index, lobe in zip(group, lobes):
+                    rooms[index] = lobe
+    return rooms
+
+
+def _split_conjoined_group(
+    image: np.ndarray,
+    regions: list[TextBlock],
+    group: list[int],
+    bubble_boxes: dict[int, Box],
+    members_by_bubble: dict[Box, list[TextBlock]],
+) -> list[Room] | None:
+    """One room per region of ``group`` if they share one outline, else None."""
+    boxes = [int_box(regions[index].xyxy) for index in group]
+    bubbles = [bubble_boxes[index] for index in group]
+    union_text = (
+        min(box[0] for box in boxes),
+        min(box[1] for box in boxes),
+        max(box[2] for box in boxes),
+        max(box[3] for box in boxes),
+    )
+    union_bubble = (
+        min(box[0] for box in bubbles),
+        min(box[1] for box in bubbles),
+        max(box[2] for box in bubbles),
+        max(box[3] for box in bubbles),
+    )
+    if all(bubble in members_by_bubble for bubble in bubbles):
+        members = [member for bubble in bubbles for member in members_by_bubble[bubble]]
+        result = conjoined_interior_details(image, members, union_bubble)
+    else:
         probe = TextBlock(union_text, block_type="text")
         probe.bubble_xyxy = list(union_bubble)
         result = bubble_interior_details(image, probe)
-        if not result.found:
-            continue
-        joined = bubble_room(result.interior, result.bounds)
-        if joined is None:
-            continue
-        seeds: list[tuple[float, float]] = []
-        for index in group:
-            centre = regions[index].bubble_text_center
-            if centre is None:
-                seeds.append((float(regions[index].center[0]), float(regions[index].center[1])))
-            else:
-                seeds.append((float(centre[0]), float(centre[1])))
-        lobes = split_conjoined_room(joined, seeds)
-        if len(lobes) != len(group):
-            continue
-        if any(
-            lobe.area < joined.area * CONJOINED_MIN_SHARE for lobe in lobes
-        ):
-            continue
-        for index, lobe in zip(group, lobes):
-            rooms[index] = lobe
-    return rooms
+    if not result.found:
+        return None
+    joined = bubble_room(result.interior, result.bounds)
+    if joined is None:
+        return None
+    seeds: list[tuple[float, float]] = []
+    for index in group:
+        centre = regions[index].bubble_text_center
+        if centre is None:
+            seeds.append((float(regions[index].center[0]), float(regions[index].center[1])))
+        else:
+            seeds.append((float(centre[0]), float(centre[1])))
+    # Every member's text must sit inside the shared outline; one that does
+    # not belongs to a neighbouring balloon or SFX, not to this one.
+    jx1, jy1, jx2, jy2 = joined.bounds
+    for seed_x, seed_y in seeds:
+        column, row = int(round(seed_x)) - jx1, int(round(seed_y)) - jy1
+        if not (0 <= row < jy2 - jy1 and 0 <= column < jx2 - jx1) or not joined.mask[row, column]:
+            return None
+    lobes = split_conjoined_room(joined, seeds)
+    if len(lobes) != len(group):
+        return None
+    if any(lobe.area < joined.area * CONJOINED_MIN_SHARE for lobe in lobes):
+        return None
+    return lobes
 
 
 def build_rooms(
@@ -231,7 +299,7 @@ def build_rooms(
                 claimed[cy1:cy2, cx1:cx2] |= room.mask > 0
         rooms.append(room)
 
-    conjoined = _conjoined_rooms(image, regions, unresolved)
+    conjoined = _conjoined_rooms(image, regions, unresolved, blocks)
     resolved: list[Room] = []
     for index, region in enumerate(regions):
         room = rooms[index] or conjoined.get(index)

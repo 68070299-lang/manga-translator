@@ -43,6 +43,15 @@ FREE_GROWTH_X = 1.6
 FREE_GROWTH_Y = 0.9
 FREE_GROWTH_MIN_X = 24
 FREE_GROWTH_MIN_Y = 16
+# Conjoined outlines are cut at the waist between lobes. Convexity defects
+# shallower than this (px) are outline jitter, not the edge of a lobe; only
+# the deepest few are tried as the ends of the cut.
+WAIST_MIN_DEFECT_DEPTH = 3.0
+WAIST_DEFECTS = 6
+# Each side of a waist cut keeps at least this share of the joined room. A
+# small bump balloon beside a big one holds about an eighth of it; a smaller
+# piece is a cap sliced off a lobe, not a lobe.
+WAIST_MIN_SHARE = 0.08
 
 
 @dataclass(frozen=True)
@@ -438,11 +447,10 @@ def split_conjoined_room(
 ) -> list[Room]:
     """Split a room that holds several text groups into one room per group.
 
-    A hull-defect chord is tried first (the line between the deepest convexity
-    defect's start and end points, which is the waist of a figure-eight
-    outline); when the chord does not put every seed in its own piece, a
-    seeded watershed on the distance transform splits the room at its narrowest
-    points instead.
+    Two groups are cut at the waist first: the shortest chord between two
+    convexity defects (the notches on either side of the neck) that puts each
+    seed in its own piece. Otherwise, or for more groups, a seeded geodesic
+    watershed splits the room midway between the seeds instead.
     """
     if len(seeds) < 2 or room.mask.size == 0:
         return [room]
@@ -472,7 +480,16 @@ def split_conjoined_room(
 def _chord_split(
     binary: np.ndarray, seeds: list[tuple[int, int]]
 ) -> list[np.ndarray] | None:
-    """Cut at the deepest convexity defect and check that seeds separate."""
+    """Cut two lobes apart at their waist, or None when there is none.
+
+    The waist runs between the deepest points of two notches in the outline
+    (convexity defects), one on each side of the neck. Of the chords between
+    the deepest defects, the shortest one that puts each seed in its own,
+    not too small, piece is the cut. A defect's start and end points lie on
+    the convex hull, outside the shape, so a chord between those never cuts.
+    """
+    if len(seeds) != 2:
+        return None
     contours, _hierarchy = cv2.findContours(
         binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
     )
@@ -491,24 +508,30 @@ def _chord_split(
     if defects is None or not len(defects):
         return None
     rows = np.asarray(defects).reshape(-1, 4)
-    deepest = max(rows, key=lambda row: float(row[3]))
-    start_index, end_index = int(deepest[0]), int(deepest[1])
-    start_point = tuple(int(value) for value in contour[start_index][0])
-    end_point = tuple(int(value) for value in contour[end_index][0])
+    # The depth is fixed-point, in 1/256 px.
+    rows = rows[rows[:, 3] >= WAIST_MIN_DEFECT_DEPTH * 256]
+    rows = rows[np.argsort(-rows[:, 3], kind="stable")][:WAIST_DEFECTS]
+    notches = [tuple(int(value) for value in contour[int(row[2])][0]) for row in rows]
 
-    canvas = binary.copy()
-    cv2.line(canvas, start_point, end_point, 0, thickness=1)
-    count, labels = cv2.connectedComponents(canvas, connectivity=4)
-    seed_labels = [int(labels[y, x]) for x, y in seeds]
-    if 0 in seed_labels or len(set(seed_labels)) != len(seeds):
-        return None
-    pieces = [(labels == label).astype(np.uint8) for label in seed_labels]
     total = int(np.count_nonzero(binary))
-    if any(np.count_nonzero(piece) < max(16, total * 0.2) for piece in pieces):
-        # A chord that slices a cap off one lobe is not the waist; the
-        # watershed below cuts at the narrowest point instead.
-        return None
-    return pieces
+    minimum = max(16, total * WAIST_MIN_SHARE)
+    best: tuple[float, list[np.ndarray]] | None = None
+    for index, first in enumerate(notches):
+        for second in notches[index + 1 :]:
+            length = math.hypot(first[0] - second[0], first[1] - second[1])
+            if best is not None and length >= best[0]:
+                continue
+            canvas = binary.copy()
+            cv2.line(canvas, first, second, 0, thickness=1)
+            _count, labels = cv2.connectedComponents(canvas, connectivity=4)
+            seed_labels = [int(labels[y, x]) for x, y in seeds]
+            if 0 in seed_labels or seed_labels[0] == seed_labels[1]:
+                continue
+            pieces = [(labels == label).astype(np.uint8) for label in seed_labels]
+            if any(np.count_nonzero(piece) < minimum for piece in pieces):
+                continue
+            best = (length, pieces)
+    return None if best is None else best[1]
 
 
 def _watershed_split(

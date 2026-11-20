@@ -1405,6 +1405,7 @@ def _flood_interior(
     *,
     gray: np.ndarray | None = None,
     gap_close: int = INTERIOR_GAP_CLOSE,
+    text_mask: np.ndarray | None = None,
 ) -> tuple[np.ndarray | None, str]:
     """Seeded flood fill over paper, bounded by structure, with leak rejection.
 
@@ -1413,6 +1414,10 @@ def _flood_interior(
     bubble wall must not split the interior (and the old search's text
     blanking, which could open the outline, is gone). Where lettering truly
     covers the outline the flood leaks and the contour fallback takes over.
+
+    ``text_mask`` replaces the ``local_text`` box as the seed area (and the
+    area the interior is measured against) when several text boxes share one
+    window: their bounding box would also cover the outline between them.
     """
     roi_height, roi_width = roi.shape[:2]
     light, channel_a, channel_b = _lab_channels(roi)
@@ -1458,9 +1463,14 @@ def _flood_interior(
     text_x2, text_y2 = min(roi_width, text_x2), min(roi_height, text_y2)
     if text_x2 <= text_x1 or text_y2 <= text_y1:
         return None, INTERIOR_NO_CONTEXT
-    text_box = np.zeros((roi_height, roi_width), bool)
-    text_box[text_y1:text_y2, text_x1:text_x2] = True
+    if text_mask is not None:
+        text_box = text_mask.astype(bool)
+    else:
+        text_box = np.zeros((roi_height, roi_width), bool)
+        text_box[text_y1:text_y2, text_x1:text_x2] = True
     text_area = float(np.count_nonzero(text_box))
+    if text_area == 0:
+        return None, INTERIOR_NO_CONTEXT
 
     seeds = paper_colour & ~barrier & text_box
     if not np.any(seeds):
@@ -1687,15 +1697,123 @@ def _compute_bubble_interior_details(
         )
 
     paper = _paper_estimate(image, int_box(block.xyxy))
-    glyphs, glyph_bounds = glyph_mask_for_block(image, block)
-    ink_pixels = np.zeros(roi.shape[:2], bool)
-    overlap = overlap_slices(bounds, glyph_bounds)
-    if overlap is not None and glyphs.size:
-        ink_pixels[overlap[0]] = glyphs[overlap[1]] > 0
+    ink_pixels = _ink_in_window(image, [block], bounds)
+    return _interior_in_window(
+        roi, bounds, local_text, detector_bounds, paper, ink_pixels, label=block.xyxy.tolist()
+    )
+
+
+def conjoined_interior_details(
+    image: np.ndarray, members: list[TextBlock], bubble_box: Box
+) -> InteriorResult:
+    """The shared interior of one outline that holds several text blocks.
+
+    A cloud or joined balloon is often detected as one bubble box per lobe,
+    and each lobe's window cuts the shared interior open. The union window
+    holds the whole outline, but the bounding box of the members' text would
+    also cover the outline between the lobes; marked as lettering (which the
+    flood may cross) it opens the wall. So only the members' own text boxes
+    seed the flood, and only their own glyph masks count as lettering.
+
+    Cached like single-bubble interiors, so the renderer reuses the result
+    found on the original page instead of re-flooding the erased one.
+    """
+    boxes = [int_box(member.xyxy) for member in members]
+    if not boxes:
+        return InteriorResult(
+            np.zeros((0, 0), dtype=np.uint8), (0, 0, 0, 0), "none", INTERIOR_NO_CONTEXT
+        )
+    cache = _current_cache(image)
+    if cache is not None:
+        union_key = (
+            min(box[0] for box in boxes),
+            min(box[1] for box in boxes),
+            max(box[2] for box in boxes),
+            max(box[3] for box in boxes),
+        )
+        members_key = ";".join(",".join(str(value) for value in box) for box in sorted(boxes))
+        key = (union_key, int_box(bubble_box), f"conjoined:{members_key}")
+        return cache.get_or_compute(
+            cache.interiors,
+            cache.interior_inflight,
+            key,
+            lambda: _compute_conjoined_interior_details(image, members, bubble_box),
+        )
+    return _compute_conjoined_interior_details(image, members, bubble_box)
+
+
+def _compute_conjoined_interior_details(
+    image: np.ndarray, members: list[TextBlock], bubble_box: Box
+) -> InteriorResult:
+    boxes = [int_box(member.xyxy) for member in members]
+    union = (
+        min(box[0] for box in boxes),
+        min(box[1] for box in boxes),
+        max(box[2] for box in boxes),
+        max(box[3] for box in boxes),
+    )
+    probe = TextBlock(list(union), block_type="text")
+    probe.bubble_xyxy = list(bubble_box)
+    window = _interior_window(image, probe)
+    if window is None:
+        return InteriorResult(
+            np.zeros((0, 0), dtype=np.uint8), (0, 0, 0, 0), "none", INTERIOR_NO_CONTEXT
+        )
+    bounds, local_text, detector_bounds = window
+    x1, y1, x2, y2 = bounds
+    roi = image[y1:y2, x1:x2]
+    if roi.size == 0 or min(roi.shape[:2]) < 5:
+        return InteriorResult(
+            np.zeros(roi.shape[:2], dtype=np.uint8), bounds, "none", INTERIOR_NO_CONTEXT
+        )
+    text_mask = np.zeros(roi.shape[:2], bool)
+    for bx1, by1, bx2, by2 in boxes:
+        text_mask[max(0, by1 - y1) : max(0, by2 - y1), max(0, bx1 - x1) : max(0, bx2 - x1)] = True
+    # Paper from the largest member: its ring lies inside the outline, while
+    # the union box's ring can cross the outline between the lobes.
+    largest = max(boxes, key=lambda box: (box[2] - box[0]) * (box[3] - box[1]))
+    paper = _paper_estimate(image, largest)
+    ink_pixels = _ink_in_window(image, members, bounds)
+    return _interior_in_window(
+        roi,
+        bounds,
+        local_text,
+        detector_bounds,
+        paper,
+        ink_pixels,
+        text_mask=text_mask,
+        label=[list(box) for box in boxes],
+    )
+
+
+def _ink_in_window(image: np.ndarray, blocks: list[TextBlock], bounds: Box) -> np.ndarray:
+    """The blocks' own glyph masks, placed in the window ``bounds``."""
+    x1, y1, x2, y2 = bounds
+    ink_pixels = np.zeros((y2 - y1, x2 - x1), bool)
+    for block in blocks:
+        glyphs, glyph_bounds = glyph_mask_for_block(image, block)
+        overlap = overlap_slices(bounds, glyph_bounds)
+        if overlap is not None and glyphs.size:
+            ink_pixels[overlap[0]] |= glyphs[overlap[1]] > 0
+    return ink_pixels
+
+
+def _interior_in_window(
+    roi: np.ndarray,
+    bounds: Box,
+    local_text: tuple[int, int, int, int],
+    detector_bounds: Box | None,
+    paper: _Paper,
+    ink_pixels: np.ndarray,
+    *,
+    text_mask: np.ndarray | None = None,
+    label: object = None,
+) -> InteriorResult:
+    """Flood first (with one gap-closing retry on a leak), contour second."""
     gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
     flood_ink = ink_pixels if np.any(ink_pixels) else None
     flooded, flood_reason = _flood_interior(
-        roi, local_text, paper, detector_bounds, flood_ink, gray=gray
+        roi, local_text, paper, detector_bounds, flood_ink, gray=gray, text_mask=text_mask
     )
     if flooded is None and flood_reason == INTERIOR_LEAK:
         # Flash and emanation balloons are walled by speed lines whose
@@ -1709,6 +1827,7 @@ def _compute_bubble_interior_details(
             flood_ink,
             gray=gray,
             gap_close=INTERIOR_GAP_CLOSE + INTERIOR_GAP_RETRY,
+            text_mask=text_mask,
         )
         if flooded is None and retry_reason != INTERIOR_LEAK:
             flood_reason = retry_reason
@@ -1721,7 +1840,7 @@ def _compute_bubble_interior_details(
     # the contour fallback's own failure is kept for debugging.
     logger.debug(
         "Bubble interior failed for block %s: flood=%s contour=%s",
-        block.xyxy.tolist(),
+        label,
         flood_reason,
         contour_reason,
     )

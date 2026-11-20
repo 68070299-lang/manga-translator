@@ -16,6 +16,7 @@ from manga_backend.pipeline.measure import (
     page_lettering_size,
     source_glyph_size,
 )
+from manga_backend.pipeline.masks import image_analysis_cache, snapshot_cached_interiors
 from manga_backend.pipeline.rendering import build_rooms, render_text
 from manga_backend.pipeline.rooms import (
     Band,
@@ -46,6 +47,73 @@ def oval_mask(width: int, height: int, *, inset: int = 0) -> np.ndarray:
 def oval_room(width: int = 200, height: int = 120, **kwargs: object) -> Room:
     mask = oval_mask(width, height, **kwargs)  # type: ignore[arg-type]
     return Room(mask, (0, 0, width, height), (width / 2.0, height / 2.0), "bubble")
+
+
+def _lettering(image: np.ndarray, box: tuple[int, int, int, int]) -> None:
+    """Columns of small crosses standing in for vertical lettering."""
+    x1, y1, x2, y2 = box
+    for x in range(x1 + 4, x2 - 8, 14):
+        for y in range(y1 + 4, y2 - 8, 13):
+            image[y + 3 : y + 6, x : x + 9] = 0
+            image[y : y + 9, x + 3 : x + 6] = 0
+
+
+def _lobed_page(
+    shape: np.ndarray,
+    texts: dict[str, tuple[int, int, int, int]],
+    bubbles: dict[str, tuple[int, int, int, int]],
+) -> tuple[np.ndarray, list[TextBlock], list[TextBlock]]:
+    """A page with ``shape``'s outline and one block and region per text box.
+
+    Blocks and regions follow the order of ``texts``; each region spans its
+    bubble box (inset), as the renderer's bubble regions do.
+    """
+    image = np.full((*shape.shape, 3), 255, np.uint8)
+    contours, _hierarchy = cv2.findContours(shape, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    cv2.drawContours(image, contours, -1, (0, 0, 0), 2)
+    blocks: list[TextBlock] = []
+    regions: list[TextBlock] = []
+    for name, text_box in texts.items():
+        _lettering(image, text_box)
+        block = TextBlock(list(text_box), block_type="text", translated_text=name)
+        block.bubble_xyxy = list(bubbles[name])
+        x1, y1, x2, y2 = text_box
+        block.bubble_text_center = [(x1 + x2) / 2.0, (y1 + y2) / 2.0]
+        blocks.append(block)
+        bx1, by1, bx2, by2 = bubbles[name]
+        region = TextBlock([bx1 + 4, by1 + 4, bx2 - 4, by2 - 4], translated_text=name)
+        region.render_from_bubble = True
+        region.bubble_xyxy = list(bubbles[name])
+        region.bubble_text_center = list(block.bubble_text_center)
+        regions.append(region)
+    return image, blocks, regions
+
+
+def _cloud_page() -> tuple[np.ndarray, np.ndarray, list[TextBlock], list[TextBlock]]:
+    """A two-lobe cloud detected as one bubble box per lobe, plus an SFX.
+
+    Each lobe's box cuts the shared interior open, so neither lobe finds an
+    interior on its own; the SFX box touches the left lobe's box.
+    """
+    cloud = np.zeros((220, 320), np.uint8)
+    cv2.ellipse(cloud, (115, 110), (80, 70), 0, 0, 360, 255, -1)
+    cv2.ellipse(cloud, (225, 105), (65, 60), 0, 0, 360, 255, -1)
+    image, blocks, regions = _lobed_page(
+        cloud,
+        # The SFX first, as page order may put it.
+        {"sfx": (2, 120, 30, 200), "left": (80, 62, 150, 158), "right": (205, 66, 250, 146)},
+        {"sfx": (0, 112, 34, 210), "left": (35, 40, 195, 180), "right": (160, 45, 290, 165)},
+    )
+    return image, cloud > 0, blocks, regions
+
+
+def _bump_shapes() -> tuple[np.ndarray, np.ndarray]:
+    """A big balloon with a small one (about a ninth of the whole) on its shoulder."""
+    body = np.zeros((260, 240), np.uint8)
+    cv2.ellipse(body, (100, 150), (70, 95), 0, 0, 360, 255, -1)
+    bump = np.zeros_like(body)
+    cv2.circle(bump, (160, 62), 30, 255, -1)
+    return body > 0, bump > 0
 
 
 class RoomTests(unittest.TestCase):
@@ -161,6 +229,63 @@ class RoomTests(unittest.TestCase):
         self.assertLess(left.area, room.area)
         self.assertLess(right.area, room.area)
         self.assertGreater(left.area, room.area * 0.15)
+
+    def test_a_bump_balloon_is_cut_at_its_neck(self):
+        body, bump = _bump_shapes()
+        shape = (body | bump).astype(np.uint8) * 255
+        room = Room(shape, (0, 0, 240, 260), (110.0, 140.0), "bubble")
+
+        small, big = split_conjoined_room(room, [(160.0, 62.0), (100.0, 155.0)])
+
+        # Midway between the seeds lies inside the big body; the neck does not.
+        x1, y1, x2, y2 = small.bounds
+        self.assertFalse(((small.mask > 0) & ~bump[y1:y2, x1:x2]).any())
+        x1, y1, x2, y2 = big.bounds
+        self.assertFalse(((big.mask > 0) & ~body[y1:y2, x1:x2]).any())
+        self.assertGreater(small.area, np.count_nonzero(bump & ~body) * 0.8)
+
+    def test_a_bump_balloon_gets_its_own_lobe_room(self):
+        body, bump = _bump_shapes()
+        image, blocks, regions = _lobed_page(
+            (body | bump).astype(np.uint8) * 255,
+            {"bump": (148, 50, 172, 74), "body": (70, 110, 130, 200)},
+            {"bump": (128, 30, 192, 94), "body": (28, 53, 172, 247)},
+        )
+
+        small, big = build_rooms(image, regions, blocks)
+
+        # The bump is under the old 15% floor for a lobe, yet it is one.
+        for room, lobe in ((small, bump), (big, body)):
+            self.assertEqual(room.kind, "bubble-split")
+            x1, y1, x2, y2 = room.bounds
+            self.assertFalse(((room.mask > 0) & ~lobe[y1:y2, x1:x2]).any())
+
+    def test_cloud_lobes_share_one_interior_split_per_lobe(self):
+        image, cloud, blocks, regions = _cloud_page()
+
+        rooms = build_rooms(image, regions, blocks)
+
+        _sfx, left, right = rooms
+        for room in (left, right):
+            self.assertEqual(room.kind, "bubble-split")
+            x1, y1, x2, y2 = room.bounds
+            inside = cloud[y1:y2, x1:x2]
+            # The text stays off the outline: no room pixel outside the cloud.
+            self.assertFalse(((room.mask > 0) & ~inside).any())
+        self.assertLess(left.center[0], right.center[0])
+        self.assertNotEqual(rooms[0].kind, "bubble-split")
+
+    def test_cloud_interior_is_cached_for_the_render_pass(self):
+        # The renderer floods the erased page, where a thin outline can lose
+        # its contrast; it must reuse the interior found on the original.
+        image, _cloud, blocks, regions = _cloud_page()
+
+        with image_analysis_cache(image):
+            build_rooms(image, regions, blocks)
+            cached = snapshot_cached_interiors(image)
+
+        conjoined = [value for key, value in cached.items() if key[2].startswith("conjoined:")]
+        self.assertTrue(any(result.found for result in conjoined))
 
 
 class LineBreakTests(unittest.TestCase):
