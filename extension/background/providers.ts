@@ -1,23 +1,13 @@
 /**
- * Provider paths used by translation jobs: direct cloud providers and the
- * local backend, plus the backend health check.
+ * Provider paths used by translation jobs: the local backend, plus the backend
+ * health check.
  */
-import {
-  LocalBackendProvider,
-  type LocalBackendProviderConfig,
-  normalizeTranslationBlocks,
-  TranslationProvider,
-} from '../lib/api';
+import { LocalBackendProvider, type LocalBackendProviderConfig } from '../lib/api';
 import { mergeSettings } from '../lib/settings';
 import type { ProgressNotifier } from '../lib/translation-queue';
 import { base64ToBlob, blobToBase64 } from '../lib/utils';
 import type { CheckBackendResponse } from '../shared/messages';
-import type {
-  CloudTranslationResult,
-  LocalTranslationResult,
-  Settings,
-  SettingsInput,
-} from '../shared/types';
+import type { LocalTranslationResult, Settings, SettingsInput } from '../shared/types';
 
 /** Build a `LocalBackendProvider` from normalized settings (plus per-call extras). */
 function createLocalBackendProvider(
@@ -33,38 +23,6 @@ function createLocalBackendProvider(
     targetLang: settings.targetLang,
     ...extra,
   });
-}
-
-/** Translate with a direct cloud OCR/translation provider. */
-export async function handleCloudTranslation(
-  base64: string,
-  settings: Settings,
-  notify: ProgressNotifier,
-): Promise<CloudTranslationResult> {
-  const providerName = settings.provider || 'gemini';
-  if (providerName === 'local') {
-    throw new Error(
-      'Cloud API mode does not support Local LLM directly. Select Local mode to use a local LLM through the backend.',
-    );
-  }
-
-  notify('Analyzing image...', 25);
-
-  const provider = new TranslationProvider({
-    provider: providerName,
-    apiKey: settings.apiKey,
-    model: settings.model,
-    baseUrl: settings.baseUrl,
-  });
-
-  const base64Data =
-    typeof base64 === 'string' ? base64.replace(/^data:[^,]*;base64,/, '') : base64;
-
-  notify('Translating...', 60);
-  const blocks = await provider.translateImage(base64Data, settings.targetLang || 'English');
-  notify('Rendering overlay...', 90);
-
-  return { mode: 'cloud', blocks: normalizeTranslationBlocks(blocks) };
 }
 
 /** Check that the local backend is reachable and ready; `reason` says why not. */

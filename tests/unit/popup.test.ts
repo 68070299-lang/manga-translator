@@ -6,7 +6,6 @@ import { PROGRESS_STALE_MS } from '../../extension/ui/popup/progress';
 import { mockFetch } from '../helpers/fetch';
 
 const defaultSettings = {
-  pipelineMode: 'cloud',
   provider: 'gemini',
   targetLang: 'English',
   fontSize: 14,
@@ -120,8 +119,6 @@ describe('popup shell', () => {
       'settings-btn',
       'site-toggle-btn',
       'site-toggle-label',
-      'mode-cloud',
-      'mode-local',
       'connection-indicator',
       'api-warning-section',
       'api-warning-text',
@@ -192,7 +189,6 @@ describe('popup shell', () => {
     expect(el<HTMLSelectElement>('font-family').value).toBe("'Comic Sans MS', cursive");
     expect(el<HTMLInputElement>('auto-translate').checked).toBe(true);
     expect(el<HTMLInputElement>('show-progress').checked).toBe(false);
-    expect(el<HTMLInputElement>('mode-cloud').checked).toBe(true);
   });
 
   it('opens the options page from the settings button', async () => {
@@ -209,7 +205,6 @@ describe('popup quick settings', () => {
     const syncSet = vi.spyOn(browser.storage.sync, 'set');
     await loadPopup({
       settings: {
-        pipelineMode: 'cloud',
         provider: 'openrouter',
         apiKey: 'legacy-sync-key',
         targetLang: 'English',
@@ -265,40 +260,12 @@ describe('popup quick settings', () => {
   });
 });
 
-describe('popup pipeline mode', () => {
-  it('reveals the local backend status only for local mode and saves the mode', async () => {
-    await loadPopup({ settings: { ...defaultSettings, pipelineMode: 'local' } });
-    const indicator = el('connection-indicator');
-    expect(indicator.style.display).toBe('flex');
-    expect(el<HTMLInputElement>('mode-local').checked).toBe(true);
-
-    el<HTMLInputElement>('mode-cloud').checked = true;
-    el<HTMLInputElement>('mode-cloud').dispatchEvent(new Event('change', { bubbles: true }));
-    await settle();
-    expect(indicator.style.display).toBe('none');
-    expect((await storedSettings()).pipelineMode).toBe('cloud');
-
-    el<HTMLInputElement>('mode-local').checked = true;
-    el<HTMLInputElement>('mode-local').dispatchEvent(new Event('change', { bubbles: true }));
-    await settle();
-    expect(indicator.style.display).toBe('flex');
-    expect((await storedSettings()).pipelineMode).toBe('local');
-  });
-
-  it('defaults to the local pipeline with the status indicator shown', async () => {
-    await loadPopup({ settings: {}, apiKeys: {} });
-
-    expect(el<HTMLInputElement>('mode-local').checked).toBe(true);
-    expect(el('connection-indicator').style.display).toBe('flex');
-  });
-});
-
 describe('popup API key warning', () => {
   const isVisible = () => el('api-warning-section').style.display !== 'none';
 
   it('names the local translator when a key is missing and clears once a key is stored', async () => {
     await loadPopup({
-      settings: { pipelineMode: 'local', provider: 'openrouter', localBackend: { translator: '' } },
+      settings: { provider: 'openrouter', localBackend: { translator: '' } },
       apiKeys: {},
     });
 
@@ -310,29 +277,15 @@ describe('popup API key warning', () => {
     app = undefined;
     document.body.innerHTML = '';
     await loadPopup({
-      settings: { pipelineMode: 'local', provider: 'openrouter', localBackend: { translator: '' } },
+      settings: { provider: 'openrouter', localBackend: { translator: '' } },
       apiKeys: { apiKey: 'sk-test' },
     });
     expect(isVisible()).toBe(false);
   });
 
-  it('ignores the OCR-only local translator in cloud mode', async () => {
-    await loadPopup({
-      settings: {
-        pipelineMode: 'cloud',
-        provider: 'openrouter',
-        localBackend: { translator: 'none' },
-      },
-      apiKeys: {},
-    });
-
-    expect(isVisible()).toBe(true);
-    expect(el('api-warning-text').textContent).toContain('No translate API key is configured.');
-  });
-
   it('opens the options page from the warning link', async () => {
     await loadPopup({
-      settings: { pipelineMode: 'cloud', provider: 'openrouter' },
+      settings: { provider: 'openrouter' },
       apiKeys: {},
     });
 
@@ -343,24 +296,6 @@ describe('popup API key warning', () => {
     expect(event.defaultPrevented).toBe(true);
     expect(browser.runtime.openOptionsPage).toHaveBeenCalledTimes(1);
   });
-
-  it('refreshes after a mode switch to a keyless local translator', async () => {
-    await loadPopup({
-      settings: {
-        pipelineMode: 'cloud',
-        provider: 'openrouter',
-        localBackend: { translator: 'none' },
-      },
-      apiKeys: {},
-    });
-    expect(isVisible()).toBe(true);
-
-    el<HTMLInputElement>('mode-local').checked = true;
-    el<HTMLInputElement>('mode-local').dispatchEvent(new Event('change', { bubbles: true }));
-    await settle();
-
-    expect(isVisible()).toBe(false);
-  });
 });
 
 describe('popup command workflow', () => {
@@ -368,7 +303,6 @@ describe('popup command workflow', () => {
     await loadPopup({
       settings: {
         ...defaultSettings,
-        pipelineMode: 'local',
         localBackend: { url: '', translator: 'none' },
       },
       apiKeys: {},
@@ -379,15 +313,6 @@ describe('popup command workflow', () => {
     expect(tabsSendMessage).not.toHaveBeenCalled();
     expect(toastText()).toBe('Please configure backend URL in Settings');
     expect(el<HTMLButtonElement>('translate-btn').disabled).toBe(false);
-  });
-
-  it('blocks cloud translation without an API key', async () => {
-    await loadPopup({ apiKeys: {} });
-
-    await click('translate-btn');
-
-    expect(tabsSendMessage).not.toHaveBeenCalled();
-    expect(toastText()).toBe('Please configure a Translate API key in Settings');
   });
 
   it('routes TRANSLATE_PAGE to the active tab and recovers the button', async () => {
@@ -769,7 +694,6 @@ describe('popup cache', () => {
 describe('popup local backend health check', () => {
   const localSettings = (url: string) => ({
     ...defaultSettings,
-    pipelineMode: 'local',
     localBackend: { url, translator: 'none' },
   });
 
@@ -884,14 +808,12 @@ describe('popup local backend health check', () => {
       ['model-status-icon=!', 'model-status-name=Inpainter'],
     ]);
 
-    // Switching modes re-probes; an offline backend drops the stale list.
+    // An offline backend drops the stale list on the next popup load.
+    unmount(app as ReturnType<typeof mount>);
+    app = undefined;
+    document.body.innerHTML = '';
     mockFetch().mockRejectedValue(new Error('offline'));
-    el<HTMLInputElement>('mode-cloud').checked = true;
-    el<HTMLInputElement>('mode-cloud').dispatchEvent(new Event('change', { bubbles: true }));
-    await settle();
-    el<HTMLInputElement>('mode-local').checked = true;
-    el<HTMLInputElement>('mode-local').dispatchEvent(new Event('change', { bubbles: true }));
-    await settle();
+    await loadPopup({ settings: localSettings('http://localhost:8001') });
 
     expect(backendLabel()).toBe('Backend offline');
     expect(document.querySelectorAll('.model-status-list')).toHaveLength(0);
@@ -904,13 +826,5 @@ describe('popup local backend health check', () => {
 
     expect(backendLabel()).toBe('Backend offline');
     expect(document.querySelectorAll('.model-status-list')).toHaveLength(0);
-  });
-
-  it('does not probe the backend in cloud mode', async () => {
-    const fetchMock = mockFetch().mockResolvedValue({ ok: true, json: async () => ({}) });
-
-    await loadPopup();
-
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

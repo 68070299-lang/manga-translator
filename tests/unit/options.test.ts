@@ -283,25 +283,6 @@ describe('options page navigation', () => {
 });
 
 describe('options page settings persistence', () => {
-  it('preserves the popup-selected pipeline mode when saving options-only fields', async () => {
-    await loadOptions({
-      settings: {
-        pipelineMode: 'cloud',
-        localBackend: { url: 'http://localhost:8001', requestTimeoutMs: 345000 },
-      },
-      apiKeys: { apiKey: 'existing-key', localLlmApiKey: '' },
-    });
-    setField('backendUrl', 'http://127.0.0.1:8002/api/');
-
-    await click('saveBtn');
-
-    const settings = await storedSettings();
-    expect(settings.pipelineMode).toBe('cloud');
-    expect(settings.localBackend.url).toBe('http://127.0.0.1:8002/api');
-    expect(settings.localBackend.requestTimeoutMs).toBe(345000);
-    expect(toastText()).toBe('Settings saved successfully!');
-  });
-
   it('stamps the current settings version on a fresh save', async () => {
     await loadOptions({ apiKeys: {} });
 
@@ -401,7 +382,6 @@ describe('options page settings persistence', () => {
   it('migrates legacy LaMa storage while loading the options page', async () => {
     await loadOptions({
       settings: {
-        pipelineMode: 'local',
         localBackend: { detector: 'animetext-yolo', inpainter: 'lama_large' },
       },
     });
@@ -409,7 +389,6 @@ describe('options page settings persistence', () => {
     expect(await storedSettings()).toEqual({
       settingsVersion: SETTINGS_VERSION,
       fontSize: 16,
-      pipelineMode: 'local',
       localBackend: { detector: 'animetext-yolo', inpainter: 'flux2_klein_lanpaint' },
     });
     expect(field('localInpainter').value).toBe('flux2_klein_lanpaint');
@@ -417,7 +396,7 @@ describe('options page settings persistence', () => {
 
   it('rejects non-loopback backend URLs during save', async () => {
     await loadOptions({
-      settings: { pipelineMode: 'local', localBackend: { url: 'http://localhost:8001' } },
+      settings: { localBackend: { url: 'http://localhost:8001' } },
     });
     const syncSet = vi.spyOn(browser.storage.sync, 'set');
     const localSet = vi.spyOn(browser.storage.local, 'set');
@@ -432,7 +411,7 @@ describe('options page settings persistence', () => {
 
   it('accepts an IPv6 loopback backend URL during save', async () => {
     await loadOptions({
-      settings: { pipelineMode: 'local', localBackend: { url: 'http://localhost:8001' } },
+      settings: { localBackend: { url: 'http://localhost:8001' } },
       apiKeys: {},
     });
     setField('backendUrl', 'http://[::1]:8001');
@@ -444,7 +423,7 @@ describe('options page settings persistence', () => {
 
   it('persists the backend auth token privately when saving options', async () => {
     await loadOptions({
-      settings: { pipelineMode: 'local', localBackend: { url: 'http://localhost:8001' } },
+      settings: { localBackend: { url: 'http://localhost:8001' } },
       apiKeys: {},
     });
     setField('backendUrl', 'http://127.0.0.1:8001');
@@ -503,7 +482,7 @@ describe('options page settings persistence', () => {
 
   it('preserves blank local translator inheritance', async () => {
     await loadOptions({
-      settings: { provider: 'openrouter', pipelineMode: 'local', localBackend: { translator: '' } },
+      settings: { provider: 'openrouter', localBackend: { translator: '' } },
     });
     expect(field('localTranslator').value).toBe('');
 
@@ -799,7 +778,7 @@ describe('options page API key warnings', () => {
 
   it('warns when the provider needs a key and none is configured', async () => {
     await loadOptions({
-      settings: { pipelineMode: 'local', provider: 'openrouter', localBackend: { translator: '' } },
+      settings: { provider: 'openrouter', localBackend: { translator: '' } },
     });
 
     expect(isVisible('apiKeyWarning')).toBe(true);
@@ -807,7 +786,7 @@ describe('options page API key warnings', () => {
 
   it('hides the translator warning when the local translator is none or local', async () => {
     await loadOptions({
-      settings: { pipelineMode: 'local', provider: 'openrouter', localBackend: { translator: '' } },
+      settings: { provider: 'openrouter', localBackend: { translator: '' } },
     });
     expect(isVisible('apiKeyWarning')).toBe(true);
 
@@ -829,7 +808,7 @@ describe('options page API key warnings', () => {
   });
 
   it('hides the translator warning once an API key is typed', async () => {
-    await loadOptions({ settings: { pipelineMode: 'local', provider: 'openrouter' } });
+    await loadOptions({ settings: { provider: 'openrouter' } });
     expect(isVisible('apiKeyWarning')).toBe(true);
 
     setField('apiKey', 'typed-key');
@@ -839,25 +818,13 @@ describe('options page API key warnings', () => {
   });
 
   it('follows the provider selection', async () => {
-    await loadOptions({ settings: { pipelineMode: 'cloud', provider: 'openrouter' } });
+    await loadOptions({ settings: { provider: 'openrouter' } });
     expect(isVisible('apiKeyWarning')).toBe(true);
 
     setField('provider', 'local');
     flushSync();
 
     expect(isVisible('apiKeyWarning')).toBe(false);
-  });
-
-  it('ignores the local translator override in cloud mode', async () => {
-    await loadOptions({
-      settings: {
-        pipelineMode: 'cloud',
-        provider: 'openrouter',
-        localBackend: { translator: 'none' },
-      },
-    });
-
-    expect(isVisible('apiKeyWarning')).toBe(true);
   });
 });
 

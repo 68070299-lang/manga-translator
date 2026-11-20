@@ -281,7 +281,6 @@ button {
   background: rgba(255, 255, 255, 0.54);
 }
 
-.field-heading,
 .form-group label {
   display: flex;
   align-items: center;
@@ -291,40 +290,6 @@ button {
   color: var(--ichigo-muted);
   font-size: 12px;
   font-weight: 750;
-}
-
-.mode-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px;
-}
-
-.mode-tab {
-  position: relative;
-  display: grid;
-  min-height: 38px;
-  place-items: center;
-  border: 1px solid rgba(111, 45, 39, 0.26);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.68);
-  color: var(--ichigo-muted);
-  cursor: pointer;
-  font-weight: 750;
-  overflow: hidden;
-}
-
-.mode-tab input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.mode-tab:has(input:checked) {
-  border-color: var(--ichigo-line);
-  background: #fff;
-  color: var(--ichigo-ink);
-  box-shadow: 0 0 0 2px rgba(201, 79, 69, 0.16);
 }
 
 .connection-indicator {
@@ -465,7 +430,6 @@ button {
 .slider:focus-visible,
 .btn:focus-visible,
 .settings-btn:focus-visible,
-.mode-tab:has(input:focus-visible),
 .checkbox-label input:focus-visible {
   outline: 2px solid rgba(201, 79, 69, 0.45);
   outline-offset: 2px;

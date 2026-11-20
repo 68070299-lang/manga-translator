@@ -84,7 +84,6 @@ describe('settings contract defaults', () => {
     expect(DEFAULT_SETTINGS.settingsVersion).toBe(SETTINGS_VERSION);
     expect(SETTINGS_VERSION).toBe(2);
     expect(DEFAULT_SETTINGS).toMatchObject({
-      pipelineMode: 'local',
       provider: 'openrouter',
       model: '',
       baseUrl: '',

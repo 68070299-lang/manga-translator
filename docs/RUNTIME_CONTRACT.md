@@ -47,7 +47,7 @@ extension/lib/font-registry.ts lists the fonts shipped in extension/public/fonts
 - The font setting selects a bundled font by its `cssValue`. Other options depend on fonts installed on the system.
 - On first use in a page, the content script requests the bytes with GET_BUNDLED_FONT and registers them with the FontFace API. Page CSP does not apply to font data supplied this way, and fonts are not web-accessible, so sites cannot detect the extension through them. The registered family is visible to the page's `document.fonts`.
 - Text falls back to the next family if loading fails, and loading is retried on the next render.
-- The font setting only affects text drawn by the browser (cloud pipeline overlays). In local pipeline mode the backend renders text into the image with its own font.
+- The font setting only affects text drawn by the browser. The backend renders text into the image with its own font.
 
 ### Region Translation
 
@@ -108,8 +108,7 @@ extension/lib/settings.ts owns defaults and storage shaping.
 - Public synced settings include provider, model, target language, local backend options, render options, and local LLM endpoint/model metadata.
 - Private key material is split out before sync storage: provider apiKey, localLlmApiKey, and backendAuthToken (localBackend.authToken, sent as the backend access token).
 - Local backend base URLs must be loopback HTTP origins: localhost, 127.0.0.1, or ::1.
-- In cloud pipeline mode, provider selects the external OCR/translation provider.
-- In local pipeline mode, localBackend.translator wins when present; otherwise provider is used for backend translation.
+- localBackend.translator wins when present; otherwise provider is used for backend translation.
 
 ### Storage map
 
@@ -128,7 +127,6 @@ From DEFAULT_SETTINGS in extension/lib/settings.ts:
 | Setting | Default |
 | --- | --- |
 | settingsVersion | 2 |
-| pipelineMode | local |
 | provider | openrouter |
 | model, baseUrl | empty |
 | targetLang | English |
@@ -160,14 +158,7 @@ LocalBackendProvider (extension/lib/api.ts) sends the backend access token as th
 
 ## Data Flow
 
-The content script captures image or canvas data and sends base64 image data to the service worker. The service worker normalizes settings, computes cache identity, and chooses a provider path.
-
-Cloud path:
-
-1. TranslationProvider receives image base64, provider, API key, model, and optional base URL.
-2. The image is sent to Gemini, OpenAI, OpenRouter, or a custom OpenAI-compatible endpoint.
-3. The provider response is parsed into translated text blocks.
-4. The content script renders overlays from returned blocks.
+The content script captures image or canvas data and sends base64 image data to the service worker. The service worker normalizes settings, computes cache identity, and sends the request to the local backend.
 
 Local path:
 
@@ -178,7 +169,7 @@ Local path:
 
 ### Scheduling And Limits
 
-- The worker has two translation queues: local pipeline mode runs one job at a time, cloud mode runs up to three.
+- The worker runs one translation job at a time.
 - Jobs with the same cache key are deduplicated across tabs: later requests subscribe to the in-flight job and share its result. forceRefresh bypasses the cache and dedup.
 - TRANSLATE_IMAGE rejects payloads over 20 MB decoded or 25 megapixels; FETCH_IMAGE rejects bodies over 20 MB and non-image content types.
 - The backend additionally queues expensive routes behind BACKEND_MAX_CONCURRENT (default 2) and answers 429 only after the bounded queue wait.
@@ -209,7 +200,7 @@ GET / only proves the process is alive. It does not prove all ML models have dow
 extension/lib/cache.ts stores translation results in chrome.storage.local.
 
 - Cache keys start with manga_cache_. Cache metadata is maintained under manga_cache_metadata.
-- Cache identity includes image hash or canvas signature plus every setting that affects output: pipeline mode, provider/model/base URL, target language, fontSize (clamped to 6-96), the local backend URL, detector, OCR, translator, and inpainter (normalized, so `lama` and `lama_large` share an entry), local LLM endpoint/model, and render settings.
+- Cache identity includes image hash or canvas signature plus every setting that affects output: provider/model/base URL, target language, fontSize (clamped to 6-96), the local backend URL, detector, OCR, translator, and inpainter (normalized, so `lama` and `lama_large` share an entry), local LLM endpoint/model, and render settings.
 - API keys and the backend token are intentionally excluded from cache identity and storage metadata.
 - Entries older than seven days are dropped when read (getFromCache) and are also pruned in the background at worker load, browser startup, and install (pruneExpiredCache).
 - Total size is bounded to about 15 MB (five pages of 2 MB, base64 expanded, plus 2 MB headroom). Saving past the bound evicts least-recently-used entries first.
@@ -218,14 +209,12 @@ extension/lib/cache.ts stores translation results in chrome.storage.local.
 
 ## Provider And Model Precedence
 
-Direct cloud providers are selected by provider and support Gemini, OpenAI, OpenRouter, or a custom OpenAI-compatible base URL.
-
 Local backend translator selection is:
 
 1. Explicit localBackend.translator when set.
 2. Extension provider setting (default `openrouter`, so the extension never submits an empty translator).
 
-Without an explicit translator and without a key, a local-mode request therefore asks for `openrouter` and the backend answers 400 unless it has `OPENROUTER_API_KEY` in its environment. Choose Translator "None (OCR only)" in the options to run the pipeline without any key (OCR only, no translation). The backend itself normalizes an empty translator to none.
+Without an explicit translator and without a key, a request therefore asks for `openrouter` and the backend answers 400 unless it has `OPENROUTER_API_KEY` in its environment. Choose Translator "None (OCR only)" in the options to run the pipeline without any key (OCR only, no translation). The backend itself normalizes an empty translator to none.
 
 Keyless backend smoke tests should use translator=none and can disable inpainting with inpainter=none.
 
@@ -233,14 +222,13 @@ Keyless backend smoke tests should use translator=none and can disable inpaintin
 
 Page images and OCR text are sensitive. Only the first row keeps everything on loopback.
 
-| Mode | OCR | Translator | What is sent, to whom | Key used |
-| --- | --- | --- | --- | --- |
-| local | manga-ocr / paddle-ocr | none | Nothing leaves loopback: image goes to the local backend only | Backend token only |
-| local | manga-ocr / paddle-ocr | gemini, openai, openrouter | Image goes to the loopback backend; the backend sends OCR text (not the image) to the provider | Provider key is sent to the loopback backend, which uses it upstream |
-| local | manga-ocr / paddle-ocr | local | Image to the loopback backend; OCR text to the configured local LLM base URL, which must be loopback unless the backend sets ALLOW_REMOTE_LOCAL_LLM=true | Optional local LLM key |
-| cloud | provider handles OCR | gemini, openai, openrouter, or custom base URL | The full page image goes straight from the extension to the provider | Provider key |
+| OCR | Translator | What is sent, to whom | Key used |
+| --- | --- | --- | --- |
+| manga-ocr / paddle-ocr | none | Nothing leaves loopback: image goes to the local backend only | Backend token only |
+| manga-ocr / paddle-ocr | gemini, openai, openrouter | Image goes to the loopback backend; the backend sends OCR text (not the image) to the provider | Provider key is sent to the loopback backend, which uses it upstream |
+| manga-ocr / paddle-ocr | local | Image to the loopback backend; OCR text to the configured local LLM base URL, which must be loopback unless the backend sets ALLOW_REMOTE_LOCAL_LLM=true | Optional local LLM key |
 
-Choosing a cloud pipeline or a key-backed translator and saving the matching key is the user's opt-in to this data sharing. There is no separate consent prompt today (pending owner decision). The local inpainters (FLUX Klein + LanPaint via a loopback ComfyUI daemon, FLUX Klein Q4 via sd-cli, LaMa) run locally and send nothing out.
+Choosing a key-backed translator and saving the matching key is the user's opt-in to this data sharing. There is no separate consent prompt today (pending owner decision). The local inpainters (FLUX Klein + LanPaint via a loopback ComfyUI daemon, FLUX Klein Q4 via sd-cli, LaMa) run locally and send nothing out.
 
 ## Expected First-Run Failures
 
@@ -257,8 +245,7 @@ Choosing a cloud pipeline or a key-backed translator and saving the matching key
 ## Security And Privacy Notes
 
 - Host permissions and content scripts cover all URLs, so page image data must be treated as sensitive.
-- Cloud mode sends image content to an external provider.
-- Local backend mode keeps the image on loopback when the configured URL passes validation, but a key-backed translator sends OCR text to an external service (see the matrix above).
+- The local backend keeps the image on loopback when the configured URL passes validation, but a key-backed translator sends OCR text to an external service (see the matrix above).
 - The backend requires the X-Manga-Translator-Token header on all routes except GET / and preflights.
 - Backend CORS allows Chrome extension origins and any explicitly configured development origins.
 - Backend error handling redacts known key fields and configured secret values from stored last-error state; the extension redacts keys and bearer tokens in provider error text.

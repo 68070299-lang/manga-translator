@@ -58,7 +58,7 @@ test('popup uses the Ichigo-style visual shell without compact text overflow', a
   });
 
   const overflowingText = await page
-    .locator('.btn span, .mode-tab span, .checkbox-label span, .status-label')
+    .locator('.btn span, .checkbox-label span, .status-label')
     .evaluateAll((elements) =>
       elements
         .filter((element) => element.scrollWidth > element.clientWidth + 1)
@@ -67,29 +67,11 @@ test('popup uses the Ichigo-style visual shell without compact text overflow', a
   expect(overflowingText).toEqual([]);
 });
 
-test('pipeline mode toggle reveals local backend status only for local mode', async ({
-  page,
-  extensionId,
-}) => {
-  await openFreshPopup(page, extensionId);
-  const connectionIndicator = page.locator('#connection-indicator');
-
-  await expect(page.locator('#mode-local')).toBeChecked();
-  await expect(connectionIndicator).toBeVisible();
-
-  await page.locator('#mode-cloud').check();
-  await expect(connectionIndicator).toBeHidden();
-
-  await page.locator('#mode-local').check();
-  await expect(connectionIndicator).toBeVisible();
-});
-
 test('API key warning handles missing and stored browser keys', async ({ page, extensionId }) => {
   await resetExtensionStorage(page, extensionId);
   await page.evaluate(async () => {
     await chrome.storage.sync.set({
       settings: {
-        pipelineMode: 'local',
         provider: 'openrouter',
         localBackend: { translator: '' },
       },
@@ -110,32 +92,6 @@ test('API key warning handles missing and stored browser keys', async ({ page, e
   await expect(page.locator('#api-warning-section')).toBeHidden();
 });
 
-test('cloud mode API key warning ignores OCR-only local backend setting', async ({
-  page,
-  extensionId,
-}) => {
-  await resetExtensionStorage(page, extensionId);
-  await page.evaluate(async () => {
-    await chrome.storage.sync.set({
-      settings: {
-        pipelineMode: 'cloud',
-        provider: 'openrouter',
-        localBackend: { translator: 'none' },
-      },
-    });
-  });
-  await gotoPopup(page, extensionId);
-
-  await expect(page.locator('#api-warning-section')).toBeVisible();
-
-  await page.evaluate(async () => {
-    await chrome.storage.local.set({ apiKeys: { apiKey: 'sk-test' } });
-  });
-  await gotoPopup(page, extensionId);
-
-  await expect(page.locator('#api-warning-section')).toBeHidden();
-});
-
 test('popup quick settings preserve private API keys outside sync storage', async ({
   page,
   extensionId,
@@ -144,7 +100,6 @@ test('popup quick settings preserve private API keys outside sync storage', asyn
   await page.evaluate(async () => {
     await chrome.storage.sync.set({
       settings: {
-        pipelineMode: 'cloud',
         provider: 'openrouter',
         apiKey: 'legacy-sync-key',
         targetLang: 'English',

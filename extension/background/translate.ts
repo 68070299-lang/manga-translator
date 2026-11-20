@@ -1,11 +1,10 @@
 /**
  * TRANSLATE_IMAGE: validate the payload, derive the cache key, consult the
- * cache, and run the provider job through the right queue.
+ * cache, and run the backend job one at a time.
  *
- * Local pipeline mode runs one job at a time, cloud mode up to three. Jobs with
- * the same cache key are de-duplicated across tabs: later requests subscribe to
- * the in-flight job and share its result. `forceRefresh` bypasses the cache and
- * de-duplication.
+ * Jobs with the same cache key are de-duplicated across tabs: later requests
+ * subscribe to the in-flight job and share its result. `forceRefresh` bypasses
+ * the cache and de-duplication.
  */
 import { browser } from 'wxt/browser';
 import { generateCacheKey, getFromCache, saveToCache } from '../lib/cache';
@@ -15,27 +14,19 @@ import { errorMessage } from '../lib/utils';
 import type { TranslateImageRequest, WorkerResponseMap } from '../shared/messages';
 import type { Settings, TranslationResult } from '../shared/types';
 import { generateImageHash, validateImagePayload } from './image-payload';
-import { handleCloudTranslation, handleLocalBackendTranslation } from './providers';
+import { handleLocalBackendTranslation } from './providers';
 import { notifyProgress, notifyTranslationError } from './tab-messaging';
 
 const localTranslationQueue = new TranslationQueue({ concurrency: 1 });
-const cloudTranslationQueue = new TranslationQueue({ concurrency: 3 });
 
-/** The in-memory queues, exposed for diagnostics and tests. */
-export function getTranslationQueues(): { local: TranslationQueue; cloud: TranslationQueue } {
-  return { local: localTranslationQueue, cloud: cloudTranslationQueue };
+/** The in-memory queue, exposed for diagnostics and tests. */
+export function getTranslationQueues(): { local: TranslationQueue } {
+  return { local: localTranslationQueue };
 }
 
 /** A result the content script can render. */
 export function isUsableTranslationResult(result: unknown): result is TranslationResult {
-  if (Array.isArray(result)) {
-    return true;
-  }
-
   const candidate = result as Partial<TranslationResult> & Record<string, unknown>;
-  if (candidate?.mode === 'cloud' && Array.isArray(candidate.blocks)) {
-    return true;
-  }
 
   return Boolean(
     candidate &&
@@ -73,10 +64,7 @@ async function handleTranslationJob(
     }
   }
 
-  const result =
-    settings.pipelineMode === 'local'
-      ? await handleLocalBackendTranslation(base64, settings, notify)
-      : await handleCloudTranslation(base64, settings, notify);
+  const result = await handleLocalBackendTranslation(base64, settings, notify);
 
   if (!isUsableTranslationResult(result)) {
     throw new Error('Backend did not return a usable translated image');
@@ -120,8 +108,7 @@ export async function handleTranslateImage(
       }
     }
 
-    const queue =
-      normalizedSettings.pipelineMode === 'local' ? localTranslationQueue : cloudTranslationQueue;
+    const queue = localTranslationQueue;
     const queueKey = forceRefresh
       ? `${cacheKey}:force:${Date.now()}:${Math.random().toString(36).slice(2)}`
       : cacheKey;

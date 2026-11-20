@@ -13,7 +13,7 @@ The core runtime flow is:
 
 ```text
 content script captures page image/canvas
--> service worker checks cache and chooses cloud or local backend
+-> service worker checks cache and sends the request to the local backend
 -> backend /translate runs detector, OCR, translation, inpainting, rendering
 -> content script overlays or replaces the translated image
 ```
@@ -32,7 +32,7 @@ Check `rtk git status --short` before starting; the checkout may contain unrelat
    The extension is built by WXT: `wxt.config.ts` is the manifest source of truth and `extension/entrypoints/` defines the service worker, content script, popup, and options page. Permissions, referenced files, bundled font checksums, DNR rules, and remote-code rules are asserted by `scripts/validate-extension.ts` (run by the `build:done` hook on every build) and `tests/unit/manifest.test.ts`. Any new bundled asset or permission must be reflected in validation and tests.
 
 4. Treat privacy as product behavior, not a later audit.
-   The extension can run on all URLs and send image/canvas data to local or cloud providers. Changes should preserve clear consent, local-first defaults, cache controls, and provider-key boundaries.
+   The extension can run on all URLs and send image/canvas data to the local backend. Changes should preserve clear consent, local-first defaults, cache controls, and provider-key boundaries.
 
 5. Keep backend local by default.
    The backend is safe only as a local tool unless authentication, rate limits, and deployment hardening are added. Do not normalize `BACKEND_HOST=0.0.0.0` as a default path.
@@ -107,11 +107,11 @@ Goal: reduce high-impact failure modes before adding features.
 Status of each item:
 
 - Add an explicit permission budget test for the manifest - done (`tests/unit/manifest.test.ts` and `scripts/validate-extension.ts`; permissions are storage, unlimitedStorage, contextMenus, declarativeNetRequest).
-- Add explicit cloud consent or per-site allowlisting before page data leaves the browser - open, pending owner decision. No consent gate exists; choosing a cloud pipeline or a key-backed translator and saving a key is the opt-in today (documented in the README and runtime contract).
+- Add explicit consent or per-site allowlisting before page data leaves the browser - open, pending owner decision. No consent gate exists; choosing a key-backed translator and saving a key is the opt-in today (documented in the README and runtime contract).
 - Add a backend auth token if the backend may be exposed beyond loopback - done. All routes except `GET /` and preflights require `X-Manga-Translator-Token` (`BACKEND_AUTH_TOKEN`).
 - Add cache pruning on extension startup/session start - done (`pruneCacheSafely` runs at worker load, startup, and install; expiry is also enforced on read).
 - Redact upstream provider error bodies before logs or UI - done (backend and `extension/lib/api.ts` redact keys and bearer tokens).
-- Add request concurrency/rate limiting around expensive backend routes - done (`BACKEND_MAX_CONCURRENT` queue with a bounded wait before 429); extension queues are local 1 / cloud 3.
+- Add request concurrency/rate limiting around expensive backend routes - done (`BACKEND_MAX_CONCURRENT` queue with a bounded wait before 429); the extension runs one translation job at a time.
 - Pin or verify model downloads with revisions or checksums - done for the default models (`MODEL_PINS` in `backend/src/manga_backend/utils/download.py` pins a commit and sha256 for manga-ocr, LaMa, RT-DETR and PaddleOCR; `backend/tests/test_download.py` fails if one is left unpinned). The gated AnimeText YOLO repo hides its hashes from unauthenticated requests, so it is still unpinned. Cached files are re-hashed at load, which adds about 1.3 s to startup.
 - Serialize transient DNR referrer rule installs and removals - done (mutex plus reference-counted leases in the service worker).
 
@@ -224,7 +224,7 @@ Relevant surfaces:
 - Service-worker routing/cache/provider path: extension/background/ (entry: index.ts, message-router.ts)
 - Message contracts: extension/shared/messages.ts
 - Settings and private keys: extension/lib/settings.ts
-- Cloud/local backend requests: extension/lib/api.ts
+- Local backend requests: extension/lib/api.ts
 - Cache behavior: extension/lib/cache.ts
 - Backend API contract: backend/src/manga_backend/api/ (app.py, routes/, schemas.py)
 - Backend ML/render pipeline: backend/src/manga_backend/pipeline/ (orchestrator.py)

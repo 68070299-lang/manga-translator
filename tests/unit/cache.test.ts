@@ -16,7 +16,6 @@ import type { Inpainter, Settings } from '../../extension/shared/types';
 
 function makeCacheSettings(): Settings {
   return {
-    pipelineMode: 'local',
     provider: 'openrouter',
     model: 'provider-model',
     baseUrl: 'https://provider.example/v1',
@@ -53,12 +52,6 @@ function makeCacheSettings(): Settings {
 }
 
 const CACHE_KEY_MUTATIONS: Array<[string, (settings: Settings) => void]> = [
-  [
-    'pipeline mode',
-    (settings) => {
-      settings.pipelineMode = 'cloud';
-    },
-  ],
   [
     'provider',
     (settings) => {
@@ -600,7 +593,6 @@ describe('cache utilities', () => {
     );
     expect(
       generateCacheKey('hash', {
-        pipelineMode: 'cloud',
         provider: 'openai',
         model: 'gpt-4o-mini',
         baseUrl: 'https://x/v1',
@@ -614,6 +606,6 @@ describe('cache utilities', () => {
         },
         render: { bgOpacity: 0.5, uppercase: true },
       }),
-    ).toBe('manga_cache_hash_openai_gpt-4o-mini_Thai_45c75179');
+    ).toBe('manga_cache_hash_openai_gpt-4o-mini_Thai_41622def');
   });
 });

@@ -45,8 +45,6 @@ import {
 import { type FetchMock, mockFetch } from '../helpers/fetch';
 
 const mocks = vi.hoisted(() => ({
-  translateImage: vi.fn(),
-  TranslationProvider: vi.fn(),
   LocalBackendProvider: vi.fn(),
   generateCacheKey: vi.fn(),
   getFromCache: vi.fn(),
@@ -57,7 +55,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../extension/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../extension/lib/api')>()),
-  TranslationProvider: mocks.TranslationProvider,
   LocalBackendProvider: mocks.LocalBackendProvider,
 }));
 
@@ -116,12 +113,6 @@ describe('service worker', () => {
     mocks.saveToCache.mockReset();
     mocks.pruneExpiredCache.mockReset().mockResolvedValue(0);
     mocks.blobToBase64.mockReset().mockImplementation(blobToBase64);
-    mocks.translateImage
-      .mockReset()
-      .mockImplementation(async () => [{ text: 'fresh', translated: 'Fresh', bbox: [1, 2, 3, 4] }]);
-    mocks.TranslationProvider.mockReset().mockImplementation(
-      constructing(() => ({ translateImage: mocks.translateImage })),
-    );
     mocks.LocalBackendProvider.mockReset().mockImplementation(
       constructing(() => ({
         requestTimeoutMs: 600000,
@@ -386,8 +377,11 @@ describe('service worker', () => {
   describe('TRANSLATE_IMAGE', () => {
     it('uses cached translations for normal image requests', async () => {
       const cached = {
-        mode: 'cloud',
-        blocks: [{ text: 'cached', translated: 'Cached' }],
+        translatedImage: 'c'.repeat(160),
+        mimeType: 'image/png',
+        mode: 'local',
+        inpainterUsed: 'flux2_klein_lanpaint',
+        inpainterFallback: false,
       };
       mocks.getFromCache.mockResolvedValue(cached);
       const removeSpy = vi.spyOn(browser.storage.local, 'remove');
@@ -397,21 +391,21 @@ describe('service worker', () => {
           imageId: 'image-1',
           base64: 'data:image/png;base64,abcd',
           canvasSignature: 'reader:page:1',
-          settings: { pipelineMode: 'cloud', provider: 'gemini', apiKey: 'test-key' },
+          settings: { localBackend: { url: 'http://127.0.0.1:8001' } },
         }),
         { tab: { id: 123 } },
       );
 
       expect(result).toEqual({ success: true, result: cached, fromCache: true });
       expect(mocks.getFromCache).toHaveBeenCalledWith('manga_cache_force_key');
-      expect(mocks.TranslationProvider).not.toHaveBeenCalled();
+      expect(mocks.LocalBackendProvider).not.toHaveBeenCalled();
       expect(mocks.saveToCache).not.toHaveBeenCalled();
       expect(removeSpy).not.toHaveBeenCalled();
     });
 
     it('derives the cache identity from the canvas signature or the image hash', async () => {
       mocks.getFromCache.mockResolvedValue(null);
-      const settings = { pipelineMode: 'cloud', provider: 'gemini', apiKey: 'test-key' } as const;
+      const settings = { localBackend: { url: 'http://127.0.0.1:8001' } };
 
       await handleTranslateImage(
         translateRequest({
@@ -434,51 +428,27 @@ describe('service worker', () => {
       );
     });
 
-    it('normalizes cloud provider blocks before caching', async () => {
-      mocks.getFromCache.mockResolvedValue(null);
-      mocks.translateImage.mockResolvedValue([
-        { translated_text: 'Fresh', bbox: [1, 2, 3, 4] },
-        { text: 'original only', bbox: [1, 2, 3, 4] },
-        { translated: 'reversed', bbox: [4, 4, 2, 1] },
-      ]);
-
-      const result = await handleTranslateImage(
-        translateRequest({
-          imageId: 'image-cloud',
-          base64: 'data:image/png;base64,abcd',
-          canvasSignature: 'cloud:page:1',
-          settings: {
-            pipelineMode: 'cloud',
-            provider: 'gemini',
-            apiKey: 'test-key',
-            targetLang: 'English',
-          },
-        }),
-        { tab: { id: 123 } },
-      );
-
-      expect(result).toEqual({
-        success: true,
-        result: { mode: 'cloud', blocks: [{ translated: 'Fresh', bbox: [1, 2, 3, 4] }] },
-      });
-      expect(mocks.saveToCache).toHaveBeenCalled();
-    });
-
     it('shares one in-flight provider job across tabs', async () => {
       mocks.getFromCache.mockResolvedValue(null);
-      let resolveProvider: (blocks: unknown) => void = () => {};
-      mocks.translateImage.mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            resolveProvider = resolve;
-          }),
+      mocks.blobToBase64.mockResolvedValue('s'.repeat(160));
+      let resolveProvider: (blob: Blob) => void = () => {};
+      mocks.LocalBackendProvider.mockImplementationOnce(
+        constructing(() => ({
+          requestTimeoutMs: 600000,
+          translateImage: vi.fn(
+            () =>
+              new Promise<Blob>((resolve) => {
+                resolveProvider = resolve;
+              }),
+          ),
+        })),
       );
 
       const request = translateRequest({
         imageId: 'duplicate-image',
         base64: 'data:image/png;base64,abcd',
         canvasSignature: 'shared:page:1',
-        settings: { pipelineMode: 'cloud', provider: 'gemini', apiKey: 'test-key' },
+        settings: { localBackend: { url: 'http://127.0.0.1:8001' } },
       });
       const first = handleTranslateImage(request, { tab: { id: 101 } });
       const second = handleTranslateImage(
@@ -486,27 +456,31 @@ describe('service worker', () => {
         { tab: { id: 202 } },
       );
 
-      await vi.waitFor(() => expect(mocks.TranslationProvider).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(mocks.LocalBackendProvider).toHaveBeenCalledTimes(1));
 
-      resolveProvider([{ translated: 'Shared', bbox: [1, 2, 3, 4] }]);
-      await expect(Promise.all([first, second])).resolves.toEqual([
-        {
-          success: true,
-          result: { mode: 'cloud', blocks: [{ translated: 'Shared', bbox: [1, 2, 3, 4] }] },
+      resolveProvider(new Blob(['shared'], { type: 'image/png' }));
+      const shared = {
+        success: true,
+        result: {
+          translatedImage: 's'.repeat(160),
+          mimeType: 'image/png',
+          mode: 'local',
+          inpainterUsed: DEFAULT_SETTINGS.localBackend.inpainter,
+          inpainterFallback: false,
         },
-        {
-          success: true,
-          result: { mode: 'cloud', blocks: [{ translated: 'Shared', bbox: [1, 2, 3, 4] }] },
-        },
-      ]);
+      };
+      await expect(Promise.all([first, second])).resolves.toEqual([shared, shared]);
       expect(mocks.saveToCache).toHaveBeenCalledTimes(1);
     });
 
     it('rechecks the cache inside a queued job before calling the provider', async () => {
       let cacheReads = 0;
       const cached = {
-        mode: 'cloud',
-        blocks: [{ translated: 'Recovered', bbox: [1, 2, 3, 4] }],
+        translatedImage: 'r'.repeat(160),
+        mimeType: 'image/png',
+        mode: 'local',
+        inpainterUsed: 'flux2_klein_lanpaint',
+        inpainterFallback: false,
       };
       mocks.getFromCache.mockImplementation(async () => {
         cacheReads += 1;
@@ -518,14 +492,14 @@ describe('service worker', () => {
           imageId: 'cache-race',
           base64: 'data:image/png;base64,abcd',
           canvasSignature: 'cache-race:page:1',
-          settings: { pipelineMode: 'cloud', provider: 'gemini', apiKey: 'test-key' },
+          settings: { localBackend: { url: 'http://127.0.0.1:8001' } },
         }),
         { tab: { id: 123 } },
       );
 
       expect(result).toEqual({ success: true, result: cached, fromCache: true });
       expect(cacheReads).toBe(2);
-      expect(mocks.TranslationProvider).not.toHaveBeenCalled();
+      expect(mocks.LocalBackendProvider).not.toHaveBeenCalled();
       expect(mocks.saveToCache).not.toHaveBeenCalled();
     });
 
@@ -550,7 +524,6 @@ describe('service worker', () => {
           base64: 'data:image/png;base64,abcd',
           canvasSignature: 'fallback-image:page:1',
           settings: {
-            pipelineMode: 'local',
             localBackend: { ...DEFAULT_SETTINGS.localBackend, inpainter: 'flux2_klein_lanpaint' },
           },
         }),
@@ -574,7 +547,7 @@ describe('service worker', () => {
           imageId: 'local-ok',
           base64: 'data:image/png;base64,abcd',
           canvasSignature: 'local-ok:page:1',
-          settings: { pipelineMode: 'local' },
+          settings: {},
         }),
         { tab: { id: 123 } },
       );
@@ -590,11 +563,10 @@ describe('service worker', () => {
       expect(mocks.saveToCache).toHaveBeenCalledWith('manga_cache_force_key', expected);
     });
 
-    it('runs local jobs one at a time and cloud jobs three at a time', () => {
-      const { local, cloud } = getTranslationQueues();
+    it('runs local jobs one at a time', () => {
+      const { local } = getTranslationQueues();
 
       expect(local.concurrency).toBe(1);
-      expect(cloud.concurrency).toBe(3);
     });
 
     it('classifies worker network errors from the local backend path', async () => {
@@ -614,7 +586,7 @@ describe('service worker', () => {
           imageId: 'img-test',
           base64: `data:image/png;base64,${Buffer.from('not-an-empty-image').toString('base64')}`,
           canvasSignature: 'bookwalker:img-test',
-          settings: { pipelineMode: 'local', localBackend: { url: 'http://127.0.0.1:8001' } },
+          settings: { localBackend: { url: 'http://127.0.0.1:8001' } },
         }),
         { tab: { id: 123 } },
       );
@@ -646,7 +618,7 @@ describe('service worker', () => {
           imageId: 'img-test',
           base64: `data:image/png;base64,${Buffer.from('not-an-empty-image').toString('base64')}`,
           canvasSignature: 'bookwalker:img-test',
-          settings: { pipelineMode: 'local', localBackend: { url: 'http://127.0.0.1:8001' } },
+          settings: { localBackend: { url: 'http://127.0.0.1:8001' } },
         }),
         { tab: { id: 123 } },
       );
@@ -674,7 +646,7 @@ describe('service worker', () => {
           imageId: 'img-timeout',
           base64: 'data:image/png;base64,abcd',
           canvasSignature: 'timeout:page:1',
-          settings: { pipelineMode: 'local' },
+          settings: {},
         }),
         { tab: { id: 123 } },
       );
@@ -705,7 +677,7 @@ describe('service worker', () => {
           imageId: 'img-504',
           base64: `data:image/png;base64,${Buffer.from('not-an-empty-image').toString('base64')}`,
           canvasSignature: 'bookwalker:img-504',
-          settings: { pipelineMode: 'local', localBackend: { url: 'http://127.0.0.1:8001' } },
+          settings: { localBackend: { url: 'http://127.0.0.1:8001' } },
         }),
         { tab: { id: 123 } },
       );
@@ -715,26 +687,6 @@ describe('service worker', () => {
         'Local backend error: Local backend error',
       );
       expect((response as { error: string }).error).not.toContain('after 600s');
-    });
-
-    it('refuses the Local LLM provider in cloud mode', async () => {
-      mocks.getFromCache.mockResolvedValue(null);
-      vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      const response = await handleTranslateImage(
-        translateRequest({
-          imageId: 'cloud-local-llm',
-          base64: 'data:image/png;base64,abcd',
-          canvasSignature: 'cloud-local-llm:page:1',
-          settings: { pipelineMode: 'cloud', provider: 'local' },
-        }),
-        { tab: { id: 123 } },
-      );
-
-      expect(response.success).toBe(false);
-      expect((response as { error: string }).error).toContain(
-        'Cloud API mode does not support Local LLM',
-      );
     });
 
     it('does not warn when progress cannot reach a tab without a receiver', async () => {
@@ -749,7 +701,7 @@ describe('service worker', () => {
           imageId: 'no-receiver',
           base64: 'data:image/png;base64,abcd',
           canvasSignature: 'no-receiver:page:1',
-          settings: { pipelineMode: 'cloud', provider: 'gemini', apiKey: 'test-key' },
+          settings: { localBackend: { url: 'http://127.0.0.1:8001' } },
         }),
         { tab: { id: 123 } },
       );
@@ -765,33 +717,43 @@ describe('service worker', () => {
     it('sends progress and a final error notice to the requesting tab', async () => {
       mocks.getFromCache.mockResolvedValue(null);
       vi.spyOn(console, 'error').mockImplementation(() => {});
-      mocks.translateImage.mockRejectedValue(new Error('provider down'));
+      mocks.LocalBackendProvider.mockImplementationOnce(
+        constructing(() => ({
+          requestTimeoutMs: 600000,
+          translateImage: vi.fn(async () => {
+            throw new Error('provider down');
+          }),
+        })),
+      );
 
       const response = await handleTranslateImage(
         translateRequest({
           imageId: 'tab-notices',
           base64: 'data:image/png;base64,abcd',
           canvasSignature: 'tab-notices:page:1',
-          settings: { pipelineMode: 'cloud', provider: 'gemini', apiKey: 'test-key' },
+          settings: { localBackend: { url: 'http://127.0.0.1:8001' } },
         }),
         { tab: { id: 55 } },
       );
 
-      expect(response).toEqual({ success: false, error: 'provider down' });
+      expect(response).toEqual({ success: false, error: 'Local backend error: provider down' });
       const messages = stubs.tabsSendMessage.mock.calls.map(([tabId, sent]) => [tabId, sent]);
       expect(messages).toContainEqual([
         55,
-        { type: 'TRANSLATION_PROGRESS', status: 'Analyzing image...', percent: 25 },
+        { type: 'TRANSLATION_PROGRESS', status: 'Detecting text...', percent: 10 },
       ]);
       expect(messages).toContainEqual([
         55,
-        { type: 'TRANSLATION_ERROR', imageId: 'tab-notices', error: 'provider down' },
+        {
+          type: 'TRANSLATION_ERROR',
+          imageId: 'tab-notices',
+          error: 'Local backend error: provider down',
+        },
       ]);
     });
 
     it('bypasses and replaces cached translations for force refresh requests', async () => {
-      const freshBlocks = [{ text: 'fresh', translated: 'Fresh', bbox: [1, 2, 3, 4] }];
-      mocks.translateImage.mockResolvedValue(freshBlocks);
+      mocks.blobToBase64.mockResolvedValue('f'.repeat(160));
       const removeSpy = vi.spyOn(browser.storage.local, 'remove');
 
       const result = await handleTranslateImage(
@@ -800,21 +762,22 @@ describe('service worker', () => {
           base64: 'data:image/png;base64,abcd',
           canvasSignature: 'reader:page:1',
           forceRefresh: true,
-          settings: { pipelineMode: 'cloud', provider: 'gemini', apiKey: 'test-key' },
+          settings: { localBackend: { url: 'http://127.0.0.1:8001' } },
         }),
         { tab: { id: 123 } },
       );
 
+      const expected = {
+        translatedImage: 'f'.repeat(160),
+        mimeType: 'image/png',
+        mode: 'local',
+        inpainterUsed: DEFAULT_SETTINGS.localBackend.inpainter,
+        inpainterFallback: false,
+      };
       expect(mocks.getFromCache).not.toHaveBeenCalled();
       expect(removeSpy).toHaveBeenCalledWith('manga_cache_force_key');
-      expect(mocks.saveToCache).toHaveBeenCalledWith('manga_cache_force_key', {
-        mode: 'cloud',
-        blocks: [{ translated: 'Fresh', bbox: [1, 2, 3, 4] }],
-      });
-      expect(result).toEqual({
-        success: true,
-        result: { mode: 'cloud', blocks: [{ translated: 'Fresh', bbox: [1, 2, 3, 4] }] },
-      });
+      expect(mocks.saveToCache).toHaveBeenCalledWith('manga_cache_force_key', expected);
+      expect(result).toEqual({ success: true, result: expected });
     });
 
     it('rejects oversized decoded payloads before hashing or provider calls', async () => {
@@ -824,7 +787,7 @@ describe('service worker', () => {
         translateRequest({
           imageId: 'oversized',
           base64: oversized,
-          settings: { pipelineMode: 'cloud', provider: 'gemini', apiKey: 'test-key' },
+          settings: {},
         }),
         { tab: { id: 123 } },
       );
@@ -834,7 +797,7 @@ describe('service worker', () => {
         error: 'Image exceeds 20 MB decoded image limit',
       });
       expect(mocks.generateCacheKey).not.toHaveBeenCalled();
-      expect(mocks.TranslationProvider).not.toHaveBeenCalled();
+      expect(mocks.LocalBackendProvider).not.toHaveBeenCalled();
     });
 
     it('rejects decoded images over the pixel limit when bitmap decoding is available', async () => {
@@ -858,19 +821,26 @@ describe('service worker', () => {
     it('does not cache a job whose provider rejected', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
       mocks.getFromCache.mockResolvedValue(null);
-      mocks.translateImage.mockRejectedValue(new Error('Failed to parse translation response'));
+      mocks.LocalBackendProvider.mockImplementationOnce(
+        constructing(() => ({
+          requestTimeoutMs: 600000,
+          translateImage: vi.fn(async () => {
+            throw Object.assign(new Error('provider rejected the image'), { backendStatus: 502 });
+          }),
+        })),
+      );
 
       const response = await handleTranslateImage(
         translateRequest({
           imageId: 'unparseable',
           base64: 'data:image/png;base64,abcd',
           canvasSignature: 'unparseable:page:1',
-          settings: { pipelineMode: 'cloud', provider: 'gemini', apiKey: 'test-key' },
+          settings: { localBackend: { url: 'http://127.0.0.1:8001' } },
         }),
         { tab: { id: 123 } },
       );
 
-      expect(response).toEqual({ success: false, error: 'Failed to parse translation response' });
+      expect(response).toEqual({ success: false, error: 'provider rejected the image' });
       expect(mocks.saveToCache).not.toHaveBeenCalled();
     });
   });
@@ -886,7 +856,7 @@ describe('service worker', () => {
         })),
       );
 
-      await expect(handleCheckBackend({ pipelineMode: 'local' })).resolves.toEqual({
+      await expect(handleCheckBackend({})).resolves.toEqual({
         success: false,
         reason: 'unauthorized',
       });

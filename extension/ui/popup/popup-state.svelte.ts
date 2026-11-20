@@ -17,7 +17,7 @@ import {
   type TranslatePageMessage,
   type TranslateVisibleImagesMessage,
 } from '../../shared/messages';
-import type { PipelineMode, Settings, SiteState, TranslationProgress } from '../../shared/types';
+import type { Settings, SiteState, TranslationProgress } from '../../shared/types';
 import {
   type BackendIndicator,
   checkLocalBackend,
@@ -75,14 +75,12 @@ export class PopupState {
   fontFamily = $state<string>(DEFAULT_SETTINGS.fontFamily);
   autoTranslate = $state<boolean>(DEFAULT_SETTINGS.autoTranslate);
   showProgress = $state<boolean>(DEFAULT_SETTINGS.showProgress);
-  pipelineMode = $state<PipelineMode>(DEFAULT_SETTINGS.pipelineMode);
 
   // Missing-key banner.
   warningVisible = $state(false);
   warningText = $state(MISSING_KEY_TEXT);
 
   // Local backend indicator.
-  backendVisible = $state(false);
   backendState = $state<IndicatorState | ''>('');
   backendLabel = $state('Local backend');
   backendModels = $state<ModelStatusMap | null>(null);
@@ -147,11 +145,7 @@ export class PopupState {
       this.showProgress = settings.showProgress;
       this.#applyWarning(settings);
 
-      this.pipelineMode = settings.pipelineMode === 'local' ? 'local' : 'cloud';
-      this.backendVisible = this.pipelineMode === 'local';
-      if (this.backendVisible) {
-        void this.#checkBackend(settings);
-      }
+      void this.#checkBackend(settings);
     } catch (error) {
       console.error('Error loading settings:', error);
     }
@@ -168,7 +162,6 @@ export class PopupState {
         fontFamily: this.fontFamily,
         autoTranslate: this.autoTranslate,
         showProgress: this.showProgress,
-        pipelineMode: this.pipelineMode,
       });
 
       const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
@@ -180,25 +173,6 @@ export class PopupState {
       }
     } catch (error) {
       console.error('Error saving settings:', error);
-    }
-  }
-
-  async setPipelineMode(mode: PipelineMode): Promise<void> {
-    this.pipelineMode = mode;
-    this.backendVisible = mode === 'local';
-    await this.saveSettings();
-    await this.refreshApiKeyWarning();
-    if (mode === 'local') {
-      const settings = await loadCurrentSettings();
-      void this.#checkBackend(settings);
-    }
-  }
-
-  async refreshApiKeyWarning(): Promise<void> {
-    try {
-      this.#applyWarning(await loadCurrentSettings());
-    } catch (error) {
-      console.error('Error refreshing API key warning:', error);
     }
   }
 

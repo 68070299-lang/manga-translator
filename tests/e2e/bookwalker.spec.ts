@@ -3,13 +3,7 @@ import type { AddressInfo, Socket } from 'node:net';
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import { injectManifestContentScripts } from './fixtures.ts';
 
-type TranslationMode =
-  | 'success'
-  | 'black'
-  | 'error'
-  | 'timeout-error'
-  | 'cloud-blocks'
-  | 'broken-data-url';
+type TranslationMode = 'success' | 'black' | 'error' | 'timeout-error' | 'broken-data-url';
 
 interface MockOverrides {
   translationDelayMs?: number;
@@ -201,7 +195,6 @@ async function installChromeMock(
           targetLang: 'English',
           autoTranslate: false,
           showProgress: false,
-          pipelineMode: 'local',
           localBackend: {
             url: 'http://127.0.0.1:8001',
             detector: 'default',
@@ -260,21 +253,6 @@ async function installChromeMock(
                   success: false,
                   error:
                     'Local backend request timed out after 180s. The image may be too large or the server is busy.',
-                });
-              }
-
-              if ((window as TestWindow).__translationMode === 'cloud-blocks') {
-                return finishResponse({
-                  success: true,
-                  result: {
-                    mode: 'cloud',
-                    blocks: [
-                      {
-                        bbox: [25, 25, 75, 45],
-                        translated: 'translated',
-                      },
-                    ],
-                  },
                 });
               }
 
@@ -845,27 +823,6 @@ test('BookWalker page switch clears translating badge and does not retry stale c
       .toBe(1);
     await page.waitForTimeout(1300);
     await expect.poll(() => page.evaluate(() => (window as TestWindow).__translateCalls)).toBe(1);
-  } finally {
-    await server.close();
-  }
-});
-
-test('cloud text overlay on BookWalker canvas does not wrap or move the canvas', async ({
-  page,
-}) => {
-  const server = await loadFixtureWithContentScript(page, 'cloud-blocks');
-
-  try {
-    await requestTranslatePage(page);
-    await expect(page.locator('.manga-canvas-overlay svg')).toHaveCount(1);
-    await expect(page.locator('.manga-canvas-overlay svg')).toBeVisible();
-
-    const state = await getCanvasOverlayState(page);
-    expect(state.translated).toBe(true);
-    expect(state.wrapperCount).toBe(0);
-    expect(state.canvasParentId).toBe('viewport0');
-    expect(state.overlayTag).toBe('svg');
-    expectOverlayAligned(state);
   } finally {
     await server.close();
   }

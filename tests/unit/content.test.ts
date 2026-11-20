@@ -99,18 +99,6 @@ describe('content script', () => {
     vi.stubGlobal('fetch', vi.fn());
   });
 
-  it('treats an empty cloud result as a successful no-op', () => {
-    const element = document.createElement('img');
-    element.setAttribute('data-manga-processing', 'image-1');
-    document.body.appendChild(element);
-
-    const result = handleTranslationResult('image-1', { mode: 'cloud', blocks: [] });
-
-    expect(result).toBe(true);
-    expect(element.hasAttribute('data-manga-processing')).toBe(false);
-    expect(element.getAttribute('data-manga-translated')).toBe('true');
-  });
-
   it('converts data URL background sources locally without service worker fetch', async () => {
     const base64 = base64Of('inline-image');
 
@@ -444,77 +432,6 @@ describe('content script', () => {
     expect(element.style.backgroundPosition).toBe('left top');
   });
 
-  it('uses 16px as the preferred overlay size when the text fits', async () => {
-    await loadSettings();
-    const element = document.createElement('img');
-    element.setAttribute('data-manga-processing', 'img-1');
-    element.width = 500;
-    element.height = 200;
-    document.body.appendChild(element);
-
-    const result = handleTranslationResult('img-1', {
-      blocks: [{ bbox: [0, 0, 360, 120], translated: 'THAT.' }],
-    });
-
-    const text = document
-      .querySelector('.manga-translate-overlay')
-      ?.shadowRoot?.querySelector('text');
-    expect(result).toBe(true);
-    expect(Number(text?.getAttribute('font-size'))).toBe(16);
-  });
-
-  it('centers browser overlays on exported bubble geometry', () => {
-    const element = document.createElement('img');
-    element.setAttribute('data-manga-processing', 'img-bubble-center');
-    element.width = 500;
-    element.height = 200;
-    document.body.appendChild(element);
-
-    const result = handleTranslationResult('img-bubble-center', {
-      blocks: [
-        {
-          bbox: [100, 20, 160, 100],
-          bubble_bbox: [80, 10, 200, 110],
-          bubble_center: [145, 60],
-          translated: 'CENTERED',
-        },
-      ],
-    });
-
-    const overlay = document.querySelector('.manga-translate-overlay')?.shadowRoot;
-    const text = overlay?.querySelector('text');
-    const background = overlay?.querySelector('rect');
-    expect(result).toBe(true);
-    expect(text?.getAttribute('text-anchor')).toBe('middle');
-    expect(Number(text?.getAttribute('x'))).toBe(145);
-    expect(Number(background?.getAttribute('x'))).toBe(80);
-    expect(Number(background?.getAttribute('width'))).toBe(120);
-  });
-
-  it('shrinks overlay text to fit without dropping translated words', async () => {
-    await loadSettings();
-    const element = document.createElement('img');
-    element.setAttribute('data-manga-processing', 'img-tight');
-    element.width = 160;
-    element.height = 60;
-    document.body.appendChild(element);
-
-    const translated = 'THIS TRANSLATED SENTENCE MUST STAY COMPLETE';
-    const result = handleTranslationResult('img-tight', {
-      blocks: [{ bbox: [0, 0, 80, 24], translated }],
-    });
-
-    const text = document
-      .querySelector('.manga-translate-overlay')
-      ?.shadowRoot?.querySelector('text');
-    const rendered = Array.from(text?.querySelectorAll('tspan') ?? [])
-      .map((line) => line.textContent)
-      .join(' ');
-    expect(result).toBe(true);
-    expect(Number(text?.getAttribute('font-size'))).toBeLessThan(16);
-    expect(rendered).toBe(translated);
-  });
-
   it('does not treat a sibling canvas overlay as this slide translation', () => {
     const container = document.createElement('div');
     const translatedCanvas = document.createElement('canvas');
@@ -610,6 +527,7 @@ describe('content script', () => {
 
     it('clears remembered canvas translations so translate all can requeue', () => {
       mockFlatCanvasSampling();
+      translatedImage.getTranslatedSrc.mockReturnValue('translated-canvas.png');
 
       const canvas = document.createElement('canvas');
       canvas.width = 930;
@@ -618,7 +536,9 @@ describe('content script', () => {
       document.body.appendChild(canvas);
 
       const result = handleTranslationResult('canvas-1', {
-        blocks: [{ bbox: [20, 20, 200, 80], translated: 'Cleared cache' }],
+        translatedImage: base64Of('cleared cache'),
+        mimeType: 'image/png',
+        mode: 'local',
       });
 
       expect(result).toBe(true);

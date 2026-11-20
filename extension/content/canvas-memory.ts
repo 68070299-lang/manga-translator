@@ -23,7 +23,6 @@ import {
 } from './constants';
 import { replaceWithTranslatedImage } from './render';
 import { state } from './state';
-import { renderTranslationOverlay } from './svg-overlay';
 import type { CanvasMemoryBody, CanvasMemoryRecord, ResultInput } from './types';
 import { hideImageProgress } from './ui';
 import { debugLog, lruSet } from './utils';
@@ -44,8 +43,7 @@ function normalizeCanvasTranslationResult(
     };
   }
 
-  const blocks = Array.isArray(result) ? result : result?.blocks;
-  return Array.isArray(blocks) && blocks.length > 0 ? { type: 'blocks', blocks } : null;
+  return null;
 }
 
 /** Keep a canvas's translation so a redraw of the same page can restore it. */
@@ -102,11 +100,9 @@ export function restoreCanvasTranslationFromMemory(canvas: HTMLCanvasElement): b
   canvas.setAttribute(CANVAS_SOURCE_ATTR, sourceSignature);
   storeCanvasDimensions(canvas, dimensions);
 
-  let restored = true;
+  let restored = false;
   if (record.type === 'image') {
     restored = replaceWithTranslatedImage(canvas, record.translatedImage, record.mimeType);
-  } else {
-    renderTranslationOverlay(canvas, record.blocks);
   }
 
   if (!restored) {

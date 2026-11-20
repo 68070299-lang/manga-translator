@@ -10,8 +10,6 @@
 // Settings
 // ---------------------------------------------------------------------------
 
-export type PipelineMode = 'local' | 'cloud';
-
 /** Cloud OCR/translation providers selectable in the options page. */
 export type Provider = 'gemini' | 'openai' | 'openrouter' | 'custom' | 'local';
 
@@ -76,7 +74,6 @@ export interface Settings {
   fontFamily: string;
   autoTranslate: boolean;
   showProgress: boolean;
-  pipelineMode: PipelineMode;
   localBackend: LocalBackendSettings;
   render: RenderSettings;
   localLlm: LocalLlmSettings;
@@ -118,12 +115,6 @@ export interface TranslationBlock {
   bubble_center?: [x: number, y: number];
 }
 
-/** Cloud pipeline result: text blocks the content script draws as an SVG overlay. */
-export interface CloudTranslationResult {
-  mode: 'cloud';
-  blocks: TranslationBlock[];
-}
-
 /** Local pipeline result: the backend returned a fully rendered image. */
 export interface LocalTranslationResult {
   mode: 'local';
@@ -140,10 +131,7 @@ export interface LocalTranslationResult {
  * Result of a TRANSLATE_IMAGE request. A bare block array is the legacy cache
  * format and must still be accepted when read back.
  */
-export type TranslationResult =
-  | CloudTranslationResult
-  | LocalTranslationResult
-  | TranslationBlock[];
+export type TranslationResult = LocalTranslationResult | TranslationBlock[];
 
 // ---------------------------------------------------------------------------
 // Cache and progress

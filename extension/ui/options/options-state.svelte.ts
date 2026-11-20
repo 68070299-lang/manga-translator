@@ -14,7 +14,7 @@ import {
   splitSettingsForStorage,
   translatorNeedsApiKey,
 } from '../../lib/settings';
-import type { PipelineMode, SettingsInput } from '../../shared/types';
+import type { SettingsInput } from '../../shared/types';
 import {
   type ConnectionStatus,
   LOOPBACK_ONLY_MESSAGE,
@@ -49,12 +49,6 @@ export class OptionsState {
   readonly render = new RenderForm();
   readonly behavior = new BehaviorForm();
 
-  /**
-   * The pipeline mode is chosen in the popup. It is remembered here so the key
-   * warnings only consider the local-only overrides when they apply.
-   */
-  pipelineMode = $state<PipelineMode>(DEFAULT_SETTINGS.pipelineMode);
-
   connection = $state<ConnectionStatus | null>(null);
   testingConnection = $state(false);
 
@@ -62,10 +56,9 @@ export class OptionsState {
   cacheSize = $state('0 KB');
   cacheAge = $state('-');
 
-  /** A cloud/translator provider is in use but no API key is configured. */
+  /** A translator provider is in use but no API key is configured. */
   get apiKeyWarningVisible(): boolean {
-    const local = this.pipelineMode === 'local';
-    const translator = (local && this.backend.translator) || this.provider.provider;
+    const translator = this.backend.translator || this.provider.provider;
     return translatorNeedsApiKey(translator) && !this.provider.apiKey.trim();
   }
 
@@ -97,7 +90,6 @@ export class OptionsState {
       this.backend.load(settings);
       this.render.load(settings);
       this.behavior.load(settings);
-      this.pipelineMode = settings.pipelineMode;
     } catch (error) {
       console.error('Error loading settings:', error);
       this.toast.show('Error loading settings', 'error');

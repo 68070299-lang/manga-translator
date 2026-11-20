@@ -63,7 +63,6 @@ import {
 } from './retry';
 import { ensureSettingsLoaded } from './settings-store';
 import { state } from './state';
-import { renderTranslationOverlay } from './svg-overlay';
 import type {
   ImageTarget,
   ImageType,
@@ -125,13 +124,8 @@ const BACKEND_PROBLEMS: Record<string, string> = {
     'has no access token configured. Set BACKEND_AUTH_TOKEN on the backend, then restart it.',
 };
 
-/** In local mode, check the backend answers before spending time capturing images. */
+/** Check the backend answers before spending time capturing images. */
 async function ensureBackendReady(): Promise<boolean> {
-  if ((state.settings?.pipelineMode || 'local') !== 'local') {
-    updateProgress('Preparing cloud translation...', 2);
-    return true;
-  }
-
   updateProgress('Checking backend connection...', 2);
   const backendCheck: CheckBackendResponse | undefined = await sendToWorker({
     type: 'CHECK_BACKEND',
@@ -218,9 +212,6 @@ export function handleTranslationResult(imageId: string, result: ResultInput): b
     if (!replaceWithTranslatedImage(element, result.translatedImage, result.mimeType, imageId)) {
       return false;
     }
-  } else if (Array.isArray(result) || (result?.blocks?.length ?? 0) > 0) {
-    // Text blocks from cloud mode get an SVG overlay.
-    renderTranslationOverlay(element, Array.isArray(result) ? result : (result.blocks ?? []));
   } else {
     showImageProgress(element, 'No text found');
     setTimeout(() => hideImageProgress(element), 2000);

@@ -162,7 +162,7 @@ function normalizeSettingsForCache(settings: SettingsInput = {}) {
   const localLlm = settings.localLlm || {};
 
   return {
-    pipelineMode: settings.pipelineMode || 'local',
+    pipelineMode: 'local',
     provider: settings.provider || 'none',
     model: settings.model || '',
     baseUrl: settings.baseUrl || '',

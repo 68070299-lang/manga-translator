@@ -113,7 +113,6 @@ async function installContentScriptChromeMock(page: Page) {
       targetLang: 'English',
       autoTranslate: false,
       showProgress: false,
-      pipelineMode: 'local',
       localBackend: {
         url: 'http://127.0.0.1:8001',
         detector: 'default',
@@ -295,7 +294,6 @@ test('content settings changes preserve and clear local API keys for translation
 
     await page.evaluate(() => {
       (window as TestWindow).__setStoredSettings({
-        pipelineMode: 'cloud',
         provider: 'openrouter',
         targetLang: 'English',
         localBackend: { translator: 'none' },
@@ -319,7 +317,6 @@ test('content settings changes preserve and clear local API keys for translation
 
     await page.evaluate(() => {
       (window as TestWindow).__setStoredSettings({
-        pipelineMode: 'cloud',
         provider: 'openrouter',
         targetLang: 'Thai',
         localBackend: { translator: 'none' },
@@ -345,7 +342,6 @@ test('content settings changes preserve and clear local API keys for translation
     );
     await page.evaluate(() => {
       (window as TestWindow).__setStoredSettings({
-        pipelineMode: 'cloud',
         provider: 'openrouter',
         targetLang: 'Korean',
         localBackend: { translator: 'none' },

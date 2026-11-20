@@ -2,8 +2,8 @@
 import { onMount } from 'svelte';
 import ActionButtons from '../../components/popup/ActionButtons.svelte';
 import ApiKeyWarning from '../../components/popup/ApiKeyWarning.svelte';
+import BackendStatus from '../../components/popup/BackendStatus.svelte';
 import MangaStrip from '../../components/popup/MangaStrip.svelte';
-import PipelineMode from '../../components/popup/PipelineMode.svelte';
 import PopupHeader from '../../components/popup/PopupHeader.svelte';
 import ProgressBar from '../../components/popup/ProgressBar.svelte';
 import QuickSettings from '../../components/popup/QuickSettings.svelte';
@@ -21,7 +21,9 @@ onMount(() => {
 <main class="popup-container">
   <PopupHeader {popup} />
   <MangaStrip />
-  <PipelineMode {popup} />
+  <section class="section section-flat">
+    <BackendStatus {popup} />
+  </section>
   <ApiKeyWarning {popup} />
   <QuickSettings {popup} />
   <ProgressBar {popup} />

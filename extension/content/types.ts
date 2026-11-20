@@ -50,7 +50,7 @@ export interface TranslateImageDataOptions {
  * providers produce.
  */
 export interface TranslationResultLike {
-  mode?: 'cloud' | 'local';
+  mode?: 'local';
   blocks?: TranslationBlock[];
   translatedImage?: string;
   mimeType?: string;

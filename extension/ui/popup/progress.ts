@@ -33,12 +33,7 @@ export function formatRunCounts(message: CompleteMessage | StoppedMessage): stri
 
 /** Why translation cannot start with these settings; `''` when it can. */
 export function getTranslationSetupError(settings: Settings): string {
-  const translator = resolveTranslator(settings);
-
-  if (settings.pipelineMode !== 'local' && translatorNeedsApiKey(translator) && !settings.apiKey) {
-    return 'Please configure a Translate API key in Settings';
-  }
-  if (settings.pipelineMode === 'local' && !settings.localBackend.url) {
+  if (!settings.localBackend.url) {
     return 'Please configure backend URL in Settings';
   }
   return '';
@@ -57,9 +52,6 @@ export function getApiKeyWarning(settings: Settings): ApiKeyWarning {
   if (!translatorNeedsApiKey(translator) || settings.apiKey) {
     return { visible: false, text: MISSING_KEY_TEXT };
   }
-  const text =
-    settings.pipelineMode === 'local'
-      ? `Local backend is using ${translator}. Configure an API key in Settings, or make sure the backend .env provides it. `
-      : MISSING_KEY_TEXT;
+  const text = `Local backend is using ${translator}. Configure an API key in Settings, or make sure the backend .env provides it. `;
   return { visible: true, text };
 }

@@ -174,7 +174,6 @@ async function configureLocalMode(
             targetLang: 'English',
             autoTranslate: false,
             showProgress: true,
-            pipelineMode: 'local',
             localBackend: {
               url: backendUrl,
               detector,

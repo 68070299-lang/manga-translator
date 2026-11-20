@@ -2,7 +2,7 @@
 
 Chrome Manifest V3 extension and local FastAPI backend for translating manga images.
 
-The extension captures images or canvases from the active page, routes work through a service worker, and either calls a local backend or a configured cloud provider. The backend runs detection, OCR, translation, inpainting, and rendering for local-first translation.
+The extension captures images or canvases from the active page, routes work through a service worker to the local backend. The backend runs detection, OCR, translation, inpainting, and rendering for local-first translation.
 
 ## Repository Layout
 
@@ -43,12 +43,11 @@ Beyond whole-page and visible-image translation, you can drag over any part of t
 
 Page image data and OCR text are sensitive.
 
-- Default mode is local backend mode.
+- The extension always uses the local backend.
 - Local backend URLs must be loopback HTTP URLs such as http://localhost:8001.
-- Local mode is not automatically offline: with a key-backed translator (Gemini, OpenAI, OpenRouter) the backend sends OCR text to that provider. Only manga-ocr or paddle-ocr with translator none keeps everything on loopback. See "Data leaving the browser" in docs/RUNTIME_CONTRACT.md.
-- Cloud mode sends the full page image to the selected provider.
+- The local backend is not automatically offline: with a key-backed translator (Gemini, OpenAI, OpenRouter) it sends OCR text to that provider. Only manga-ocr or paddle-ocr with translator none keeps everything on loopback. See "Data leaving the browser" in docs/RUNTIME_CONTRACT.md.
 - Region translation captures the visible tab only after you finish a selection, and only the cropped selection leaves the service worker.
-- There is no separate consent prompt: choosing a cloud pipeline or a key-backed translator and saving a key is the opt-in to that data sharing.
+- There is no separate consent prompt: choosing a key-backed translator and saving a key is the opt-in to that data sharing.
 - API keys and the backend access token are private local settings (chrome.storage.local) and are not stored in synced settings.
 - Translation cache entries live in chrome.storage.local, expire after seven days, are bounded to roughly 15 MB with least-recently-used eviction, and are keyed by image identity plus settings that affect output.
 

@@ -135,7 +135,6 @@ test('options page preserves blank local translator inheritance', async ({ page,
     await chrome.storage.sync.set({
       settings: {
         provider: 'openrouter',
-        pipelineMode: 'local',
         localBackend: {
           translator: '',
         },

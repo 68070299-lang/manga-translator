@@ -40,7 +40,6 @@ Progress: [##########] 100%
 - Cache key listing uses storage.getKeys and usage uses getBytesInUse, so routine cache and popup operations do not load stored page images (Chrome below 130 still falls back to a full read for key listing).
 - Cache hits rewrite lastAccessed at most every five minutes; LRU order is that coarse by design.
 - Rendered PNGs use compress level 2, and image decode/encode run on worker threads.
-- Google OCR sends up to six concurrent per-block requests; the first failure cancels the rest.
 - Translator clients are per-request and closed after use rather than pooled, so API keys are not retained in backend memory between requests.
 - Overlays use one shadow root per overlay rather than a single page root, so they stay in the page containers they must scroll and clip with.
 - Bundled fonts load as FontFace bytes from the worker, not @font-face or web-accessible resources, which avoids page CSP checks and extension fingerprinting.

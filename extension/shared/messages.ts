@@ -293,8 +293,6 @@ export type PopupMessage =
   | TranslationCompleteMessage
   | TranslationStoppedMessage;
 
-export type PopupMessageType = PopupMessage['type'];
-
 /** Every message that travels between extension contexts. */
 export type ExtensionMessage = WorkerRequest | TabMessage | PopupMessage;
 

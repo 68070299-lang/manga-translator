@@ -32,7 +32,6 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze<Settings>({
   fontFamily: "'CC Wild Words', sans-serif",
   autoTranslate: false,
   showProgress: true,
-  pipelineMode: 'local',
   localBackend: {
     url: 'http://localhost:8001',
     authToken: '',
@@ -240,15 +239,11 @@ export function buildLocalBackendUrl(baseUrl: string | undefined, path: string):
 }
 
 /**
- * The translator the backend/cloud path will use: in local mode an explicit
- * `localBackend.translator` wins, otherwise the provider.
+ * The translator the backend will use: an explicit `localBackend.translator`
+ * wins, otherwise the provider.
  */
 export function resolveTranslator(settings: SettingsInput = {}): Translator {
   const merged = mergeSettings(settings);
-
-  if (merged.pipelineMode === 'cloud') {
-    return merged.provider || 'openrouter';
-  }
 
   const explicitTranslator = merged.localBackend?.translator;
   if (explicitTranslator) {

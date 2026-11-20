@@ -160,33 +160,23 @@ describe('settings shape', () => {
     });
   });
 
-  it('resolves translator by pipeline mode', () => {
+  it('resolves the translator from the local backend override', () => {
     expect(
       resolveTranslator({
-        pipelineMode: 'local',
         provider: 'openrouter',
         localBackend: { translator: 'gemini' },
       }),
     ).toBe('gemini');
     expect(
       resolveTranslator({
-        pipelineMode: 'local',
         provider: 'openrouter',
         localBackend: { translator: 'none' },
       }),
     ).toBe('none');
     expect(
       resolveTranslator({
-        pipelineMode: 'local',
         provider: 'openrouter',
         localBackend: { translator: '' },
-      }),
-    ).toBe('openrouter');
-    expect(
-      resolveTranslator({
-        pipelineMode: 'cloud',
-        provider: 'openrouter',
-        localBackend: { translator: 'none' },
       }),
     ).toBe('openrouter');
     expect(translatorNeedsApiKey('openrouter')).toBe(true);

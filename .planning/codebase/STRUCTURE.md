@@ -15,10 +15,10 @@
   BookWalker/canvas support.
 - `extension/lib/`: shared libraries.
   - `settings.ts`: defaults, normalization, storage splitting.
-  - `api.ts`: local and cloud provider adapters.
+  - `api.ts`: local backend adapter.
   - `cache.ts`: persistent LRU-style translation cache.
-  - `translation-queue.ts`: local-serial / cloud-capped FIFO queue with
-    in-flight deduplication.
+  - `translation-queue.ts`: local-serial FIFO queue with in-flight
+    deduplication.
   - `site-activation.ts`: per-hostname enable/disable state.
   - `referrer-rules.ts`: fixed CDN referrer allowlist for transient DNR session
     rules.

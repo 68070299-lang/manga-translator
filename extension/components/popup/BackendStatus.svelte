@@ -20,7 +20,6 @@ const MODEL_STATUS_ICONS: Record<string, string> = {
 <div
   id="connection-indicator"
   class="connection-indicator"
-  style:display={popup.backendVisible ? 'flex' : 'none'}
   aria-live="polite"
 >
   <span class="status-dot {popup.backendState}"></span>
