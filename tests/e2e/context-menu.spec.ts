@@ -1,7 +1,10 @@
-import http from 'node:http';
-import type { AddressInfo, Socket } from 'node:net';
 import { expect, type Page, test } from '@playwright/test';
-import { injectManifestContentScripts } from './fixtures.ts';
+import {
+  E2E_DEFAULT_SETTINGS,
+  injectManifestContentScripts,
+  installE2eChromeMock,
+  serveHtmlFixture,
+} from './fixtures.ts';
 
 interface TranslateCall {
   imageId?: string;
@@ -26,10 +29,7 @@ type TestWindow = Window &
   };
 
 async function createImageFixtureServer() {
-  const sockets = new Set<Socket>();
-  const server = http.createServer((_req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(`<!doctype html>
+  return serveHtmlFixture(`<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -67,164 +67,17 @@ async function createImageFixtureServer() {
   </script>
 </body>
 </html>`);
-  });
-
-  server.on('connection', (socket) => {
-    sockets.add(socket);
-    socket.on('close', () => sockets.delete(socket));
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
-
-  const address = server.address() as AddressInfo;
-  return {
-    url: `http://127.0.0.1:${address.port}/`,
-    close: async () => {
-      for (const socket of sockets) socket.destroy();
-      await new Promise((resolve) => server.close(resolve));
-    },
-  };
 }
 
 async function installContentScriptChromeMock(page: Page) {
-  await page.addInitScript(() => {
-    type RuntimeListener = (
-      message: unknown,
-      sender: unknown,
-      sendResponse: (response: unknown) => void,
-    ) => void;
-    interface TranslateRequestMessage {
-      type: string;
-      imageId?: string;
-      base64: string;
-      settings?: { targetLang?: string; apiKey?: string };
-      forceRefresh?: boolean;
-    }
-    type StorageListener = (changes: Record<string, unknown>, areaName: string) => void;
-    const listeners: RuntimeListener[] = [];
-    const storageChangeListeners: StorageListener[] = [];
-    const defaultSettings = {
-      provider: 'openrouter',
-      apiKey: '',
-      model: '',
-      targetLang: 'English',
-      autoTranslate: false,
-      showProgress: false,
-      localBackend: {
-        url: 'http://127.0.0.1:8001',
-        detector: 'default',
-        ocr: 'manga-ocr',
-        inpainter: 'lama_large',
-        translator: 'none',
-      },
-    };
-    const storageState: { settings: Record<string, unknown>; apiKeys: unknown } = {
-      settings: defaultSettings,
-      apiKeys: undefined,
-    };
-
-    function emitStorageChange(changes: Record<string, unknown>, areaName: string) {
-      for (const listener of storageChangeListeners) listener(changes, areaName);
-    }
-
-    function makeTranslatedBase64() {
-      const canvas = document.createElement('canvas');
-      canvas.width = 320;
-      canvas.height = 320;
-      const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
-      ctx.fillStyle = '#4ade80';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = '#052e16';
-      ctx.font = 'bold 34px sans-serif';
-      ctx.fillText('translated', 70, 165);
-      return canvas.toDataURL('image/png').split(',')[1];
-    }
-
-    (window as TestWindow).__translateCalls = [];
-    (window as TestWindow).__translationDelayMs = 0;
-    (window as TestWindow).__runtimeListenerCount = () => listeners.length;
-    (window as TestWindow).__sendRuntimeMessage = (message) =>
-      new Promise((resolve) => {
-        listeners[0]?.(message, {}, resolve);
-      });
-    (window as TestWindow).__setStoredSettings = (nextSettings) => {
-      const oldValue = storageState.settings;
-      storageState.settings = {
-        ...defaultSettings,
-        ...nextSettings,
-        localBackend: {
-          ...defaultSettings.localBackend,
-          ...(nextSettings?.localBackend || {}),
-        },
-      };
-      emitStorageChange({ settings: { oldValue, newValue: storageState.settings } }, 'sync');
-    };
-    (window as TestWindow).__setStoredApiKeys = (nextApiKeys) => {
-      const oldValue = storageState.apiKeys;
-      storageState.apiKeys = nextApiKeys;
-      emitStorageChange({ apiKeys: { oldValue, newValue: nextApiKeys } }, 'local');
-    };
-
-    (window as TestWindow).chrome = {
-      runtime: {
-        onMessage: {
-          addListener: (listener: RuntimeListener) => listeners.push(listener),
-        },
-        sendMessage: async (message: TranslateRequestMessage) => {
-          if (message.type === 'CHECK_BACKEND') {
-            return { success: true };
-          }
-
-          if (message.type === 'TRANSLATE_IMAGE') {
-            (window as TestWindow).__translateCalls.push({
-              imageId: message.imageId,
-              base64Length: message.base64.length,
-              targetLang: message.settings?.targetLang,
-              apiKey: message.settings?.apiKey || '',
-              forceRefresh: Boolean(message.forceRefresh),
-            });
-
-            if ((window as TestWindow).__translationDelayMs > 0) {
-              await new Promise((resolve) =>
-                setTimeout(resolve, (window as TestWindow).__translationDelayMs),
-              );
-            }
-
-            return {
-              success: true,
-              result: {
-                translatedImage: makeTranslatedBase64(),
-                mimeType: 'image/png',
-                mode: 'local',
-              },
-            };
-          }
-
-          return { success: true };
-        },
-      },
-      storage: {
-        sync: {
-          get: async () => ({
-            settings: storageState.settings,
-          }),
-        },
-        local: {
-          get: async (key: string) => {
-            if (key === 'apiKeys') {
-              return storageState.apiKeys === undefined ? {} : { apiKeys: storageState.apiKeys };
-            }
-            return {};
-          },
-        },
-        onChanged: {
-          addListener: (listener: StorageListener) => storageChangeListeners.push(listener),
-        },
-      },
-    };
+  await page.addInitScript(installE2eChromeMock, {
+    defaultSettings: {
+      ...E2E_DEFAULT_SETTINGS,
+      localBackend: { ...E2E_DEFAULT_SETTINGS.localBackend, translator: 'none' },
+    },
+    tracking: 'records' as const,
+    failureModes: false,
+    image: { width: 320, height: 320, textX: 70, textY: 165, fontSize: 34 },
   });
 }
 
@@ -238,6 +91,53 @@ async function loadFixtureWithContentScript(page: Page) {
   await injectManifestContentScripts(page);
   await page.waitForFunction(() => (window as TestWindow).__runtimeListenerCount?.() > 0);
   return server;
+}
+
+interface ImageTranslationState {
+  calls: number;
+  pageOneTranslated: boolean;
+  pageTwoTranslated: boolean;
+  overlays?: number;
+  progressText?: string;
+}
+
+/** Poll the reader's per-image translation state until it matches `expected`. */
+async function expectImageTranslationState(
+  page: Page,
+  expected: ImageTranslationState,
+  { timeout }: { timeout?: number } = {},
+): Promise<void> {
+  const hasOverlays = expected.overlays !== undefined;
+  const hasProgressText = expected.progressText !== undefined;
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          ({ withOverlays, withProgressText }) => ({
+            calls: (window as TestWindow).__translateCalls.length,
+            pageOneTranslated: document
+              .getElementById('page-one')!
+              .hasAttribute('data-manga-translated'),
+            pageTwoTranslated: document
+              .getElementById('page-two')!
+              .hasAttribute('data-manga-translated'),
+            ...(withOverlays
+              ? { overlays: document.querySelectorAll('.manga-translated-img-overlay').length }
+              : {}),
+            ...(withProgressText
+              ? {
+                  progressText:
+                    document
+                      .querySelector('#manga-global-progress')
+                      ?.shadowRoot?.querySelector('.manga-progress-text')?.textContent || '',
+                }
+              : {}),
+          }),
+          { withOverlays: hasOverlays, withProgressText: hasProgressText },
+        ),
+      timeout === undefined ? {} : { timeout },
+    )
+    .toEqual(expected);
 }
 
 test('context-menu image translation processes only the selected image source', async ({
@@ -255,25 +155,12 @@ test('context-menu image translation processes only the selected image source', 
 
     expect(response).toEqual({ success: true });
 
-    await expect
-      .poll(() =>
-        page.evaluate(() => ({
-          calls: (window as TestWindow).__translateCalls.length,
-          pageOneTranslated: document
-            .getElementById('page-one')!
-            .hasAttribute('data-manga-translated'),
-          pageTwoTranslated: document
-            .getElementById('page-two')!
-            .hasAttribute('data-manga-translated'),
-          overlays: document.querySelectorAll('.manga-translated-img-overlay').length,
-        })),
-      )
-      .toEqual({
-        calls: 1,
-        pageOneTranslated: false,
-        pageTwoTranslated: true,
-        overlays: 1,
-      });
+    await expectImageTranslationState(page, {
+      calls: 1,
+      pageOneTranslated: false,
+      pageTwoTranslated: true,
+      overlays: 1,
+    });
   } finally {
     await server.close();
   }
@@ -380,25 +267,12 @@ test('reader controls translate visible images and clear page translations', asy
 
     await page.locator('[data-manga-action="visible"]').click();
 
-    await expect
-      .poll(() =>
-        page.evaluate(() => ({
-          calls: (window as TestWindow).__translateCalls.length,
-          pageOneTranslated: document
-            .getElementById('page-one')!
-            .hasAttribute('data-manga-translated'),
-          pageTwoTranslated: document
-            .getElementById('page-two')!
-            .hasAttribute('data-manga-translated'),
-          overlays: document.querySelectorAll('.manga-translated-img-overlay').length,
-        })),
-      )
-      .toEqual({
-        calls: 1,
-        pageOneTranslated: true,
-        pageTwoTranslated: false,
-        overlays: 1,
-      });
+    await expectImageTranslationState(page, {
+      calls: 1,
+      pageOneTranslated: true,
+      pageTwoTranslated: false,
+      overlays: 1,
+    });
 
     await page.locator('[data-manga-action="clear"]').click();
 
@@ -446,30 +320,16 @@ test('reader stop control stops queued page translation after the current image'
 
     await page.locator('[data-manga-action="stop"]').click();
 
-    await expect
-      .poll(
-        () =>
-          page.evaluate(() => ({
-            calls: (window as TestWindow).__translateCalls.length,
-            pageOneTranslated: document
-              .getElementById('page-one')!
-              .hasAttribute('data-manga-translated'),
-            pageTwoTranslated: document
-              .getElementById('page-two')!
-              .hasAttribute('data-manga-translated'),
-            progressText:
-              document
-                .querySelector('#manga-global-progress')
-                ?.shadowRoot?.querySelector('.manga-progress-text')?.textContent || '',
-          })),
-        { timeout: 4000 },
-      )
-      .toEqual({
+    await expectImageTranslationState(
+      page,
+      {
         calls: 1,
         pageOneTranslated: true,
         pageTwoTranslated: false,
         progressText: 'Stopped after 1/2 images',
-      });
+      },
+      { timeout: 4000 },
+    );
 
     await page.waitForTimeout(800);
     await expect

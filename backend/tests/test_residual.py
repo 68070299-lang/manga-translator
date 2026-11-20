@@ -88,6 +88,19 @@ class EscalationTests(unittest.TestCase):
         mask[30:50, 35:65] = 255
         return crop, mask, TextBlock([10, 10, 60, 60])
 
+    @staticmethod
+    def _route_checked(crop, mask, block):
+        return residual.route_block_fill_checked(
+            crop,
+            mask,
+            np.zeros_like(mask),
+            False,
+            None,
+            block=block,
+            origin=(0, 0),
+            strategy="glyph",
+        )
+
     def _run(self, observations, grown_delta_px=25):
         crop, mask, block = self._flat_case()
         grown = mask.copy()
@@ -110,16 +123,7 @@ class EscalationTests(unittest.TestCase):
                 return_value=(grown, (0, 0, 100, 80)),
             ),
         ):
-            decision, filled, model_mask = residual.route_block_fill_checked(
-                crop,
-                mask,
-                np.zeros_like(mask),
-                False,
-                None,
-                block=block,
-                origin=(0, 0),
-                strategy="glyph",
-            )
+            decision, filled, model_mask = self._route_checked(crop, mask, block)
         return decision, filled, model_mask, calls
 
     def test_clean_fill_is_not_escalated(self):
@@ -175,16 +179,7 @@ class EscalationTests(unittest.TestCase):
                 (FillDecision(2, 0.0, 600, 400, 800, "lattice"), crop.copy()),
                 (FillDecision(TIER_MODEL, None, 600, 400, 800, "band-error"), None),
             ]
-            decision, filled, model_mask = residual.route_block_fill_checked(
-                crop,
-                mask,
-                np.zeros_like(mask),
-                False,
-                None,
-                block=block,
-                origin=(0, 0),
-                strategy="glyph",
-            )
+            decision, filled, model_mask = self._route_checked(crop, mask, block)
 
         self.assertEqual(decision["tier"], TIER_MODEL)
         self.assertEqual(decision["escalation_tier"], TIER_MODEL)

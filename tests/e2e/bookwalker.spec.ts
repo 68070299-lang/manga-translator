@@ -1,7 +1,10 @@
-import http from 'node:http';
-import type { AddressInfo, Socket } from 'node:net';
 import { expect, type Locator, type Page, test } from '@playwright/test';
-import { injectManifestContentScripts } from './fixtures.ts';
+import {
+  E2E_DEFAULT_SETTINGS,
+  injectManifestContentScripts,
+  installE2eChromeMock,
+  serveHtmlFixture,
+} from './fixtures.ts';
 
 type TranslationMode = 'success' | 'black' | 'error' | 'timeout-error' | 'broken-data-url';
 
@@ -35,10 +38,7 @@ type TestWindow = Window &
   };
 
 async function createBookWalkerFixtureServer() {
-  const sockets = new Set<Socket>();
-  const server = http.createServer((_req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(`<!doctype html>
+  return serveHtmlFixture(`<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -93,27 +93,6 @@ async function createBookWalkerFixtureServer() {
   </script>
 </body>
 </html>`);
-  });
-
-  server.on('connection', (socket) => {
-    sockets.add(socket);
-    socket.on('close', () => sockets.delete(socket));
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
-
-  const address = server.address() as AddressInfo;
-
-  return {
-    url: `http://127.0.0.1:${address.port}/`,
-    close: async () => {
-      for (const socket of sockets) socket.destroy();
-      await new Promise((resolve) => server.close(resolve));
-    },
-  };
 }
 
 async function installChromeMock(
@@ -122,186 +101,15 @@ async function installChromeMock(
   settingsOverrides: SettingsOverrides = {},
   mockOverrides: MockOverrides = {},
 ) {
-  await page.addInitScript(
-    ({
-      mode,
-      settingsOverrides,
-      mockOverrides,
-    }: {
-      mode: TranslationMode;
-      settingsOverrides: SettingsOverrides;
-      mockOverrides: MockOverrides;
-    }) => {
-      type RuntimeListener = (
-        message: unknown,
-        sender: unknown,
-        sendResponse: (response: unknown) => void,
-      ) => void;
-      interface TranslateRequestMessage {
-        type: string;
-        base64: string;
-      }
-      interface MockResponse {
-        success: boolean;
-        error?: string;
-        result?: unknown;
-      }
-      const listeners: RuntimeListener[] = [];
-
-      function makeTranslatedBase64(width: number, height: number, renderMode: string) {
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
-
-        if (renderMode === 'black') {
-          ctx.fillStyle = '#000000';
-          ctx.fillRect(0, 0, width, height);
-        } else {
-          ctx.fillStyle = '#4ade80';
-          ctx.fillRect(0, 0, width, height);
-          ctx.fillStyle = '#052e16';
-          ctx.font = 'bold 40px sans-serif';
-          ctx.fillText('translated', 110, 250);
-        }
-
-        return canvas.toDataURL('image/png').split(',')[1] as string;
-      }
-
-      (window as TestWindow).__translationMode = mode;
-      (window as TestWindow).__translationDelayMs = mockOverrides.translationDelayMs || 0;
-      (window as TestWindow).__translateCalls = 0;
-      (window as TestWindow).__translateResponses = 0;
-      (window as TestWindow).__activeTranslateRequests = 0;
-      (window as TestWindow).__maxActiveTranslateRequests = 0;
-      (window as TestWindow).__sentImageSizes = [];
-      (window as TestWindow).__runtimeListenerCount = () => listeners.length;
-      (window as TestWindow).__setTranslationMode = (nextMode: string) => {
-        (window as TestWindow).__translationMode = nextMode;
-      };
-      (window as TestWindow).__setTranslationDelayMs = (delayMs: number) => {
-        (window as TestWindow).__translationDelayMs = delayMs;
-      };
-      (window as TestWindow).__sendRuntimeMessage = (message) =>
-        new Promise((resolve) => {
-          listeners[0]?.(message, {}, resolve);
-        });
-
-      function getMockSettings() {
-        const defaultSettings = {
-          provider: 'openrouter',
-          apiKey: '',
-          model: '',
-          targetLang: 'English',
-          autoTranslate: false,
-          showProgress: false,
-          localBackend: {
-            url: 'http://127.0.0.1:8001',
-            detector: 'default',
-            ocr: 'manga-ocr',
-            inpainter: 'lama_large',
-          },
-        };
-
-        return {
-          ...defaultSettings,
-          ...settingsOverrides,
-          localBackend: {
-            ...defaultSettings.localBackend,
-            ...(settingsOverrides.localBackend || {}),
-          },
-        };
-      }
-
-      (window as TestWindow).chrome = {
-        runtime: {
-          onMessage: {
-            addListener: (listener: RuntimeListener) => listeners.push(listener),
-          },
-          sendMessage: async (message: TranslateRequestMessage) => {
-            if (message.type === 'CHECK_BACKEND') {
-              return { success: true };
-            }
-
-            if (message.type === 'TRANSLATE_IMAGE') {
-              (window as TestWindow).__translateCalls += 1;
-              (window as TestWindow).__activeTranslateRequests += 1;
-              (window as TestWindow).__maxActiveTranslateRequests = Math.max(
-                (window as TestWindow).__maxActiveTranslateRequests,
-                (window as TestWindow).__activeTranslateRequests,
-              );
-              (window as TestWindow).__sentImageSizes.push(message.base64.length);
-
-              const finishResponse = (response: MockResponse) => {
-                (window as TestWindow).__translateResponses += 1;
-                (window as TestWindow).__activeTranslateRequests -= 1;
-                return response;
-              };
-
-              if ((window as TestWindow).__translationDelayMs > 0) {
-                await new Promise((resolve) =>
-                  setTimeout(resolve, (window as TestWindow).__translationDelayMs),
-                );
-              }
-
-              if ((window as TestWindow).__translationMode === 'error') {
-                return finishResponse({ success: false, error: 'backend failed' });
-              }
-
-              if ((window as TestWindow).__translationMode === 'timeout-error') {
-                return finishResponse({
-                  success: false,
-                  error:
-                    'Local backend request timed out after 180s. The image may be too large or the server is busy.',
-                });
-              }
-
-              if ((window as TestWindow).__translationMode === 'broken-data-url') {
-                return finishResponse({
-                  success: true,
-                  result: {
-                    translatedImage: 'data:image/png;base64,not-a-real-image',
-                    mimeType: 'image/png',
-                    mode: 'local',
-                  },
-                });
-              }
-
-              const translatedImage = makeTranslatedBase64(
-                480,
-                720,
-                (window as TestWindow).__translationMode,
-              );
-              return finishResponse({
-                success: true,
-                result: {
-                  translatedImage,
-                  mimeType: 'image/png',
-                  mode: 'local',
-                },
-              });
-            }
-
-            return { success: true };
-          },
-        },
-        storage: {
-          sync: {
-            get: async () => ({
-              settings: getMockSettings(),
-            }),
-          },
-          local: {
-            get: async () => ({}),
-          },
-          onChanged: {
-            addListener: () => {},
-          },
-        },
-      };
-    },
-    { mode: initialMode, settingsOverrides, mockOverrides },
-  );
+  await page.addInitScript(installE2eChromeMock, {
+    defaultSettings: E2E_DEFAULT_SETTINGS,
+    settingsOverrides,
+    translationDelayMs: mockOverrides.translationDelayMs || 0,
+    initialMode,
+    tracking: 'counters' as const,
+    failureModes: true,
+    image: { width: 480, height: 720, textX: 110, textY: 250, fontSize: 40 },
+  });
 }
 
 async function loadFixtureWithContentScript(
@@ -460,6 +268,101 @@ function expectOverlayAligned(state: OverlayState) {
   expect(Math.abs(state.canvasRect.height - state.overlayRect!.height)).toBeLessThan(1);
 }
 
+/** Poll until the main BookWalker canvas is idle after `calls` translate requests. */
+async function expectIdleCanvas(page: Page, calls: number, timeout?: number): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const state = await getCanvasOverlayState(page);
+        return {
+          translated: state.translated,
+          processing: state.processing,
+          overlayCount: state.overlayCount,
+          calls: state.calls,
+        };
+      },
+      timeout === undefined ? {} : { timeout },
+    )
+    .toEqual({
+      translated: false,
+      processing: false,
+      overlayCount: 0,
+      calls,
+    });
+}
+
+/** Wait until the main BookWalker canvas loses its translated output. */
+async function expectCanvasCleared(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const canvas = document.getElementById('bookwalker-page') as HTMLCanvasElement;
+      return (
+        !canvas.hasAttribute('data-manga-translated') &&
+        !canvas.hasAttribute('data-manga-processing') &&
+        document.querySelectorAll('.manga-canvas-overlay').length === 0
+      );
+    },
+    null,
+    { timeout: 3000 },
+  );
+}
+
+/** Poll the main BookWalker canvas state, including the call count when expected. */
+async function expectCanvasState(
+  page: Page,
+  expected: { translated: boolean; processing: boolean; overlayCount: number; calls?: number },
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const state = await getCanvasOverlayState(page);
+        return {
+          translated: state.translated,
+          processing: state.processing,
+          overlayCount: state.overlayCount,
+          ...(expected.calls === undefined ? {} : { calls: state.calls }),
+        };
+      },
+      { timeout: 3000 },
+    )
+    .toEqual(expected);
+}
+
+/** Draw fixture pages into existing BookWalker canvases (runs in the page). */
+function drawBookWalkerCanvases(canvases: Array<{ id: string; color: string; label: string }>) {
+  for (const { id, color, label } of canvases) {
+    const canvas = document.getElementById(id) as HTMLCanvasElement;
+    const context = canvas.getContext('2d') as CanvasRenderingContext2D;
+    context.fillStyle = color;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#111111';
+    context.fillRect(120, 180, 240, 120);
+    context.fillStyle = '#ffffff';
+    context.font = 'bold 44px sans-serif';
+    context.fillText(label, 145, 250);
+  }
+}
+
+/** Install the delayed auto-translate worker mock on the two extra BookWalker pages. */
+async function installDelayedAutoTranslateFixture(page: Page, url: string): Promise<void> {
+  await installChromeMock(page, 'success', { autoTranslate: true, showProgress: true });
+  await page.goto(url);
+  await page.evaluate(() => (window as TestWindow).__setTranslationDelayMs(2500));
+  await page.evaluate(drawBookWalkerCanvases, [
+    { id: 'bookwalker-page-2', color: '#a7f3d0', label: 'page 2' },
+    { id: 'bookwalker-page-3', color: '#fbcfe8', label: 'page 3' },
+  ]);
+}
+
+/** Inject the content script and wait for the first automatic translation call. */
+async function injectContentScriptAndAwaitFirstTranslation(page: Page): Promise<void> {
+  await injectManifestContentScripts(page, { css: false });
+  await page.waitForFunction(() => (window as TestWindow).__runtimeListenerCount?.() > 0);
+  await expect
+    .poll(() => page.evaluate(() => (window as TestWindow).__translateCalls), { timeout: 1200 })
+    .toBe(1);
+}
+
 test('canvas translation applies backend image output and does not stack overlays', async ({
   page,
 }) => {
@@ -503,18 +406,7 @@ test('canvas translation clears stale output when the source canvas changes', as
     await expectSingleVisibleCanvasOverlay(page);
 
     await page.evaluate(() => (window as TestWindow).drawBookWalkerPage('#fde68a', 'page 2'));
-    await page.waitForFunction(
-      () => {
-        const canvas = document.getElementById('bookwalker-page') as HTMLCanvasElement;
-        return (
-          !canvas.hasAttribute('data-manga-translated') &&
-          !canvas.hasAttribute('data-manga-processing') &&
-          document.querySelectorAll('.manga-canvas-overlay').length === 0
-        );
-      },
-      null,
-      { timeout: 3000 },
-    );
+    await expectCanvasCleared(page);
 
     await requestTranslatePage(page);
     await expectSingleVisibleCanvasOverlay(page);
@@ -535,18 +427,7 @@ test('canvas translation is restored when returning to a previously translated B
     await expect.poll(() => page.evaluate(() => (window as TestWindow).__translateCalls)).toBe(1);
 
     await page.evaluate(() => (window as TestWindow).drawBookWalkerPage('#fde68a', 'page 2'));
-    await page.waitForFunction(
-      () => {
-        const canvas = document.getElementById('bookwalker-page') as HTMLCanvasElement;
-        return (
-          !canvas.hasAttribute('data-manga-translated') &&
-          !canvas.hasAttribute('data-manga-processing') &&
-          document.querySelectorAll('.manga-canvas-overlay').length === 0
-        );
-      },
-      null,
-      { timeout: 3000 },
-    );
+    await expectCanvasCleared(page);
 
     await page.evaluate(() => (window as TestWindow).drawBookWalkerPage('#f5f5f5', 'page 1'));
     await expectSingleVisibleCanvasOverlay(page);
@@ -578,23 +459,11 @@ test('five translated pages restore in reverse from exact source memory with onl
         await page.evaluate(({ color, number }) => {
           (window as TestWindow).drawBookWalkerPage(color, `page ${number}`);
         }, pageData);
-        await expect
-          .poll(
-            async () => {
-              const state = await getCanvasOverlayState(page);
-              return {
-                translated: state.translated,
-                processing: state.processing,
-                overlayCount: state.overlayCount,
-              };
-            },
-            { timeout: 3000 },
-          )
-          .toEqual({
-            translated: false,
-            processing: false,
-            overlayCount: 0,
-          });
+        await expectCanvasState(page, {
+          translated: false,
+          processing: false,
+          overlayCount: 0,
+        });
       }
 
       await requestTranslatePage(page);
@@ -608,25 +477,12 @@ test('five translated pages restore in reverse from exact source memory with onl
       await page.evaluate(({ color, number }) => {
         (window as TestWindow).drawBookWalkerPage(color, `page ${number}`);
       }, pageData);
-      await expect
-        .poll(
-          async () => {
-            const state = await getCanvasOverlayState(page);
-            return {
-              translated: state.translated,
-              processing: state.processing,
-              overlayCount: state.overlayCount,
-              calls: state.calls,
-            };
-          },
-          { timeout: 3000 },
-        )
-        .toEqual({
-          translated: true,
-          processing: false,
-          overlayCount: 1,
-          calls: 5,
-        });
+      await expectCanvasState(page, {
+        translated: true,
+        processing: false,
+        overlayCount: 1,
+        calls: 5,
+      });
     }
   } finally {
     await server.close();
@@ -645,25 +501,7 @@ test('canvas translation result is ignored if BookWalker reuses the canvas befor
     await expect.poll(() => page.evaluate(() => (window as TestWindow).__translateCalls)).toBe(1);
     await page.evaluate(() => (window as TestWindow).drawBookWalkerPage('#fde68a', 'page 2'));
 
-    await expect
-      .poll(
-        async () => {
-          const state = await getCanvasOverlayState(page);
-          return {
-            translated: state.translated,
-            processing: state.processing,
-            overlayCount: state.overlayCount,
-            calls: state.calls,
-          };
-        },
-        { timeout: 3000 },
-      )
-      .toEqual({
-        translated: false,
-        processing: false,
-        overlayCount: 0,
-        calls: 1,
-      });
+    await expectIdleCanvas(page, 1, 3000);
 
     await expect
       .poll(() => page.evaluate(() => (window as TestWindow).__translateResponses))
@@ -975,22 +813,7 @@ test('canvas translation failure clears processing state and can be retried', as
 
   try {
     await requestTranslatePage(page);
-    await expect
-      .poll(async () => {
-        const state = await getCanvasOverlayState(page);
-        return {
-          translated: state.translated,
-          processing: state.processing,
-          overlayCount: state.overlayCount,
-          calls: state.calls,
-        };
-      })
-      .toEqual({
-        translated: false,
-        processing: false,
-        overlayCount: 0,
-        calls: 1,
-      });
+    await expectIdleCanvas(page, 1);
 
     let state = await getCanvasOverlayState(page);
     expect(state.progressText).toContain('backend failed');
@@ -1017,22 +840,7 @@ test('BookWalker auto translate does not loop after backend timeout', async ({ p
     await expect
       .poll(() => page.evaluate(() => (window as TestWindow).__translateCalls), { timeout: 1200 })
       .toBe(1);
-    await expect
-      .poll(async () => {
-        const state = await getCanvasOverlayState(page);
-        return {
-          translated: state.translated,
-          processing: state.processing,
-          overlayCount: state.overlayCount,
-          calls: state.calls,
-        };
-      })
-      .toEqual({
-        translated: false,
-        processing: false,
-        overlayCount: 0,
-        calls: 1,
-      });
+    await expectIdleCanvas(page, 1);
 
     expect((await getCanvasOverlayState(page)).progressText).toContain('timed out');
 
@@ -1049,30 +857,9 @@ test('BookWalker auto translate does not restart a queued canvas while an earlie
   const server = await createBookWalkerFixtureServer();
 
   try {
-    await installChromeMock(page, 'success', {
-      autoTranslate: true,
-      showProgress: true,
-    });
-    await page.goto(server.url);
+    await installDelayedAutoTranslateFixture(page, server.url);
 
     await page.evaluate(() => {
-      (window as TestWindow).__setTranslationDelayMs(2500);
-
-      const drawPage = (canvasId: string, color: string, label: string) => {
-        const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
-        const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
-        ctx.fillStyle = color;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#111111';
-        ctx.fillRect(120, 180, 240, 120);
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 44px sans-serif';
-        ctx.fillText(label, 145, 250);
-      };
-
-      drawPage('bookwalker-page-2', '#a7f3d0', 'page 2');
-      drawPage('bookwalker-page-3', '#fbcfe8', 'page 3');
-
       const viewport1 = document.getElementById('viewport1') as HTMLElement;
       const viewport2 = document.getElementById('viewport2') as HTMLElement;
       viewport1.classList.add('currentScreen');
@@ -1080,12 +867,7 @@ test('BookWalker auto translate does not restart a queued canvas while an earlie
       viewport2.style.left = '1500px';
     });
 
-    await injectManifestContentScripts(page, { css: false });
-    await page.waitForFunction(() => (window as TestWindow).__runtimeListenerCount?.() > 0);
-
-    await expect
-      .poll(() => page.evaluate(() => (window as TestWindow).__translateCalls), { timeout: 1200 })
-      .toBe(1);
+    await injectContentScriptAndAwaitFirstTranslation(page);
 
     await page.evaluate(() => {
       const viewport0 = document.getElementById('viewport0') as HTMLElement;
@@ -1159,37 +941,9 @@ test('BookWalker auto translate keeps earlier canvases in flight before starting
   const server = await createBookWalkerFixtureServer();
 
   try {
-    await installChromeMock(page, 'success', {
-      autoTranslate: true,
-      showProgress: true,
-    });
-    await page.goto(server.url);
+    await installDelayedAutoTranslateFixture(page, server.url);
 
-    await page.evaluate(() => {
-      (window as TestWindow).__setTranslationDelayMs(2500);
-
-      const drawPage = (canvasId: string, color: string, label: string) => {
-        const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
-        const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
-        ctx.fillStyle = color;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#111111';
-        ctx.fillRect(120, 180, 240, 120);
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 44px sans-serif';
-        ctx.fillText(label, 145, 250);
-      };
-
-      drawPage('bookwalker-page-2', '#a7f3d0', 'page 2');
-      drawPage('bookwalker-page-3', '#fbcfe8', 'page 3');
-    });
-
-    await injectManifestContentScripts(page, { css: false });
-    await page.waitForFunction(() => (window as TestWindow).__runtimeListenerCount?.() > 0);
-
-    await expect
-      .poll(() => page.evaluate(() => (window as TestWindow).__translateCalls), { timeout: 1200 })
-      .toBe(1);
+    await injectContentScriptAndAwaitFirstTranslation(page);
 
     await page.evaluate(() => {
       const viewport0 = document.getElementById('viewport0') as HTMLElement;
@@ -1317,7 +1071,7 @@ test('BookWalker queued page is not re-translated when scrolling back during pen
   try {
     await page.evaluate(() => {
       const renderer = document.getElementById('renderer') as HTMLElement;
-      const createPage = (id: string, label: string, color: string, leftPx: number) => {
+      const createPage = (id: string, leftPx: number) => {
         const viewport = document.createElement('div');
         viewport.id = id;
         viewport.className = 'currentScreen';
@@ -1337,17 +1091,9 @@ test('BookWalker queued page is not re-translated when scrolling back during pen
         canvas.style.cssText = 'width: 480px; height: 720px; display: block;';
         viewport.appendChild(canvas);
         renderer.appendChild(viewport);
-        const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
-        ctx.fillStyle = color;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#111111';
-        ctx.fillRect(120, 180, 240, 120);
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 44px sans-serif';
-        ctx.fillText(label, 145, 250);
       };
-      createPage('viewport1', 'page 2', '#a7f3d0', 680);
-      createPage('viewport2', 'page 3', '#fbcfe8', 1500);
+      createPage('viewport1', 680);
+      createPage('viewport2', 1500);
 
       (window as TestWindow).__dumpState = () => ({
         calls: (window as TestWindow).__translateCalls,
@@ -1361,6 +1107,11 @@ test('BookWalker queued page is not re-translated when scrolling back during pen
         })),
       });
     });
+
+    await page.evaluate(drawBookWalkerCanvases, [
+      { id: 'bookwalker-viewport1', color: '#a7f3d0', label: 'page 2' },
+      { id: 'bookwalker-viewport2', color: '#fbcfe8', label: 'page 3' },
+    ]);
 
     await page.evaluate(() => (window as TestWindow).__setTranslationDelayMs(500));
     await requestTranslatePage(page);

@@ -375,6 +375,18 @@ describe('service worker', () => {
   });
 
   describe('TRANSLATE_IMAGE', () => {
+    /** Shared BookWalker request fixture for the local-backend error tests. */
+    const translateBookWalkerImage = () =>
+      handleTranslateImage(
+        translateRequest({
+          imageId: 'img-test',
+          base64: `data:image/png;base64,${Buffer.from('not-an-empty-image').toString('base64')}`,
+          canvasSignature: 'bookwalker:img-test',
+          settings: { localBackend: { url: 'http://127.0.0.1:8001' } },
+        }),
+        { tab: { id: 123 } },
+      );
+
     it('uses cached translations for normal image requests', async () => {
       const cached = {
         translatedImage: 'c'.repeat(160),
@@ -581,15 +593,7 @@ describe('service worker', () => {
         })),
       );
 
-      const response = await handleTranslateImage(
-        translateRequest({
-          imageId: 'img-test',
-          base64: `data:image/png;base64,${Buffer.from('not-an-empty-image').toString('base64')}`,
-          canvasSignature: 'bookwalker:img-test',
-          settings: { localBackend: { url: 'http://127.0.0.1:8001' } },
-        }),
-        { tab: { id: 123 } },
-      );
+      const response = await translateBookWalkerImage();
 
       expect(response).toEqual({
         success: false,
@@ -613,15 +617,7 @@ describe('service worker', () => {
         })),
       );
 
-      const response = await handleTranslateImage(
-        translateRequest({
-          imageId: 'img-test',
-          base64: `data:image/png;base64,${Buffer.from('not-an-empty-image').toString('base64')}`,
-          canvasSignature: 'bookwalker:img-test',
-          settings: { localBackend: { url: 'http://127.0.0.1:8001' } },
-        }),
-        { tab: { id: 123 } },
-      );
+      const response = await translateBookWalkerImage();
 
       expect(response.success).toBe(false);
       expect((response as { error: string }).error).toContain('req-worker-1');

@@ -1,4 +1,4 @@
-import type { BrowserContext, Route } from '@playwright/test';
+import type { BrowserContext, Page, Route } from '@playwright/test';
 import type { ChromeApi } from '../../scripts/lib/extension.ts';
 import { expect, test } from './fixtures.ts';
 
@@ -191,6 +191,16 @@ async function configureLocalMode(
   }
 }
 
+/** Load the reader through the mocked local backend and start region selection. */
+async function openRegionSelection(context: BrowserContext, page: Page, extensionId: string) {
+  const { translateRequests } = await mockReaderAndBackend(context);
+  await configureLocalMode(context, extensionId);
+  await page.goto(READER_URL, { waitUntil: 'load' });
+  await page.locator('[data-manga-action="region"]').click();
+  await expect(page.locator('#manga-region-selector')).toBeVisible();
+  return { translateRequests };
+}
+
 test('installed extension routes a reader image through the local backend and renders its result', async ({
   context,
   page,
@@ -339,12 +349,7 @@ test('dragged screenshot region is cropped, translated and cleared', async ({
   page,
   extensionId,
 }) => {
-  const { translateRequests } = await mockReaderAndBackend(context);
-  await configureLocalMode(context, extensionId);
-  await page.goto(READER_URL, { waitUntil: 'load' });
-
-  await page.locator('[data-manga-action="region"]').click();
-  await expect(page.locator('#manga-region-selector')).toBeVisible();
+  const { translateRequests } = await openRegionSelection(context, page, extensionId);
 
   await page.mouse.move(40, 50);
   await page.mouse.down();
@@ -378,12 +383,7 @@ test('pressing Escape during region selection sends nothing to the backend', asy
   page,
   extensionId,
 }) => {
-  const { translateRequests } = await mockReaderAndBackend(context);
-  await configureLocalMode(context, extensionId);
-  await page.goto(READER_URL, { waitUntil: 'load' });
-
-  await page.locator('[data-manga-action="region"]').click();
-  await expect(page.locator('#manga-region-selector')).toBeVisible();
+  const { translateRequests } = await openRegionSelection(context, page, extensionId);
   await page.keyboard.press('Escape');
 
   await expect(page.locator('#manga-region-selector')).toHaveCount(0);

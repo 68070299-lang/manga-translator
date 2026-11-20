@@ -124,19 +124,25 @@ class CropRegionTests(unittest.TestCase):
         mask = np.zeros((64, 64), dtype=np.uint8)
         self.assertEqual(build_crop_regions(image, mask), [])
 
-    def test_generation_box_can_hide_component_shape_without_expanding_commit(self):
+    @staticmethod
+    def _generation_box_regions(mask_growth: int):
         image = np.zeros((128, 128, 3), dtype=np.uint8)
         mask = np.zeros((128, 128), dtype=np.uint8)
         mask[40:80, 40:48] = 255
         mask[72:80, 40:88] = 255
-
-        [region] = build_crop_regions(
-            image,
+        return (
+            build_crop_regions(
+                image,
+                mask,
+                context=16,
+                mask_growth=mask_growth,
+                fill_generation_boxes=True,
+            ),
             mask,
-            context=16,
-            mask_growth=0,
-            fill_generation_boxes=True,
         )
+
+    def test_generation_box_can_hide_component_shape_without_expanding_commit(self):
+        [region], mask = self._generation_box_regions(0)
 
         self.assertEqual(np.count_nonzero(region.commit_mask), np.count_nonzero(mask))
         self.assertGreater(
@@ -145,18 +151,7 @@ class CropRegionTests(unittest.TestCase):
         )
 
     def test_generation_box_is_retained_when_mask_growth_is_enabled(self):
-        image = np.zeros((128, 128, 3), dtype=np.uint8)
-        mask = np.zeros((128, 128), dtype=np.uint8)
-        mask[40:80, 40:48] = 255
-        mask[72:80, 40:88] = 255
-
-        [region] = build_crop_regions(
-            image,
-            mask,
-            context=16,
-            mask_growth=2,
-            fill_generation_boxes=True,
-        )
+        [region], _mask = self._generation_box_regions(2)
 
         self.assertEqual(region.generation_mask[64, 64], 255)
 

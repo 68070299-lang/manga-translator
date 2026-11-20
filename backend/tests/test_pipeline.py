@@ -76,6 +76,43 @@ class FakePaddleEngine:
         self.calls.append({"image": image, "full": True})
         return [{"text": "full-paddle"}]
 
+
+class StaticDetector:
+    def __init__(self, blocks):
+        self.blocks = blocks
+
+    async def detect(self, _image):
+        return self.blocks
+
+
+class RecordingInpainter:
+    last_backend_used = "test"
+
+    def __init__(self):
+        self.mask = None
+
+    async def inpaint(self, source, mask):
+        self.mask = mask
+        return source.copy()
+
+
+def _pipeline_with_fakes(
+    blocks, *, detector_key=None
+) -> tuple[TranslationPipeline, RecordingInpainter]:
+    pipeline = TranslationPipeline(device="cpu")
+    detector = StaticDetector(blocks)
+    if detector_key is None:
+        pipeline._detectors.default = detector
+    else:
+        pipeline._detectors.optional[detector_key] = detector
+    inpainter = RecordingInpainter()
+    pipeline._ocr = FakeOcrEngine()
+    pipeline._inpainters.instance = inpainter
+    pipeline._inpainters.type = "test"
+    pipeline.model_status["inpainter"] = {"status": "loaded", "name": "test"}
+    return pipeline, inpainter
+
+
 class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
     async def test_animetext_constructor_error_updates_status(self):
         pipeline = TranslationPipeline(device="cpu")
@@ -219,11 +256,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
         fake_paddle = FakePaddleEngine()
         image = np.zeros((12, 24, 3), dtype=np.uint8)
 
-        class FakeDetector:
-            async def detect(self, _image):
-                return [TextBlock([1, 2, 10, 11])]
-
-        pipeline._detectors.default = FakeDetector()
+        pipeline._detectors.default = StaticDetector([TextBlock([1, 2, 10, 11])])
         with patch("manga_backend.pipeline.components.get_paddle_ocr", return_value=fake_paddle):
             result = await pipeline.translate(
                 image,
@@ -464,31 +497,13 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pipeline.model_status["paddle_ocr"]["status"], "loaded")
 
     async def test_translation_passes_contour_safe_mask_to_inpainter(self):
-        pipeline = TranslationPipeline(device="cpu")
         # High noise keeps every fill tier honest, so the block reaches the
         # model and the handed-over mask can be compared.
         rng = np.random.default_rng(4)
         image = rng.integers(128, 255, (60, 100, 3)).astype(np.uint8)
         image[22:30, 25:45] = 0
         block = TextBlock([15, 15, 55, 40])
-
-        class FakeDetector:
-            async def detect(self, _image):
-                return [block]
-
-        class FakeInpainter:
-            last_backend_used = "test"
-
-            async def inpaint(self, source, mask):
-                self.mask = mask
-                return source.copy()
-
-        inpainter = FakeInpainter()
-        pipeline._detectors.default = FakeDetector()
-        pipeline._ocr = FakeOcrEngine()
-        pipeline._inpainters.instance = inpainter
-        pipeline._inpainters.type = "test"
-        pipeline.model_status["inpainter"] = {"status": "loaded", "name": "test"}
+        pipeline, inpainter = _pipeline_with_fakes([block])
 
         with patch("manga_backend.pipeline.orchestrator.render_text", return_value=image):
             await pipeline.translate(
@@ -504,29 +519,11 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_translation_uses_rectangular_mask_for_animetext_yolo(self):
-        pipeline = TranslationPipeline(device="cpu")
         rng = np.random.default_rng(5)
         image = rng.integers(128, 255, (60, 100, 3)).astype(np.uint8)
         image[22:30, 25:45] = 0
         block = TextBlock([15, 15, 55, 40])
-
-        class FakeDetector:
-            async def detect(self, _image):
-                return [block]
-
-        class FakeInpainter:
-            last_backend_used = "test"
-
-            async def inpaint(self, source, mask):
-                self.mask = mask
-                return source.copy()
-
-        inpainter = FakeInpainter()
-        pipeline._detectors.optional["animetext-yolo"] = FakeDetector()
-        pipeline._ocr = FakeOcrEngine()
-        pipeline._inpainters.instance = inpainter
-        pipeline._inpainters.type = "test"
-        pipeline.model_status["inpainter"] = {"status": "loaded", "name": "test"}
+        pipeline, inpainter = _pipeline_with_fakes([block], detector_key="animetext-yolo")
 
         with patch("manga_backend.pipeline.orchestrator.render_text", return_value=image):
             await pipeline.translate(
@@ -549,10 +546,6 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
         image[22:30, 25:45] = 0
         block = TextBlock([15, 15, 55, 40])
 
-        class FakeDetector:
-            async def detect(self, _image):
-                return [block]
-
         class LeakyInpainter:
             last_backend_used = "test"
 
@@ -561,7 +554,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
                 return np.full_like(source, 9)
 
         inpainter = LeakyInpainter()
-        pipeline._detectors.default = FakeDetector()
+        pipeline._detectors.default = StaticDetector([block])
         pipeline._ocr = FakeOcrEngine()
         pipeline._inpainters.instance = inpainter
         pipeline._inpainters.type = "test"
@@ -594,10 +587,6 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
         white_block = TextBlock([15, 15, 55, 40])
         textured_block = TextBlock([115, 15, 155, 40])
 
-        class FakeDetector:
-            async def detect(self, _image):
-                return [white_block, textured_block]
-
         class PassthroughInpainter:
             last_backend_used = "flux2_klein_lanpaint"
 
@@ -610,7 +599,7 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
                 return source.copy()
 
         inpainter = PassthroughInpainter()
-        pipeline._detectors.default = FakeDetector()
+        pipeline._detectors.default = StaticDetector([white_block, textured_block])
         pipeline._ocr = FakeOcrEngine()
         pipeline._inpainters.instance = None
         pipeline._inpainters.type = "flux2_klein_lanpaint"
@@ -1867,11 +1856,7 @@ class InpainterFallbackTests(unittest.IsolatedAsyncioTestCase):
         image[30:38, 40:70] = 0
         block = TextBlock([30, 22, 80, 46])
 
-        class FakeDetector:
-            async def detect(self, _image):
-                return [block]
-
-        pipeline._detectors.default = FakeDetector()
+        pipeline._detectors.default = StaticDetector([block])
         pipeline._ocr = FakeOcrEngine()
 
         with patch("manga_backend.pipeline.orchestrator.render_text", return_value=image):
@@ -1972,11 +1957,7 @@ class LostInpainterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.image[30:38, 40:70] = 0
         block = TextBlock([30, 22, 80, 46])
 
-        class FakeDetector:
-            async def detect(self, _image):
-                return [block]
-
-        pipeline._detectors.default = FakeDetector()
+        pipeline._detectors.default = StaticDetector([block])
         pipeline._ocr = FakeOcrEngine()
         return pipeline
 
@@ -2145,12 +2126,8 @@ class PipelineEventLoopTests(unittest.TestCase):
         image = np.full((60, 100, 3), 255, dtype=np.uint8)
         block = TextBlock([15, 15, 55, 40])
 
-        class FakeDetector:
-            async def detect(self, _image):
-                return [block]
-
         pipeline = TranslationPipeline(device="cpu")
-        pipeline._detectors.default = FakeDetector()
+        pipeline._detectors.default = StaticDetector([block])
         pipeline._ocr = FakeOcrEngine()
 
         # An empty mask skips inpainter initialization entirely.

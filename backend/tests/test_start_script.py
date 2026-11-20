@@ -63,6 +63,30 @@ class BackendStartScriptTests(unittest.TestCase):
         env.pop("MANGA_TRANSLATOR_TESTING", None)
         return env
 
+    def run_launcher(
+        self,
+        root: Path,
+        script: Path,
+        env: dict[str, str],
+        *args: str,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                POWERSHELL,
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script),
+                *args,
+            ],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
     def test_launcher_uses_isolated_gpu_env_and_restores_caller_state(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -126,24 +150,14 @@ class BackendStartScriptTests(unittest.TestCase):
             script, capture = self.make_launcher_fixture(
                 root, provider_probe_exit=4
             )
-            result = subprocess.run(
-                [
-                    POWERSHELL,
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                    str(script),
-                    "-Runtime",
-                    "gpu",
-                    "-Port",
-                    str(self.free_port()),
-                ],
-                cwd=root,
-                env=self.launcher_env(root, capture),
-                capture_output=True,
-                text=True,
-                check=False,
+            result = self.run_launcher(
+                root,
+                script,
+                self.launcher_env(root, capture),
+                "-Runtime",
+                "gpu",
+                "-Port",
+                str(self.free_port()),
             )
 
             self.assertEqual(result.returncode, 4)
@@ -156,24 +170,14 @@ class BackendStartScriptTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             script, capture = self.make_launcher_fixture(root, with_token=False)
-            result = subprocess.run(
-                [
-                    POWERSHELL,
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                    str(script),
-                    "-Runtime",
-                    "gpu",
-                    "-Port",
-                    str(self.free_port()),
-                ],
-                cwd=root,
-                env=self.launcher_env(root, capture),
-                capture_output=True,
-                text=True,
-                check=False,
+            result = self.run_launcher(
+                root,
+                script,
+                self.launcher_env(root, capture),
+                "-Runtime",
+                "gpu",
+                "-Port",
+                str(self.free_port()),
             )
 
             self.assertEqual(result.returncode, 2)
@@ -187,24 +191,14 @@ class BackendStartScriptTests(unittest.TestCase):
             script, capture = self.make_launcher_fixture(root)
             env = self.launcher_env(root, capture)
             env["MANGA_TRANSLATOR_TESTING"] = "1"
-            result = subprocess.run(
-                [
-                    POWERSHELL,
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                    str(script),
-                    "-Runtime",
-                    "gpu",
-                    "-Port",
-                    str(self.free_port()),
-                ],
-                cwd=root,
-                env=env,
-                capture_output=True,
-                text=True,
-                check=False,
+            result = self.run_launcher(
+                root,
+                script,
+                env,
+                "-Runtime",
+                "gpu",
+                "-Port",
+                str(self.free_port()),
             )
 
             self.assertEqual(result.returncode, 5)
@@ -219,22 +213,12 @@ class BackendStartScriptTests(unittest.TestCase):
             listener.bind(("127.0.0.1", 0))
             listener.listen()
             port = int(listener.getsockname()[1])
-            result = subprocess.run(
-                [
-                    POWERSHELL,
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                    str(script),
-                    "-Port",
-                    str(port),
-                ],
-                cwd=root,
-                env=self.launcher_env(root, capture),
-                capture_output=True,
-                text=True,
-                check=False,
+            result = self.run_launcher(
+                root,
+                script,
+                self.launcher_env(root, capture),
+                "-Port",
+                str(port),
             )
 
             self.assertEqual(result.returncode, 3)

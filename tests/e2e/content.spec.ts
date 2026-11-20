@@ -1,8 +1,6 @@
-import http from 'node:http';
-import type { AddressInfo, Socket } from 'node:net';
 import path from 'node:path';
 import { bundleAsGlobal } from './bundle.ts';
-import { expect, test } from './fixtures.ts';
+import { expect, serveHtmlFixture, test } from './fixtures.ts';
 
 type OverlayDomApi = typeof import('../../extension/lib/overlay-dom.ts');
 
@@ -16,10 +14,8 @@ const overlayDomEntry = path.join(
 );
 
 async function createTestServer() {
-  const sockets = new Set<Socket>();
-  const server = http.createServer((_req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(`<!doctype html>
+  return serveHtmlFixture(
+    `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -31,32 +27,9 @@ async function createTestServer() {
     <p>This page is served locally so the extension content script can inject styles.</p>
   </main>
 </body>
-</html>`);
-  });
-
-  server.on('connection', (socket) => {
-    sockets.add(socket);
-    socket.on('close', () => sockets.delete(socket));
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
-
-  const address = server.address() as AddressInfo;
-  const url = `http://localhost:${address.port}/`;
-
-  return {
-    close: async () => {
-      for (const socket of sockets) {
-        socket.destroy();
-      }
-
-      await new Promise((resolve) => server.close(resolve));
-    },
-    url,
-  };
+</html>`,
+    { urlHost: 'localhost' },
+  );
 }
 
 test('shadow overlay styles apply and hostile page CSS cannot reach them', async ({ page }) => {
