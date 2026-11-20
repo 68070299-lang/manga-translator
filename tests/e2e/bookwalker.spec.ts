@@ -1007,40 +1007,6 @@ test('canvas translation failure clears processing state and can be retried', as
   }
 });
 
-test('canvas backend timeout clears processing state and is not immediately retried', async ({
-  page,
-}) => {
-  const server = await loadFixtureWithContentScript(page, 'timeout-error', { showProgress: true });
-
-  try {
-    await requestTranslatePage(page);
-    await expect
-      .poll(async () => {
-        const state = await getCanvasOverlayState(page);
-        return {
-          translated: state.translated,
-          processing: state.processing,
-          overlayCount: state.overlayCount,
-          calls: state.calls,
-        };
-      })
-      .toEqual({
-        translated: false,
-        processing: false,
-        overlayCount: 0,
-        calls: 1,
-      });
-
-    const state = await getCanvasOverlayState(page);
-    expect(state.progressText).toContain('timed out');
-
-    await page.waitForTimeout(1300);
-    await expect.poll(() => page.evaluate(() => (window as TestWindow).__translateCalls)).toBe(1);
-  } finally {
-    await server.close();
-  }
-});
-
 test('BookWalker auto translate does not loop after backend timeout', async ({ page }) => {
   const server = await loadFixtureWithContentScript(page, 'timeout-error', {
     autoTranslate: true,
@@ -1067,6 +1033,8 @@ test('BookWalker auto translate does not loop after backend timeout', async ({ p
         overlayCount: 0,
         calls: 1,
       });
+
+    expect((await getCanvasOverlayState(page)).progressText).toContain('timed out');
 
     await page.waitForTimeout(2200);
     await expect.poll(() => page.evaluate(() => (window as TestWindow).__translateCalls)).toBe(1);

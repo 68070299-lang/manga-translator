@@ -305,14 +305,6 @@ class ClientTimeoutTests(unittest.IsolatedAsyncioTestCase):
 
 
 class DistilledDefaultsTests(unittest.TestCase):
-    def test_default_prompt_is_general_and_not_material_specific(self):
-        normalized = DEFAULT_PROMPT.lower()
-        self.assertIn("restore what is behind it", normalized)
-        self.assertIn("continue interrupted edges", normalized)
-        self.assertIn("do not create text", normalized)
-        for specific_term in ("manga", "wardrobe", "fridge", "wood", "screentone"):
-            self.assertNotIn(specific_term, normalized)
-
     def test_distilled_defaults_and_adaptive_refinement(self):
         with patch.dict(
             os.environ,

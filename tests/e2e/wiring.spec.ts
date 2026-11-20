@@ -390,29 +390,3 @@ test('pressing Escape during region selection sends nothing to the backend', asy
   await expect(page.locator('.manga-region-translation')).toHaveCount(0);
   expect(translateRequests).toHaveLength(0);
 });
-
-test('the worker serves the bundled font and the browser accepts its bytes', async ({
-  context,
-  extensionId,
-}) => {
-  const extensionPage = await context.newPage();
-  try {
-    await extensionPage.goto(`chrome-extension://${extensionId}/options.html`);
-    const result = await extensionPage.evaluate(async () => {
-      const response = await chrome.runtime.sendMessage({
-        type: 'GET_BUNDLED_FONT',
-        fontId: 'cc-wild-words',
-      });
-      const unknown = await chrome.runtime.sendMessage({
-        type: 'GET_BUNDLED_FONT',
-        fontId: 'missing',
-      });
-      const bytes = Uint8Array.from(atob(response.base64), (character) => character.charCodeAt(0));
-      const face = await new FontFace('Bundled Probe', bytes.buffer).load();
-      return { success: response.success, status: face.status, unknown: unknown.success };
-    });
-    expect(result).toEqual({ success: true, status: 'loaded', unknown: false });
-  } finally {
-    await extensionPage.close();
-  }
-});

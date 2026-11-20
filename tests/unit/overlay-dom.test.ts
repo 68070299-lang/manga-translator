@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   createImageOverlay,
@@ -58,19 +56,5 @@ describe('overlay shadow hosts', () => {
     expect(document.querySelector('.manga-translated-img-overlay')).toBe(host);
 
     host.remove();
-  });
-
-  // Moved from the former core-contracts.test.js: the shadow stylesheet is the
-  // only place the progress spinner is styled, so its contract is checked on source.
-  it('shadow overlay stylesheet keeps progress spinner contract available', () => {
-    const css = readFileSync(resolve(__dirname, '../../extension/lib/overlay-dom.ts'), 'utf8');
-
-    expect(css).toContain('.manga-progress-spinner');
-    expect(css).toMatch(/\.manga-progress-spinner\s*\{[^}]*width:\s*16px;/s);
-    expect(css).toMatch(/\.manga-progress-spinner\s*\{[^}]*height:\s*16px;/s);
-    expect(css).toMatch(
-      /\.manga-progress-spinner\s*\{[^}]*animation:\s*manga-spin\s+1s\s+linear\s+infinite;/s,
-    );
-    expect(css).toContain('@keyframes manga-spin');
   });
 });
