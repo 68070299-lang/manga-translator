@@ -52,6 +52,10 @@ MODEL_PINS: dict[tuple[str, str], ModelPin] = {
         "revision": "16e8a622f91fabc6b5b65c96d32d1183f8843546",
         "sha256": "065744e91c0594ad8663aa8b870ce3fb27222942eded5a3cc388ce23421bd195",
     },
+    ("mayocream/comic-text-detector-onnx", "comic-text-detector.onnx"): {
+        "revision": "a5d67ec772adef819ef5b0e7aa701fcf4c8bf74a",
+        "sha256": "1a86ace74961413cbd650002e7bb4dcec4980ffa21b2f19b86933372071d718f",
+    },
     # PaddleOCR files pinned from verified downloads: the recognition ONNX matches
     # the official PaddlePaddle/PP-OCRv5_server_rec weights numerically.
     ("xberg-io/paddleocr-onnx-models", "PP-OCRv5_server_det_infer.onnx"): {
@@ -128,6 +132,8 @@ MANGA_OCR_FILES = {
     "decoder": "decoder_model.onnx",
     "vocab": "vocab.txt",
 }
+TEXT_SEGMENTER_REPO = "mayocream/comic-text-detector-onnx"
+TEXT_SEGMENTER_FILENAME = "comic-text-detector.onnx"
 
 
 async def download_manga_ocr_onnx(
@@ -176,21 +182,24 @@ async def download_manga_ocr_onnx(
     return paths
 
 
-async def download_lama_onnx(
+async def _download_single_onnx(
     model_dir: str | Path,
+    *,
+    repo_id: str,
+    filename: str,
+    label: str,
+    error_message: str,
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> Path:
     model_dir = Path(model_dir)
     await asyncio.to_thread(model_dir.mkdir, parents=True, exist_ok=True)
 
-    filename = "lama-manga-dynamic.onnx"
     model_path = model_dir / filename
-    repo_id = "ogkalu/lama-manga-onnx-dynamic"
     cached = await asyncio.to_thread(model_path.exists)
 
     if not cached:
         try:
-            logger.info("Downloading LaMa inpainting model to %s...", model_path)
+            logger.info("Downloading %s to %s...", label, model_path)
             await asyncio.to_thread(
                 download_pinned_model,
                 repo_id,
@@ -198,12 +207,12 @@ async def download_lama_onnx(
                 local_dir=model_dir,
                 local_dir_use_symlinks=False,
             )
-            logger.info("LaMa model download complete")
+            logger.info("%s download complete", label)
         except ModelChecksumError:
             raise
         except Exception as error:
-            logger.error("Failed to download LaMa model from %s: %s", repo_id, error)
-            raise RuntimeError("Could not download LaMa inpainting model.") from error
+            logger.error("Failed to download %s from %s: %s", label, repo_id, error)
+            raise RuntimeError(error_message) from error
 
     if not await asyncio.to_thread(_is_nonempty, model_path):
         raise RuntimeError(f"Download failed: {model_path} is empty or missing")
@@ -215,3 +224,32 @@ async def download_lama_onnx(
         progress_callback(1, 1)
 
     return model_path
+
+
+async def download_lama_onnx(
+    model_dir: str | Path,
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> Path:
+    return await _download_single_onnx(
+        model_dir,
+        repo_id="ogkalu/lama-manga-onnx-dynamic",
+        filename="lama-manga-dynamic.onnx",
+        label="LaMa inpainting model",
+        error_message="Could not download LaMa inpainting model.",
+        progress_callback=progress_callback,
+    )
+
+
+async def download_text_segmenter_onnx(
+    model_dir: str | Path,
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> Path:
+    """Download and checksum-verify the comic-text-detector ONNX model."""
+    return await _download_single_onnx(
+        model_dir,
+        repo_id=TEXT_SEGMENTER_REPO,
+        filename=TEXT_SEGMENTER_FILENAME,
+        label="text segmenter model",
+        error_message="Could not download text segmenter ONNX model.",
+        progress_callback=progress_callback,
+    )

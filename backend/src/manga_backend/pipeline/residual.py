@@ -51,7 +51,9 @@ import numpy as np
 
 from manga_backend.pipeline.fill_tiers import (
     FLAT_MAX_ERROR,
+    FRINGE_RADIUS,
     LATTICE_MAX_ERROR,
+    RING_RADIUS,
     SMOOTH_MAX_ERROR,
     TIER_MODEL,
     FillDecision,
@@ -495,3 +497,92 @@ def _decision_dict(
     payload = decision.as_dict(strategy)
     payload.update(extras)
     return payload
+
+
+def find_model_residue_retry(
+    original_image: np.ndarray,
+    inpainted_image: np.ndarray,
+    existing_mask: np.ndarray,
+    blocks: list[TextBlock],
+    decisions: list[dict[str, Any]],
+    *,
+    seg_map_after: np.ndarray | None = None,
+) -> tuple[np.ndarray, int]:
+    """Inspect model-inpainted blocks for surviving glyph residue and build one retry mask.
+
+    ``TIER_MODEL`` blocks bypass the pre-model fill-router escalation, so strokes or
+    halo rims left behind by the model would otherwise go unflagged. Any block whose
+    post-inpaint ink matches original lettering shapes receives one bounded
+    dilated mask via ``grow_escalation_mask``; no-op passthroughs (such as test
+    doubles returning the source unchanged inside the mask) are skipped.
+    """
+    height, width = original_image.shape[:2]
+    retry_mask = np.zeros((height, width), dtype=np.uint8)
+    if (
+        original_image.shape != inpainted_image.shape
+        or existing_mask.shape[:2] != (height, width)
+        or not np.any(existing_mask)
+    ):
+        return retry_mask, 0
+
+    block_by_bbox = {int_box(block.xyxy): block for block in blocks}
+    context = RING_RADIUS + FRINGE_RADIUS
+    retry_count = 0
+
+    for decision in decisions:
+        if decision.get("tier") != TIER_MODEL or decision.get("model_retry"):
+            continue
+        bbox_raw = decision.get("block_bbox")
+        if not isinstance(bbox_raw, (list, tuple)) or len(bbox_raw) != 4:
+            continue
+        block = block_by_bbox.get(int_box(bbox_raw))
+        if block is None:
+            continue
+
+        bx1, by1, bx2, by2 = int_box(block.xyxy)
+        cx1 = max(0, bx1 - context)
+        cy1 = max(0, by1 - context)
+        cx2 = min(width, bx2 + context)
+        cy2 = min(height, by2 + context)
+        if cx2 <= cx1 or cy2 <= cy1:
+            continue
+
+        block_mask = (existing_mask[cy1:cy2, cx1:cx2] > 0) & _block_roi(
+            original_image[cy1:cy2, cx1:cx2], block, (cx1, cy1), padding=4
+        )
+        if not np.any(block_mask):
+            continue
+        orig_crop = original_image[cy1:cy2, cx1:cx2]
+        inp_crop = inpainted_image[cy1:cy2, cx1:cx2]
+        if np.array_equal(inp_crop[block_mask], orig_crop[block_mask]):
+            continue
+
+        origin = (cx1, cy1)
+        roi = _block_roi(orig_crop, block, origin)
+        reference = _ink_mask_in_crop(orig_crop, block, origin) & roi
+        if seg_map_after is not None and seg_map_after.shape[:2] == (height, width):
+            post = seg_map_after[cy1:cy2, cx1:cx2] >= 0.45
+        else:
+            post = _ink_mask_in_crop(inp_crop, block, origin)
+        observation = measure_residue(reference, post, roi)
+        if not observation.flagged:
+            continue
+
+        grown, _grown_bounds = grow_escalation_mask(
+            orig_crop, inp_crop, block, origin, block_mask, observation.residue
+        )
+        grown_px = max(0, int(np.count_nonzero(grown)) - int(np.count_nonzero(block_mask)))
+        decision["model_retry"] = True
+        decision["model_retry_residual_px"] = int(observation.residual_px)
+        decision["model_retry_grown_px"] = grown_px
+        target = retry_mask[cy1:cy2, cx1:cx2]
+        np.maximum(target, grown.astype(np.uint8) * 255, out=target)
+        retry_count += 1
+        logger.info(
+            "Post-model residual check: block %s flagged (residue %s px, +%s px mask growth)",
+            bbox_raw,
+            observation.residual_px,
+            grown_px,
+        )
+
+    return retry_mask, retry_count

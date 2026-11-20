@@ -77,9 +77,18 @@ class LeakyInpainter(TeleaInpainter):
         return output
 
 
+class NullTextSegmenter:
+    async def segment(self, image):
+        return None
+
+    def dispose(self):
+        return None
+
+
 def fake_pipeline(inpainter=None, name="fake-telea"):
     pipeline = TranslationPipeline(device="cpu")
     pipeline._ocr = EchoOcr()
+    pipeline._text_segmenter = NullTextSegmenter()
     pipeline._inpainters.instance = inpainter or TeleaInpainter()
     pipeline._inpainters.type = name
     pipeline.model_status["inpainter"] = {"status": "loaded", "name": name}

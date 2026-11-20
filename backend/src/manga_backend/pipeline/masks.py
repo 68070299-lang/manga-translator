@@ -62,6 +62,7 @@ class _ImageAnalysisCache:
 
     image: np.ndarray
     lock: threading.Lock = field(default_factory=threading.Lock)
+    text_seg_map: np.ndarray | None = None
     glyphs: dict[tuple[Box, str], tuple[np.ndarray, Box]] = field(default_factory=dict)
     glyph_inflight: dict[tuple[Box, str], threading.Event] = field(default_factory=dict)
     interiors: dict[tuple[Box, Box | None, str], Any] = field(default_factory=dict)
@@ -112,13 +113,18 @@ def image_analysis_cache(
     image: np.ndarray,
     *,
     precomputed_interiors: dict[tuple[Box, Box | None, str], Any] | None = None,
+    text_seg_map: np.ndarray | None = None,
 ) -> Iterator[None]:
     """Share glyph and bubble-interior results across stages reading the same image."""
     current = _ACTIVE_IMAGE_CACHE.get()
     if current is not None and current.image is image:
+        if text_seg_map is not None and current.text_seg_map is None:
+            with current.lock:
+                if current.text_seg_map is None:
+                    current.text_seg_map = text_seg_map
         yield
         return
-    cache = _ImageAnalysisCache(image=image)
+    cache = _ImageAnalysisCache(image=image, text_seg_map=text_seg_map)
     if precomputed_interiors:
         cache.interiors.update(precomputed_interiors)
     token = _ACTIVE_IMAGE_CACHE.set(cache)
@@ -126,6 +132,12 @@ def image_analysis_cache(
         yield
     finally:
         _ACTIVE_IMAGE_CACHE.reset(token)
+
+
+def current_text_seg_map(image: np.ndarray) -> np.ndarray | None:
+    """Return the cached page-level neural text probability map for ``image``, if any."""
+    cache = _current_cache(image)
+    return None if cache is None else cache.text_seg_map
 
 
 def snapshot_cached_interiors(
@@ -316,6 +328,26 @@ HALO_FLAT_WINDOW = 9
 # and filling it would flatten the tone). The halo also skips that level, so
 # the removed pixels are not readmitted as blends.
 TONE_REMOVAL_TOLERANCE = 24.0
+
+# Neural text segmentation (comic-text-detector UNet seg map) hysteresis bounds.
+# Strong seeds (>= HIGH) grow strictly within connected regions (>= LOW) so faint
+# glyph strokes attached to confirmed text are kept while detached walls/art stay out.
+# When a stylized/brush SFX block receives sparse seg coverage (< MIN_ROI_SHARE
+# while strong classical ink dominates), fall back to the hardened classical mask.
+NEURAL_SEG_HIGH = 0.45
+NEURAL_SEG_LOW = 0.20
+NEURAL_SEG_MIN_ROI_SHARE = 0.035
+NEURAL_SEG_MIN_INK_OVERLAP = 0.35
+NEURAL_PRUNE_MAX_RATIO = 0.92
+NEURAL_PRUNE_MIN_CLASSICAL_COV = 0.68
+NEURAL_PRUNE_MIN_DARK_COV = 0.84
+
+# Outside-in bubble wall guard bounds (px): distance from outside passable pixels
+# used to separate outer bubble walls from interior lettering touching the wall.
+OUTSIDE_WALL_MIN_PX = 2.5
+OUTSIDE_WALL_MAX_PX = 6.5
+OUTSIDE_WALL_DEFAULT_PX = 4.5
+OUTSIDE_WALL_SAMPLE_MAX_PX = 12.0
 
 # --- Bubble interiors ----------------------------------------------------
 # Structure threshold bounds for the flood barrier (same Otsu clamp as the
@@ -967,6 +999,8 @@ def _cover_halo(
     paper: _Paper,
     ink_colours: list[np.ndarray],
     excluded: np.ndarray | None = None,
+    *,
+    flat_only: bool = False,
 ) -> np.ndarray:
     """Add antialiased fringe pixels by alpha-unmixing against a local background.
 
@@ -1019,7 +1053,7 @@ def _cover_halo(
         diff = ink - bg
         norm = diff[:, 0] * diff[:, 0] + diff[:, 1] * diff[:, 1] + diff[:, 2] * diff[:, 2]
         covered = norm > min_norm
-        if np.any(covered):
+        if not flat_only and np.any(covered):
             dot = (
                 val_minus_bg[:, 0] * diff[:, 0]
                 + val_minus_bg[:, 1] * diff[:, 1]
@@ -1236,6 +1270,70 @@ def glyph_mask_for_block(
     return _compute_glyph_mask_for_block(image, block)
 
 
+def _neural_seg_mask(
+    seg_roi: np.ndarray,
+    roi: np.ndarray,
+    light: np.ndarray,
+    paper: _Paper,
+    *,
+    excluded_tone: np.ndarray | None = None,
+) -> np.ndarray | None:
+    """Build a refined glyph mask from a cropped neural text probability map.
+
+    Returns None when the probability map does not confidently cover the block's
+    ink (for instance brush-drawn SFX outside the segmenter's training domain),
+    so the caller falls back to the hardened classical extractor.
+    """
+    high = seg_roi >= NEURAL_SEG_HIGH
+    if not np.any(high):
+        return None
+    low = seg_roi >= NEURAL_SEG_LOW
+    count, labels = cv2.connectedComponents(low.astype(np.uint8), connectivity=8)
+    if count <= 1:
+        return None
+    labels = np.asarray(labels, dtype=np.int32)
+    keep = np.zeros(count, dtype=bool)
+    keep[labels[high]] = True
+    keep[0] = False
+    seg_mask = keep[labels]
+    if excluded_tone is not None and excluded_tone.shape == seg_mask.shape:
+        seg_mask &= ~excluded_tone
+    seg_px = int(np.count_nonzero(seg_mask))
+    if seg_px == 0:
+        return None
+
+    roi_area = max(1, int(seg_roi.shape[0] * seg_roi.shape[1]))
+    # Guard against sparse/partial neural hits on extreme brush-lettered SFX
+    # (e.g. thick hand-brushed katakana where seg only fires on one character):
+    # verify seg covers a meaningful share of the interior strong dark ink.
+    if seg_px < NEURAL_SEG_MIN_ROI_SHARE * roi_area:
+        inner_h, inner_w = seg_roi.shape[:2]
+        my = min(4, inner_h // 6)
+        mx = min(4, inner_w // 6)
+        inner_dark = (paper.light - light) >= max(INK_MIN_DISTANCE * 2.5, 45.0)
+        if my > 0 and mx > 0:
+            inner_mask = np.zeros_like(inner_dark)
+            inner_mask[my : inner_h - my, mx : inner_w - mx] = True
+            inner_dark &= inner_mask
+        dark_px = int(np.count_nonzero(inner_dark))
+        if dark_px >= 64:
+            overlap = float(np.count_nonzero(seg_mask & inner_dark)) / float(dark_px)
+            if overlap < NEURAL_SEG_MIN_INK_OVERLAP:
+                return None
+
+    grown = _grow_outline_bands(roi, seg_mask)
+    colours = _core_colours(roi, light, seg_mask, paper)
+    if colours:
+        # On flat paper allow faint antialiased fringe cleanup attached to seg_mask;
+        # on textured backgrounds keep seg_mask tight so screentone/art stays intact.
+        glyphs = _cover_halo(
+            roi, grown, paper, colours, excluded=excluded_tone, flat_only=True
+        )
+    else:
+        glyphs = grown
+    return _fill_glyph_holes(glyphs)
+
+
 def _compute_glyph_mask_for_block(
     image: np.ndarray,
     block: TextBlock,
@@ -1260,36 +1358,122 @@ def _compute_glyph_mask_for_block(
     paper = _paper_estimate(image, (bx1, by1, bx2, by2), inside_lab=inside_lab)
     lab_f = roi_lab.astype(np.float32)
     lab_f[..., 1:] -= 128.0
-    populations = _ink_populations(roi, paper, lab_f=lab_f)
-    if not populations:
-        return np.zeros(roi.shape[:2], dtype=np.uint8), (x1, y1, x2, y2)
-
     light = lab_f[..., 0]
-    paper_mean = float(paper.rgb.mean())
-    if len(populations) == 1:
-        union = populations[0][0]
-        shared_metrics = _component_metrics(union, light)
-        cores = _classify_ink_components(union, light, paper_mean, metrics=shared_metrics)
-        tone_dots = _tone_dot_mask(union, light, metrics=shared_metrics)
-    else:
-        cores = np.zeros(roi.shape[:2], bool)
-        union = np.zeros(roi.shape[:2], bool)
-        for candidate, _colour in populations:
-            union |= candidate
-            cores |= _classify_ink_components(candidate, light, paper_mean)
-        tone_dots = _tone_dot_mask(union, light)
-    cores &= ~tone_dots
-    tone = _tone_dot_bodies(light, tone_dots)
-    cores &= ~tone
-    cores = _drop_continuing_structure(image, (x1, y1, x2, y2), cores, light, paper)
-    if not np.any(cores):
+
+    populations = _ink_populations(roi, paper, lab_f=lab_f)
+    excluded_tone = np.zeros(roi.shape[:2], bool)
+    classical_glyphs = np.zeros(roi.shape[:2], bool)
+    if populations:
+        paper_mean = float(paper.rgb.mean())
+        tone = np.zeros(roi.shape[:2], bool)
+        if len(populations) == 1:
+            union = populations[0][0]
+            shared_metrics = _component_metrics(union, light)
+            cores = _classify_ink_components(union, light, paper_mean, metrics=shared_metrics)
+            tone_dots = _tone_dot_mask(union, light, metrics=shared_metrics)
+            cores &= ~tone_dots
+            tone = _tone_dot_bodies(light, tone_dots)
+            cores &= ~tone
+            cores = _drop_continuing_structure(image, (x1, y1, x2, y2), cores, light, paper)
+        else:
+            union = np.zeros(roi.shape[:2], bool)
+            classified: list[tuple[float, np.ndarray]] = []
+            for candidate, colour in populations:
+                union |= candidate
+                kept = _classify_ink_components(candidate, light, paper_mean)
+                if np.any(kept):
+                    contrast = float(np.linalg.norm(colour.astype(np.float32) - paper.rgb))
+                    classified.append((contrast, kept))
+            tone_dots = _tone_dot_mask(union, light)
+            tone = _tone_dot_bodies(light, tone_dots)
+            non_tone = ~tone_dots & ~tone
+
+            classified.sort(key=lambda item: item[0], reverse=True)
+            cores = np.zeros(roi.shape[:2], bool)
+            dropped_walls = np.zeros(roi.shape[:2], bool)
+            wall_halo_kernel = np.ones((5, 5), np.uint8)
+            pruned_primary = False
+            for _contrast, kept in classified:
+                clean = kept & non_tone
+                if not np.any(clean):
+                    continue
+                if not pruned_primary:
+                    # Only prune the strongest non-tone population in isolation:
+                    # bubble walls and panel borders live in the darkest cluster,
+                    # whereas running _drop_continuing_structure on a weaker faint
+                    # cluster alone raises dark_limit into darker outer screentone.
+                    pruned = _drop_continuing_structure(
+                        image, (x1, y1, x2, y2), clean, light, paper
+                    )
+                    dropped_walls |= clean & ~pruned
+                    cores |= pruned
+                    pruned_primary = True
+                else:
+                    if np.any(dropped_walls):
+                        wall_zone = (
+                            cv2.dilate(dropped_walls.astype(np.uint8), wall_halo_kernel) > 0
+                        )
+                        clean &= ~wall_zone
+                    cores |= clean
+            if np.any(cores):
+                cores = _drop_continuing_structure(image, (x1, y1, x2, y2), cores, light, paper)
+
+        excluded_tone = tone_dots | tone
+        if np.any(cores):
+            grown = _grow_outline_bands(roi, cores)
+            glyphs = _cover_halo(
+                roi, grown, paper, _core_colours(roi, light, cores, paper), tone
+            )
+            classical_glyphs = _fill_glyph_holes(glyphs)
+
+    seg_map = current_text_seg_map(image)
+    if seg_map is not None and seg_map.shape[:2] == (height, width):
+        neural = _neural_seg_mask(
+            seg_map[y1:y2, x1:x2],
+            roi,
+            light,
+            paper,
+            excluded_tone=excluded_tone if np.any(excluded_tone) else None,
+        )
+        if neural is not None and np.any(neural):
+            classical_px = int(np.count_nonzero(classical_glyphs))
+            if classical_px == 0:
+                return neural.astype(np.uint8) * 255, (x1, y1, x2, y2)
+            if block.bubble_xyxy is None and not np.any(excluded_tone):
+                neural_px = int(np.count_nonzero(neural))
+                if neural_px < NEURAL_PRUNE_MAX_RATIO * classical_px:
+                    roi_h, roi_w = classical_glyphs.shape
+                    my = min(4, roi_h // 6)
+                    mx = min(4, roi_w // 6)
+                    inner = np.zeros_like(classical_glyphs)
+                    if roi_h > 2 * my and roi_w > 2 * mx:
+                        inner[my : roi_h - my, mx : roi_w - mx] = True
+                    else:
+                        inner[:] = True
+                    inner_classical = classical_glyphs & inner
+                    inner_c_px = int(np.count_nonzero(inner_classical))
+                    if inner_c_px > 0:
+                        classical_cov = float(
+                            np.count_nonzero(inner_classical & neural)
+                        ) / float(inner_c_px)
+                        inner_dark = inner_classical & (
+                            (paper.light - light) >= max(INK_MIN_DISTANCE * 2.5, 45.0)
+                        )
+                        dark_px = int(np.count_nonzero(inner_dark))
+                        dark_cov = (
+                            float(np.count_nonzero(inner_dark & neural)) / float(dark_px)
+                            if dark_px >= 24
+                            else 1.0
+                        )
+                        if (
+                            classical_cov >= NEURAL_PRUNE_MIN_CLASSICAL_COV
+                            and dark_cov >= NEURAL_PRUNE_MIN_DARK_COV
+                        ):
+                            return neural.astype(np.uint8) * 255, (x1, y1, x2, y2)
+
+    if not np.any(classical_glyphs):
         return np.zeros(roi.shape[:2], dtype=np.uint8), (x1, y1, x2, y2)
-    grown = _grow_outline_bands(roi, cores)
-    glyphs = _cover_halo(
-        roi, grown, paper, _core_colours(roi, light, cores, paper), tone
-    )
-    glyphs = _fill_glyph_holes(glyphs)
-    return glyphs.astype(np.uint8) * 255, (x1, y1, x2, y2)
+    return classical_glyphs.astype(np.uint8) * 255, (x1, y1, x2, y2)
 
 
 def _fill_glyph_holes(glyphs: np.ndarray) -> np.ndarray:
@@ -1299,6 +1483,8 @@ def _fill_glyph_holes(glyphs: np.ndarray) -> np.ndarray:
     that leaves the white letter bodies standing as letter-shaped islands.
     On plain paper an enclosed counter already is paper, so adding it
     changes nothing; on tone or art it is part of what has to be refilled.
+    Pockets trapped by a single mask component that spans opposing crop edges
+    (for instance a bubble wall merged with lettering) are left unfilled.
     """
     mask = glyphs.astype(bool)
     if not mask.any():
@@ -1319,6 +1505,30 @@ def _fill_glyph_holes(glyphs: np.ndarray) -> np.ndarray:
     holes[0] = False
     if not np.any(holes):
         return mask
+
+    # Reject pockets enclosed by a wall-spanning foreground component that
+    # touches opposite borders of the crop (left & right, or top & bottom).
+    fg_count, fg_labels, fg_stats, _ = cv2.connectedComponentsWithStats(
+        mask.astype(np.uint8), connectivity=8
+    )
+    if fg_count > 1:
+        fg_lefts = fg_stats[:, cv2.CC_STAT_LEFT]
+        fg_tops = fg_stats[:, cv2.CC_STAT_TOP]
+        fg_rights = fg_lefts + fg_stats[:, cv2.CC_STAT_WIDTH]
+        fg_bottoms = fg_tops + fg_stats[:, cv2.CC_STAT_HEIGHT]
+        spanning = ((fg_lefts <= 0) & (fg_rights >= width)) | (
+            (fg_tops <= 0) & (fg_bottoms >= height)
+        )
+        spanning[0] = False
+        if np.any(spanning):
+            spanning_mask = spanning[fg_labels]
+            k3 = np.ones((3, 3), np.uint8)
+            touching_span = cv2.dilate(spanning_mask.astype(np.uint8), k3) > 0
+            for hole_label in np.nonzero(holes)[0]:
+                if np.any((labels == hole_label) & touching_span):
+                    holes[hole_label] = False
+            if not np.any(holes):
+                return mask
     return mask | holes[labels]
 
 
@@ -1450,8 +1660,6 @@ def _flood_interior(
         np.ones((3, 3), np.uint8),
         iterations=gap_close,
     ).astype(bool)
-    if ink_pixels is not None:
-        barrier &= ~ink_pixels
     barrier = _drop_dot_barriers(barrier)
 
     paper_colour = (np.abs(light - paper.light) <= PAPER_SEED_TOLERANCE) & (
@@ -1485,9 +1693,10 @@ def _flood_interior(
     seed_labels = seed_labels[seed_labels > 0]
     if seed_labels.size == 0:
         return None, INTERIOR_NO_SEED
-    # A seed that belongs to the border-touching component is on the wrong
-    # side of the outline (a one-pixel nick where the box corner meets the
-    # wall is enough); only enclosed seeds define the interior.
+    # Outside-in topology: any passable component touching the window edge is
+    # outside the bubble. Keeping barrier intact (never subtracting ink_pixels
+    # from the wall) prevents wall-contaminated glyph masks from punching holes
+    # through narrow or jagged bubble outlines.
     border_labels = np.unique(
         np.concatenate([labels[0, :], labels[-1, :], labels[:, 0], labels[:, -1]])
     )
@@ -1497,8 +1706,7 @@ def _flood_interior(
     keep_seed = np.zeros(count, dtype=bool)
     keep_seed[seed_labels] = True
     interior = keep_seed[labels]
-    area = float(np.count_nonzero(interior))
-    if area < max(64.0, INTERIOR_MIN_AREA_FRACTION * text_area):
+    if int(np.count_nonzero(interior)) < 16:
         return None, INTERIOR_SMALL
 
     # Leaks: a bubble is enclosed, so the fill must not reach the window
@@ -1511,17 +1719,73 @@ def _flood_interior(
     )
     if reaches_border:
         return None, INTERIOR_LEAK
-    if detector_bounds is not None:
-        box_area = float(
+    box_area = (
+        float(
             max(1, detector_bounds[2] - detector_bounds[0])
             * max(1, detector_bounds[3] - detector_bounds[1])
         )
-        if area > INTERIOR_LEAK_FACTOR * box_area:
-            return None, INTERIOR_LEAK
+        if detector_bounds is not None
+        else None
+    )
+    area = float(np.count_nonzero(interior))
+    if box_area is not None and area > INTERIOR_LEAK_FACTOR * box_area:
+        return None, INTERIOR_LEAK
 
-    # Fill enclosed islands: glyphs inside the bubble are interior, the
-    # outline ring is not (it is not enclosed by this flood, or it reaches
-    # beyond the text box).
+    # Peel only the outer wall ribbon from barrier so interior lettering that
+    # physically touches the inside of the bubble wall joins the interior
+    # without ever absorbing the bubble outline itself.
+    outside_border_labels = border_labels[border_labels > 0]
+    if outside_border_labels.size > 0:
+        outside_lut = np.zeros(count, dtype=bool)
+        outside_lut[outside_border_labels] = True
+        outside_passable = outside_lut[labels]
+        dist_to_outside = cv2.distanceTransform(
+            (~outside_passable).astype(np.uint8), cv2.DIST_L2, 3
+        )
+        near_wall = interior & (
+            cv2.dilate(barrier.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+        )
+        wall_samples = dist_to_outside[near_wall]
+        wall_samples = wall_samples[wall_samples <= OUTSIDE_WALL_SAMPLE_MAX_PX]
+        if wall_samples.size >= 8:
+            wall_limit = float(
+                np.clip(
+                    float(np.percentile(wall_samples, 85)) - 0.5,
+                    OUTSIDE_WALL_MIN_PX,
+                    OUTSIDE_WALL_MAX_PX,
+                )
+            )
+        else:
+            wall_limit = OUTSIDE_WALL_DEFAULT_PX
+        wall_guard = barrier & (~text_box | (dist_to_outside <= wall_limit))
+        wall_guard[0, :] |= barrier[0, :]
+        wall_guard[-1, :] |= barrier[-1, :]
+        wall_guard[:, 0] |= barrier[:, 0]
+        wall_guard[:, -1] |= barrier[:, -1]
+        non_wall = (~(outside_passable | wall_guard)).astype(np.uint8)
+        exp_count, exp_labels = cv2.connectedComponents(non_wall, connectivity=4)
+        exp_labels = np.asarray(exp_labels, dtype=np.int32)
+        exp_seeds = np.unique(exp_labels[interior])
+        exp_seeds = exp_seeds[exp_seeds > 0]
+        if exp_seeds.size > 0:
+            exp_lut = np.zeros(exp_count, dtype=bool)
+            exp_lut[exp_seeds] = True
+            expanded = exp_lut[exp_labels]
+            expanded_reaches_border = bool(
+                expanded[0, :].any()
+                or expanded[-1, :].any()
+                or expanded[:, 0].any()
+                or expanded[:, -1].any()
+            )
+            expanded_area = float(np.count_nonzero(expanded))
+            if not expanded_reaches_border and (
+                box_area is None or expanded_area <= INTERIOR_LEAK_FACTOR * box_area
+            ):
+                interior = expanded
+                area = expanded_area
+
+    # Fill remaining enclosed islands (e.g. bubbles embedded in solid dark panels
+    # where outside_passable does not wrap all sides).
     hole_count, hole_labels = cv2.connectedComponents(
         (~interior).astype(np.uint8), connectivity=4
     )
@@ -1534,13 +1798,13 @@ def _flood_interior(
             weights=text_box.ravel().astype(np.float64),
             minlength=hole_count,
         )
-        border_labels = np.unique(
+        hole_border_labels = np.unique(
             np.concatenate(
                 [hole_labels[0, :], hole_labels[-1, :], hole_labels[:, 0], hole_labels[:, -1]]
             )
         ).astype(np.int64)
         hole_border = np.zeros(hole_count, bool)
-        hole_border[border_labels] = True
+        hole_border[hole_border_labels] = True
         accept = (
             (np.arange(hole_count) > 0)
             & ~hole_border
@@ -1552,6 +1816,11 @@ def _flood_interior(
         if np.any(accept):
             interior |= accept[hole_labels]
             area = float(np.count_nonzero(interior))
+
+    if area < max(64.0, INTERIOR_MIN_AREA_FRACTION * text_area):
+        return None, INTERIOR_SMALL
+    if box_area is not None and area > INTERIOR_LEAK_FACTOR * box_area:
+        return None, INTERIOR_LEAK
 
     covered = float(np.count_nonzero(interior & text_box)) / max(1.0, text_area)
     if covered < INTERIOR_MIN_COVERAGE:
@@ -1879,7 +2148,28 @@ def contour_safe_mask_for_block(
                 glyphs[overlap[0]], interior[overlap[1]]
             )
         if np.any(clipped):
-            return clipped, glyph_bounds, "bubble-clipped-glyph"
+            if block.bubble_xyxy is not None:
+                return clipped, glyph_bounds, "bubble-clipped-glyph"
+            if block.block_type != "sfx":
+                glyph_px = int(np.count_nonzero(glyphs))
+                clipped_px = int(np.count_nonzero(clipped))
+                tx1, ty1, tx2, ty2 = (int(value) for value in block.xyxy)
+                text_area = max(1, (tx2 - tx1) * (ty2 - ty1))
+                ix1, iy1, _ix2, _iy2 = interior_bounds
+                int_h, int_w = interior.shape[:2]
+                text_in_int = np.zeros((int_h, int_w), bool)
+                ty_start = min(int_h, max(0, ty1 - iy1))
+                ty_end = min(int_h, max(ty_start, ty2 - iy1))
+                tx_start = min(int_w, max(0, tx1 - ix1))
+                tx_end = min(int_w, max(tx_start, tx2 - ix1))
+                text_in_int[ty_start:ty_end, tx_start:tx_end] = True
+                out_int = int(np.count_nonzero((interior > 0) & ~text_in_int))
+                if (
+                    glyph_px > 0
+                    and float(clipped_px) >= 0.85 * float(glyph_px)
+                    and float(out_int) >= 0.25 * float(text_area)
+                ):
+                    return clipped, glyph_bounds, "bubble-clipped-glyph"
 
     if has_glyphs:
         return glyphs, glyph_bounds, "glyph"
@@ -1958,6 +2248,35 @@ def _bubble_valid_region(
     valid = np.zeros(shape[:2], dtype=np.uint8)
     valid[ly1:ly2, lx1:lx2] = 255
     return valid
+
+
+def _bubble_valid_mask(
+    image: np.ndarray, block: TextBlock, crop_bounds: Box, shape: tuple[int, ...]
+) -> np.ndarray | None:
+    """Actual eroded bubble interior in crop coordinates, with box fallback.
+
+    Using the verified topological interior (eroded 2 px clear of the outline's
+    antialiased edge) instead of only the rectangular ``bubble_xyxy`` keeps
+    pinched-waist and spiky bubbles from pulling outside speed lines or walls
+    into the held-out band and context ring. Blocks without a detector bubble
+    box keep ``None`` so free-text screentone context rings stay intact.
+    """
+    rect_valid = _bubble_valid_region(block, crop_bounds, shape)
+    if rect_valid is None:
+        return None
+    details = bubble_interior_details(image, block)
+    if not details.found or details.method != "flood":
+        return rect_valid
+    valid = np.zeros(shape[:2], dtype=np.uint8)
+    overlap = overlap_slices(crop_bounds, details.bounds)
+    if overlap is None:
+        return rect_valid
+    valid[overlap[0]] = details.interior[overlap[1]]
+    eroded = cv2.erode(valid, np.ones((5, 5), np.uint8), iterations=1)
+    if not np.any(eroded):
+        return rect_valid
+    combined = cv2.bitwise_and(eroded, rect_valid)
+    return combined if np.any(combined) else rect_valid
 
 
 def _router_crop(bounds: Box, width: int, height: int) -> Box:
@@ -2042,7 +2361,7 @@ def prepare_flux_inpainting(
             interior_mode = strategy == "bubble-interior"
             valid = None
             if not interior_mode and strategy in INTERIOR_STRATEGIES:
-                valid = _bubble_valid_region(block, (cx1, cy1, cx2, cy2), crop.shape)
+                valid = _bubble_valid_mask(image, block, (cx1, cy1, cx2, cy2), crop.shape)
 
             # Reuse the glyph mask already extracted on the original image so
             # the residual check does not run Lab/k-means extraction twice.

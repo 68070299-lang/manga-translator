@@ -342,3 +342,96 @@ class BubbleInteriorTests(unittest.TestCase):
                 reused = masks.bubble_interior_details(rendered, block)
             self.assertEqual(spy_interior.call_count, 1)
             self.assertIs(reused, first)
+
+    def test_outside_in_flood_protects_pinched_bubble_walls_when_haze_touches_wall(self):
+        # Reproduce the [d01] topology: narrow diamond bubble whose left/right
+        # walls sit inside the text box while gray motion-blur haze and thick
+        # bottom lettering touch the inner wall surface.
+        image = np.full((260, 180, 3), 255, np.uint8)
+        # Vertical speed lines outside the diamond bubble.
+        for x in range(10, 170, 8):
+            image[:, x : x + 2] = 60
+        diamond = np.array([[90, 20], [150, 90], [128, 150], [150, 210], [90, 240], [30, 210], [52, 150], [30, 90]], np.int32)
+        cv2.fillPoly(image, [diamond], (255, 255, 255))
+        cv2.polylines(image, [diamond], True, (0, 0, 0), 4)
+        # Dark strokes + motion-blur gray bridging toward the walls & touching bottom waist.
+        image[55:215, 78:102] = 0
+        image[120:180, 55:125] = 175
+        image[125:175, 80:100] = 0
+
+        block = TextBlock([48, 50, 132, 222], block_type="text")
+        block.bubble_xyxy = [28, 18, 152, 242]
+        result = masks.bubble_interior_details(image, block)
+
+        self.assertTrue(result.found, f"expected interior, got {result.reason}")
+        self.assertEqual(result.method, "flood")
+        _local, _bounds, strategy = masks.contour_safe_mask_for_block(image, block)
+        self.assertEqual(strategy, "bubble-clipped-glyph")
+
+        cleaned, model_mask, filled_count, model_count, decisions = masks.prepare_flux_inpainting(
+            image, [block]
+        )
+        self.assertEqual(filled_count, 1)
+        self.assertEqual(model_count, 0)
+        self.assertEqual(decisions[0]["tier_name"], "flat")
+        # Both left/right pinched waist walls at y=150 (x~52, x~128) must stay black.
+        self.assertLess(int(cleaned[150, 52].mean()), 30)
+        self.assertLess(int(cleaned[150, 128].mean()), 30)
+        self.assertFalse(np.any(model_mask))
+
+    def test_neural_seg_map_guides_glyph_mask_and_falls_back_when_sparse(self):
+        image = np.full((120, 120, 3), 255, np.uint8)
+        # Draw dark ink in block plus an unrelated grey bar outside neural seg.
+        image[30:90, 45:75] = 0
+        image[22:26, 20:100] = 0
+        block = TextBlock([18, 18, 102, 95], block_type="text")
+
+        seg_map = np.zeros((120, 120), dtype=np.float32)
+        seg_map[30:90, 45:75] = 0.85
+
+        with masks.image_analysis_cache(image, text_seg_map=seg_map):
+            local, bounds = masks.glyph_mask_for_block(image, block)
+        mask = _place(local, bounds, image.shape)
+        self.assertTrue(mask[60, 60])
+        self.assertFalse(mask[24, 30], "detached non-seg bar must remain unmasked")
+
+        # Sparse neural seg on thick dark ink must fall back to classical extractor.
+        sparse_seg = np.zeros((120, 120), dtype=np.float32)
+        sparse_seg[82:88, 55:65] = 0.90
+        with masks.image_analysis_cache(image, text_seg_map=sparse_seg):
+            fb_local, fb_bounds = masks.glyph_mask_for_block(image, block)
+        fb_mask = _place(fb_local, fb_bounds, image.shape)
+        self.assertTrue(fb_mask[40, 60], "upper dark ink must still be masked via fallback")
+
+    def test_bubbled_block_preserves_classical_ink_when_neural_seg_misses_stroke(self):
+        image = np.full((180, 180, 3), 255, np.uint8)
+        cv2.rectangle(image, (20, 20), (160, 160), (0, 0, 0), 3)
+        # Two solid black strokes inside the bubble: upper covered by seg, lower missed.
+        image[50:80, 70:110] = 0
+        image[100:130, 70:110] = 0
+        block = TextBlock([45, 45, 135, 140], block_type="text")
+        block.bubble_xyxy = [20, 20, 160, 160]
+
+        seg_map = np.zeros((180, 180), dtype=np.float32)
+        seg_map[50:80, 70:110] = 0.90  # misses [100:130, 70:110]
+
+        with masks.image_analysis_cache(image, text_seg_map=seg_map):
+            local, bounds, strategy = masks.contour_safe_mask_for_block(image, block)
+        mask = _place(local, bounds, image.shape)
+        self.assertEqual(strategy, "bubble-clipped-glyph")
+        self.assertTrue(mask[65, 90])
+        self.assertTrue(mask[115, 90], "missed dark stroke inside bubble must stay masked")
+
+    def test_unboxed_sfx_is_not_clipped_by_accidental_background_pocket(self):
+        image = np.full((160, 160, 3), 255, np.uint8)
+        # Closed border pocket covering only the bottom half of an unboxed SFX.
+        cv2.rectangle(image, (40, 80), (120, 145), (0, 0, 0), 3)
+        image[30:70, 65:95] = 0    # top half outside pocket
+        image[92:130, 65:95] = 0   # bottom half inside pocket
+        block = TextBlock([55, 25, 105, 135], block_type="sfx")
+
+        local, bounds, strategy = masks.contour_safe_mask_for_block(image, block)
+        mask = _place(local, bounds, image.shape)
+        self.assertEqual(strategy, "glyph")
+        self.assertTrue(mask[50, 80], "unboxed SFX outside accidental pocket must stay masked")
+        self.assertTrue(mask[110, 80])

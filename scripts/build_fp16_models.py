@@ -132,6 +132,7 @@ def build_sidecars(cache_dir: Path, *, force: bool = False) -> None:
         ("detector", cache_dir / "detection" / "detector.onnx", False),
         ("ocr-encoder", cache_dir / "manga_ocr" / "encoder_model.onnx", False),
         ("ocr-decoder", cache_dir / "manga_ocr" / "decoder_model.onnx", True),
+        ("text-segmenter", cache_dir / "text_segmenter" / "comic-text-detector.onnx", False),
     ]
     for label, src, slice_decoder in targets:
         if not src.is_file():

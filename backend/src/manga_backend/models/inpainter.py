@@ -50,6 +50,9 @@ MAX_GLYPH_EXTENT = 128
 # of warm cuDNN plans and run together in one batched launch instead of paying
 # per-shape setup cost on every block.
 GPU_CROP_BUCKETS: tuple[int, ...] = (256, 384, 512, 640, 768, 1024)
+# Halo pixels dilated around the binary mask when feeding LaMa so anti-aliased
+# glyph fringes are hidden during generation while commit stays exact.
+LAMA_MASK_GROWTH = 2
 
 Span = tuple[int, int]
 
@@ -70,13 +73,18 @@ def _expand_crop_to_square(
     page_mask: np.ndarray,
     region: CropRegion,
     size: int,
+    *,
+    mask_growth: int = 0,
 ) -> tuple[np.ndarray, np.ndarray, tuple[int, int, int, int]]:
     """Expand a crop symmetrically on real page pixels up to ``(size, size)``.
 
     Using real page pixels instead of border-reflecting a smaller crop gives
     LaMa genuine surrounding art; reflect padding is only needed if the page
-    itself is smaller than the bucket side. Returns ``(image, mask, slice)``
-    where ``slice`` is ``(ox, oy, box_w, box_h)`` locating ``region.box``.
+    itself is smaller than the bucket side. When ``mask_growth > 0``, the
+    returned mask is dilated by a ``(2 * mask_growth + 1)`` square kernel so
+    LaMa hides border halos while callers still commit on ``region.commit_mask``.
+    Returns ``(image, mask, slice)`` where ``slice`` is ``(ox, oy, box_w, box_h)``
+    locating ``region.box``.
     """
     page_h, page_w = page_image.shape[:2]
     bx0, by0, bx1, by1 = region.box
@@ -107,6 +115,10 @@ def _expand_crop_to_square(
 
     crop_img = page_image[ey0:ey1, ex0:ex1]
     crop_mask = page_mask[ey0:ey1, ex0:ex1]
+    if mask_growth > 0:
+        kernel_size = (2 * mask_growth) + 1
+        growth_kernel = np.ones((kernel_size, kernel_size), dtype=np.uint8)
+        crop_mask = cv2.dilate(crop_mask, growth_kernel, iterations=1)
     ox = bx0 - ex0
     oy = by0 - ey0
 
@@ -361,7 +373,7 @@ class Inpainter:
             binary,
             context=crop_context(binary),
             multiple=self.pad_mod,
-            mask_growth=0,
+            mask_growth=LAMA_MASK_GROWTH,
             max_crop_pixels=None,
         )
         if not regions:
@@ -393,7 +405,7 @@ class Inpainter:
             )
             if bucket is not None:
                 pad_img, pad_mask, box_slice = _expand_crop_to_square(
-                    image, binary, region, bucket
+                    image, binary, region, bucket, mask_growth=LAMA_MASK_GROWTH
                 )
                 batches.setdefault((bucket, bucket), []).append(
                     (region, pad_img, pad_mask, box_slice)

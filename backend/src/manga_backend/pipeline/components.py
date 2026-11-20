@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Components loaded by the first request that needs them. Startup does not wait
 # for them and a failed load only affects the routes that use them.
-LAZY_COMPONENTS = frozenset({"paddle_ocr"})
+LAZY_COMPONENTS = frozenset({"paddle_ocr", "text_segmenter"})
 
 ModelStatus = dict[str, dict[str, Any]]
 
@@ -37,6 +37,7 @@ def new_model_status() -> ModelStatus:
         "animetext_yolo": {"status": "not_loaded", "name": "animetext-yolo"},
         "ocr": {"status": "not_loaded", "name": "manga-ocr"},
         "paddle_ocr": {"status": "not_loaded", "name": "paddle-ocr"},
+        "text_segmenter": {"status": "not_loaded", "name": "comic-text-detector"},
         "inpainter": {"status": "not_loaded", "name": DEFAULT_INPAINTER},
     }
 

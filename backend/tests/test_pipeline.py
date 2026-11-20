@@ -2753,5 +2753,120 @@ class EraseFilterTests(unittest.TestCase):
         self.assertTrue(erase_from_translation(block("……", "Hm")))
 
 
+class TextSegmenterAndRetryPipelineTests(unittest.IsolatedAsyncioTestCase):
+    async def test_failed_segmenter_load_falls_back_gracefully(self):
+        pipeline = TranslationPipeline(device="cpu")
+        pipeline.is_initialized = True
+        with patch(
+            "manga_backend.pipeline.orchestrator.TextSegmenter.initialize",
+            new=AsyncMock(side_effect=RuntimeError("offline")),
+        ):
+            seg = await pipeline._get_text_segmenter()
+
+        self.assertIsNone(seg)
+        self.assertEqual(pipeline.model_status["text_segmenter"]["status"], "error")
+        self.assertIn("offline", pipeline.model_status["text_segmenter"]["error"])
+
+    async def test_segmenter_feeds_cache_and_fuses_sfx_in_translate(self):
+        from manga_backend.models.text_segmenter import TextSegmentationResult
+        from manga_backend.pipeline import masks as masks_module
+
+        pipeline = TranslationPipeline(device="cpu")
+        pipeline.is_initialized = True
+        image = np.full((120, 160, 3), 255, dtype=np.uint8)
+        image[20:50, 20:60] = 0
+        rtdetr_block = TextBlock([15, 15, 65, 55], block_type="text")
+        sfx_block = TextBlock([95, 20, 145, 70], block_type="sfx")
+        sfx_block.confidence = 0.85
+
+        seg_map = np.zeros((120, 160), dtype=np.float32)
+        seg_map[22:48, 22:58] = 0.9
+        seg_map[25:65, 100:140] = 0.9
+
+        fake_seg = types.SimpleNamespace(
+            session=object(),
+            segment=AsyncMock(
+                return_value=TextSegmentationResult(prob_map=seg_map, blocks=[sfx_block])
+            ),
+            dispose=lambda: None,
+        )
+        pipeline._text_segmenter = fake_seg
+        pipeline._detectors.default = types.SimpleNamespace(
+            detect=AsyncMock(return_value=[rtdetr_block])
+        )
+        pipeline._run_ocr = AsyncMock(side_effect=lambda _i, blks, *_a: ["台詞"] * len(blks))
+
+        seen_seg = []
+        orig_prepare = orchestrator_module.prepare_flux_inpainting
+
+        def capture_prepare(img, blks, rectangular=False):
+            seen_seg.append(masks_module.current_text_seg_map(img))
+            return orig_prepare(img, blks, rectangular=rectangular)
+
+        with (
+            patch.object(orchestrator_module, "prepare_flux_inpainting", capture_prepare),
+            patch.object(orchestrator_module, "render_text", side_effect=lambda i, b, **o: i),
+        ):
+            result = await pipeline.translate(
+                image,
+                detector="rtdetr",
+                translator="none",
+                inpainter="lama_large",
+                render=True,
+            )
+
+        self.assertEqual(len(result["blocks"]), 2)
+        self.assertIs(seen_seg[0], seg_map)
+
+    async def test_post_model_residual_triggers_one_retry_inpaint_call(self):
+        pipeline = TranslationPipeline(device="cpu")
+        image = np.full((120, 120, 3), 240, dtype=np.uint8)
+        cv2.line(image, (0, 32), (120, 42), (120, 120, 120), 4)
+        cv2.line(image, (0, 82), (120, 74), (105, 105, 105), 3)
+        cv2.circle(image, (30, 62), 18, (130, 130, 130), 3)
+        cv2.circle(image, (92, 58), 16, (115, 115, 115), 3)
+        image[48:68, 52:58] = 0
+        image[48:54, 52:72] = 0
+        image[58:63, 52:70] = 0
+        block = TextBlock([40, 40, 82, 76], block_type="sfx")
+
+        inpaint_calls: list[np.ndarray] = []
+
+        class TwoPassInpainter:
+            last_backend_used = "lama_large"
+
+            async def inpaint(self, source, mask):
+                inpaint_calls.append(mask.copy())
+                if len(inpaint_calls) == 1:
+                    # First pass barely touches the top edge of the stroke so residue re-flags.
+                    out = source.copy()
+                    out[48:50, 52:72] = 200
+                    return out
+                out = source.copy()
+                out[mask > 0] = 240
+                return out
+
+        pipeline._detectors.default = types.SimpleNamespace(
+            detect=AsyncMock(return_value=[block])
+        )
+        pipeline._ocr = types.SimpleNamespace(process=AsyncMock(return_value=["ドン"]))
+        pipeline._inpainters.instance = TwoPassInpainter()
+        pipeline._inpainters.type = "lama_large"
+        pipeline.model_status["inpainter"] = {"status": "loaded", "name": "lama_large"}
+
+        with patch.object(
+            orchestrator_module, "render_text", side_effect=lambda i, b, **o: i
+        ):
+            result = await pipeline.translate(
+                image,
+                translator="none",
+                inpainter="lama_large",
+                render=True,
+            )
+
+        self.assertEqual(len(inpaint_calls), 2)
+        self.assertEqual(result.get("model_retry_regions"), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

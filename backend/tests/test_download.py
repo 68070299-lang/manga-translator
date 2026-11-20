@@ -13,9 +13,12 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 from test_support import writable_temp_directory
 from manga_backend.utils.download import (
     MODEL_PINS,
+    TEXT_SEGMENTER_FILENAME,
+    TEXT_SEGMENTER_REPO,
     download_lama_onnx,
     download_manga_ocr_onnx,
     download_pinned_model,
+    download_text_segmenter_onnx,
     verify_cached_model,
     verify_sha256,
 )
@@ -43,6 +46,7 @@ class ModelPinTableTests(unittest.TestCase):
             ("mayocream/manga-ocr-onnx", "vocab.txt"),
             (REPO, FILENAME),
             ("ogkalu/comic-text-and-bubble-detector", "detector.onnx"),
+            ("mayocream/comic-text-detector-onnx", "comic-text-detector.onnx"),
             ("xberg-io/paddleocr-onnx-models", "PP-OCRv5_server_det_infer.onnx"),
             ("xberg-io/paddleocr-onnx-models", "rec/chinese/model.onnx"),
             ("PaddlePaddle/PP-OCRv5_server_rec", "inference.yml"),
@@ -245,6 +249,51 @@ class DownloadWorkflowPinTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(mock_download.called)
             self.assertFalse(Path(tmpdir, "decoder_model.onnx").exists())
             self.assertTrue(Path(tmpdir, "encoder_model.onnx").exists())
+
+    async def test_text_segmenter_cached_file_is_verified_and_removed_on_mismatch(self):
+        pins = {(TEXT_SEGMENTER_REPO, TEXT_SEGMENTER_FILENAME): {"revision": "rev1", "sha256": PAYLOAD_SHA}}
+        with writable_temp_directory() as tmpdir:
+            model_path = Path(tmpdir, TEXT_SEGMENTER_FILENAME)
+            model_path.write_bytes(b"tampered")
+
+            with (
+                patch.dict(MODEL_PINS, pins, clear=False),
+                patch("manga_backend.utils.download.hf_hub_download") as mock_download,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "Model checksum mismatch"):
+                    await download_text_segmenter_onnx(tmpdir)
+
+            self.assertFalse(mock_download.called)
+            self.assertFalse(model_path.exists())
+
+    async def test_text_segmenter_download_forwards_revision_and_verifies_hash(self):
+        calls = []
+        progress = []
+        pins = {(TEXT_SEGMENTER_REPO, TEXT_SEGMENTER_FILENAME): {"revision": "rev1", "sha256": PAYLOAD_SHA}}
+
+        def fake_download(**kwargs):
+            calls.append(kwargs)
+            path = Path(kwargs["local_dir"], kwargs["filename"])
+            path.write_bytes(PAYLOAD)
+            return str(path)
+
+        with writable_temp_directory() as tmpdir:
+            with (
+                patch.dict(MODEL_PINS, pins, clear=False),
+                patch("manga_backend.utils.download.hf_hub_download", side_effect=fake_download),
+            ):
+                result = await download_text_segmenter_onnx(
+                    tmpdir, lambda current, total: progress.append((current, total))
+                )
+
+            self.assertEqual(result, Path(tmpdir, TEXT_SEGMENTER_FILENAME))
+            self.assertTrue(result.exists())
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["repo_id"], TEXT_SEGMENTER_REPO)
+        self.assertEqual(calls[0]["filename"], TEXT_SEGMENTER_FILENAME)
+        self.assertEqual(calls[0]["revision"], "rev1")
+        self.assertEqual(progress, [(1, 1)])
 
 
 if __name__ == "__main__":

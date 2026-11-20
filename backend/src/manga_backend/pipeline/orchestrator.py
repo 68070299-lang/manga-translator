@@ -4,14 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from manga_backend.models.detector import TextDetector
+from manga_backend.models.detector import TextDetector, fuse_ctd_sfx_blocks
 from manga_backend.models.ocr import OCREngine
+from manga_backend.models.text_segmenter import (
+    TextSegmentationResult,
+    TextSegmenter,
+    text_segmenter_disabled,
+)
 from manga_backend.models.translator import supports_page_image
 from manga_backend.pipeline.bubbles import (
     infer_bubble_render_bounds,
@@ -53,6 +59,7 @@ from manga_backend.pipeline.page_context import (
     unit_box,
 )
 from manga_backend.pipeline.rendering import render_text
+from manga_backend.pipeline.residual import find_model_residue_retry
 from manga_backend.pipeline.text import is_unchanged_punctuation
 from manga_backend.pipeline.translation import TranslationReport, translate_texts
 from manga_backend.utils.textblock import TextBlock
@@ -115,6 +122,8 @@ class TranslationPipeline:
         # Model instances (lazy loaded)
         self._detectors = DetectorRegistry(device, self.model_status)
         self._ocr: OCREngine | None = None
+        self._text_segmenter: TextSegmenter | None = None
+        self._segmenter_lock = asyncio.Lock()
         self._inpainters = InpainterManager(device, self.model_status)
 
     @property
@@ -183,13 +192,54 @@ class TranslationPipeline:
         self.is_initialized = True
         logger.info("Pipeline initialization complete")
 
+    async def _get_text_segmenter(self) -> TextSegmenter | None:
+        """Lazily load Comic Text Detector segmentation when initialized and enabled."""
+        if text_segmenter_disabled():
+            return None
+        if self._text_segmenter is not None:
+            return self._text_segmenter
+        if not self.is_initialized:
+            return None
+        async with self._segmenter_lock:
+            if self._text_segmenter is not None:
+                return self._text_segmenter
+            status = self.model_status.setdefault(
+                "text_segmenter",
+                {"status": "not_loaded", "name": "comic-text-detector"},
+            )
+            status["status"] = "loading"
+            segmenter: TextSegmenter | None = None
+            try:
+                segmenter = TextSegmenter(device=self.device)
+                await segmenter.initialize()
+            except Exception as error:
+                if segmenter is not None:
+                    segmenter.dispose()
+                status.update({"status": "error", "error": str(error)})
+                logger.warning(
+                    "Text segmenter unavailable; using classical glyph extraction: %s",
+                    error,
+                )
+                return None
+            if segmenter.session is None:
+                return None
+            self._text_segmenter = segmenter
+            status["status"] = "loaded"
+            status.pop("error", None)
+            return self._text_segmenter
+
     async def warm_up(self) -> None:
-        """Load the inpainter a first page will most likely need."""
+        """Load the inpainter and optional text segmenter a first page will need."""
         await self._inpainters.warm_up()
+        if self.is_initialized:
+            await self._get_text_segmenter()
 
     def dispose(self) -> None:
-        """Release loaded detector and inpainter runtimes."""
+        """Release loaded detector, text segmenter, and inpainter runtimes."""
         self._detectors.dispose()
+        if self._text_segmenter is not None:
+            self._text_segmenter.dispose()
+            self._text_segmenter = None
         self._inpainters.dispose()
 
     async def detect(
@@ -286,6 +336,30 @@ class TranslationPipeline:
         detector_type = normalize_detector_type(detector)
         selected_detector = await self._detectors.get(detector_type)
         blocks = await selected_detector.detect(image)
+        seg_result: TextSegmentationResult | None = None
+        if render and inpainter and inpainter != "none":
+            segmenter = await self._get_text_segmenter()
+            if segmenter is not None:
+                try:
+                    seg_result = await segmenter.segment(image)
+                except Exception as error:
+                    logger.warning(
+                        "Text segmentation failed; falling back to classical extraction: %s",
+                        error,
+                    )
+        disable_sfx_fusion = os.getenv("DISABLE_CTD_SFX_FUSION", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        if (
+            seg_result is not None
+            and detector_type == "rtdetr"
+            and type(selected_detector).__name__ != "_TruthDetector"
+            and not disable_sfx_fusion
+        ):
+            blocks = fuse_ctd_sfx_blocks(blocks, seg_result.blocks, seg_result.prob_map)
         logger.info(
             "Step 1 complete: Detected %s blocks in %.2fs",
             len(blocks),
@@ -331,7 +405,8 @@ class TranslationPipeline:
         # per-page glyph/bubble cache for masking.
         erase_blocks = [block for block in blocks if erase_candidate(block)]
         inpaint_task: asyncio.Task[np.ndarray] | None = None
-        with image_analysis_cache(image):
+        text_seg_map = seg_result.prob_map if seg_result is not None else None
+        with image_analysis_cache(image, text_seg_map=text_seg_map):
             page_context: PageContext | None = None
             if translating:
                 # The length budget is the unit's room capacity at the page's
@@ -511,6 +586,24 @@ class TranslationPipeline:
                             inpaint_source != image, axis=2, keepdims=True
                         )
                     render_image = np.where(mask_union, inpainted, image)
+                    if not (rectangular_masks and not flux_route):
+                        retry_mask, retry_count = await asyncio.to_thread(
+                            find_model_residue_retry,
+                            image,
+                            render_image,
+                            mask,
+                            inpaint_blocks,
+                            fill_decisions,
+                        )
+                        if retry_count > 0 and np.any(retry_mask):
+                            retried, result["inpainter_used"] = await self._inpainters.inpaint_page(
+                                inpainter, render_image, retry_mask
+                            )
+                            result["inpainting_fallback"] = result["inpainter_used"] != inpainter
+                            if retried.shape == image.shape:
+                                retry_bool = retry_mask[:, :, None] > 0
+                                render_image = np.where(retry_bool, retried, render_image)
+                                result["model_retry_regions"] = retry_count
                 else:  # Malformed backend output: keep the old passthrough.
                     logger.warning(
                         "Inpainter returned shape %s for a page of %s; skipping the "

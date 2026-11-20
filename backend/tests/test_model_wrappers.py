@@ -491,7 +491,7 @@ class InpainterTileTests(unittest.TestCase):
 
         self.assertEqual(len(session.shapes), 1)
         self.assertEqual(session.batch_sizes, [2])
-        self.assertEqual(session.masked_pixels, [2 * 40 * 40])
+        self.assertEqual(session.masked_pixels, [2 * 44 * 44])
         np.testing.assert_array_equal(result[mask == 0], image[mask == 0])
         self.assertTrue(np.all(result[mask > 0] == 127))
 

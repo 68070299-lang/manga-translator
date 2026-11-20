@@ -3,6 +3,7 @@
 import unittest
 from unittest.mock import patch
 
+import cv2
 import numpy as np
 
 from manga_backend.pipeline import residual
@@ -229,6 +230,62 @@ class GrowMaskTests(unittest.TestCase):
             bounds,
             (10 + int(xs.min()), 10 + int(ys.min()), 10 + int(xs.max()) + 1, 10 + int(ys.max()) + 1),
         )
+
+
+class ModelResidueRetryTests(unittest.TestCase):
+    def test_flags_surviving_glyph_after_model_inpaint_and_skips_passthrough(self):
+        original = np.full((120, 120, 3), 240, dtype=np.uint8)
+        cv2.line(original, (0, 32), (120, 42), (120, 120, 120), 4)
+        cv2.line(original, (0, 82), (120, 74), (105, 105, 105), 3)
+        cv2.circle(original, (30, 62), 18, (130, 130, 130), 3)
+        cv2.circle(original, (92, 58), 16, (115, 115, 115), 3)
+        # Distinct dark stroke inside block [40, 40, 82, 76] that survives model pass.
+        original[48:68, 52:58] = 0
+        original[48:54, 52:72] = 0
+        original[58:63, 52:70] = 0
+
+        mask = np.zeros((120, 120), dtype=np.uint8)
+        mask[48:68, 52:58] = 255
+        mask[48:54, 52:72] = 255
+        mask[58:63, 52:70] = 255
+
+        block = TextBlock([40, 40, 82, 76], block_type="sfx")
+        decisions = [{"tier": TIER_MODEL, "block_bbox": [40, 40, 82, 76]}]
+
+        # No-op passthrough (identical inside mask) must not trigger retry.
+        no_retry_mask, no_retry_count = residual.find_model_residue_retry(
+            original, original.copy(), mask, [block], [dict(decisions[0])]
+        )
+        self.assertEqual(no_retry_count, 0)
+        self.assertFalse(np.any(no_retry_mask))
+
+        # Partially changed crop that still retains the dark stroke shape triggers retry.
+        incomplete = original.copy()
+        incomplete[48:50, 52:72] = 200
+        retry_mask, retry_count = residual.find_model_residue_retry(
+            original, incomplete, mask, [block], decisions
+        )
+        self.assertEqual(retry_count, 1)
+        self.assertTrue(decisions[0]["model_retry"])
+        self.assertGreater(decisions[0]["model_retry_residual_px"], 0)
+        self.assertTrue(np.any(retry_mask > 0))
+
+    def test_clean_model_inpaint_requires_no_retry(self):
+        original = np.full((100, 100, 3), 240, dtype=np.uint8)
+        original[30:55, 30:55] = 0
+        mask = np.zeros((100, 100), dtype=np.uint8)
+        mask[30:55, 30:55] = 255
+        cleaned = np.full((100, 100, 3), 240, dtype=np.uint8)
+        block = TextBlock([20, 20, 65, 65], block_type="sfx")
+        decisions = [{"tier": TIER_MODEL, "block_bbox": [20, 20, 65, 65]}]
+
+        retry_mask, retry_count = residual.find_model_residue_retry(
+            original, cleaned, mask, [block], decisions
+        )
+
+        self.assertEqual(retry_count, 0)
+        self.assertFalse(np.any(retry_mask))
+        self.assertNotIn("model_retry", decisions[0])
 
 
 if __name__ == "__main__":

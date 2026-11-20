@@ -938,17 +938,38 @@ class Instrumentation:
             grown, bounds = original_grow(
                 original_crop, filled_crop, block, origin, mask, residue
             )
-            if self.probe.in_mask_phase:
+            if self.probe.in_mask_phase or self.probe.mask_blocks:
                 x1, y1, x2, y2 = (int(value) for value in bounds)
                 if x2 > x1 and y2 > y1:
                     for index, owner in enumerate(self.probe.mask_blocks):
                         if owner is block:
-                            _local, _old, strategy = self.probe.mask_records[index]
+                            old_local, old_bounds, strategy = self.probe.mask_records[index]
                             local = grown[
                                 y1 - origin[1] : y2 - origin[1],
                                 x1 - origin[0] : x2 - origin[0],
                             ]
-                            self.probe.mask_records[index] = (local, bounds, strategy)
+                            ox1, oy1, ox2, oy2 = (int(value) for value in old_bounds)
+                            if ox2 > ox1 and oy2 > oy1 and np.any(old_local):
+                                ux1, uy1 = min(ox1, x1), min(oy1, y1)
+                                ux2, uy2 = max(ox2, x2), max(oy2, y2)
+                                merged = np.zeros((uy2 - uy1, ux2 - ux1), dtype=bool)
+                                _place(
+                                    merged,
+                                    old_local,
+                                    (ox1 - ux1, oy1 - uy1, ox2 - ux1, oy2 - uy1),
+                                )
+                                _place(
+                                    merged,
+                                    local,
+                                    (x1 - ux1, y1 - uy1, x2 - ux1, y2 - uy1),
+                                )
+                                self.probe.mask_records[index] = (
+                                    merged,
+                                    (ux1, uy1, ux2, uy2),
+                                    strategy,
+                                )
+                            else:
+                                self.probe.mask_records[index] = (local, bounds, strategy)
                             break
             return grown, bounds
 
