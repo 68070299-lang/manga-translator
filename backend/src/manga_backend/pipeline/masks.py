@@ -1949,9 +1949,10 @@ def bubble_interior_details(image: np.ndarray, block: TextBlock) -> InteriorResu
     return _compute_bubble_interior_details(image, block)
 
 
-def _compute_bubble_interior_details(
+def _interior_roi(
     image: np.ndarray, block: TextBlock
-) -> InteriorResult:
+) -> InteriorResult | tuple[Box, tuple[int, int, int, int], Box | None, np.ndarray]:
+    """Window and crop for a bubble-interior search, or its no-context result."""
     window = _interior_window(image, block)
     if window is None:
         return InteriorResult(
@@ -1964,6 +1965,16 @@ def _compute_bubble_interior_details(
         return InteriorResult(
             np.zeros(roi.shape[:2], dtype=np.uint8), bounds, "none", INTERIOR_NO_CONTEXT
         )
+    return bounds, local_text, detector_bounds, roi
+
+
+def _compute_bubble_interior_details(
+    image: np.ndarray, block: TextBlock
+) -> InteriorResult:
+    got = _interior_roi(image, block)
+    if isinstance(got, InteriorResult):
+        return got
+    bounds, local_text, detector_bounds, roi = got
 
     paper = _paper_estimate(image, int_box(block.xyxy))
     ink_pixels = _ink_in_window(image, [block], bounds)
@@ -2023,18 +2034,11 @@ def _compute_conjoined_interior_details(
     )
     probe = TextBlock(list(union), block_type="text")
     probe.bubble_xyxy = list(bubble_box)
-    window = _interior_window(image, probe)
-    if window is None:
-        return InteriorResult(
-            np.zeros((0, 0), dtype=np.uint8), (0, 0, 0, 0), "none", INTERIOR_NO_CONTEXT
-        )
-    bounds, local_text, detector_bounds = window
-    x1, y1, x2, y2 = bounds
-    roi = image[y1:y2, x1:x2]
-    if roi.size == 0 or min(roi.shape[:2]) < 5:
-        return InteriorResult(
-            np.zeros(roi.shape[:2], dtype=np.uint8), bounds, "none", INTERIOR_NO_CONTEXT
-        )
+    got = _interior_roi(image, probe)
+    if isinstance(got, InteriorResult):
+        return got
+    bounds, local_text, detector_bounds, roi = got
+    x1, y1 = bounds[:2]
     text_mask = np.zeros(roi.shape[:2], bool)
     for bx1, by1, bx2, by2 in boxes:
         text_mask[max(0, by1 - y1) : max(0, by2 - y1), max(0, bx1 - x1) : max(0, bx2 - x1)] = True

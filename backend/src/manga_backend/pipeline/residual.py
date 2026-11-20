@@ -207,7 +207,9 @@ def measure_residue(
     total_components = 0
     best_iou = 0.0
     roi_px = roi_area
-    if not reference.any() or not inpainted.any():
+
+    def empty_observation() -> ResidueObservation:
+        """The two no-residue exits report the same empty observation."""
         return ResidueObservation(
             residual_px=0,
             reference_px=int(np.count_nonzero(reference)),
@@ -217,6 +219,9 @@ def measure_residue(
             flagged=False,
             residue=residue,
         )
+
+    if not reference.any() or not inpainted.any():
+        return empty_observation()
     if roi is not None and roi.any():
         roi_y, roi_x = np.nonzero(roi)
         edges = (int(roi_x.min()), int(roi_y.min()), int(roi_x.max()), int(roi_y.max()))
@@ -242,15 +247,7 @@ def measure_residue(
             continue
         keep.add(label)
     if not keep:
-        return ResidueObservation(
-            residual_px=0,
-            reference_px=int(np.count_nonzero(reference)),
-            best_iou=0.0,
-            components=0,
-            area=roi_px,
-            flagged=False,
-            residue=residue,
-        )
+        return empty_observation()
 
     post_count, post_labels, post_stats, _ = cv2.connectedComponentsWithStats(
         inpainted.astype(np.uint8), connectivity=8

@@ -150,6 +150,17 @@ def validate_local_llm_base_url(base_url: str) -> str:
     return base_url.rstrip("/")
 
 
+def _warn_if_short(translations: Sequence[str], expected_count: int) -> None:
+    """Warn when a parser returned fewer translations than blocks expected."""
+    if len(translations) < expected_count:
+        logger.warning(
+            "Parser returned %s translations but expected %s. "
+            "Missing blocks will be left blank (not rendered).",
+            len(translations),
+            expected_count,
+        )
+
+
 class TranslatorError(RuntimeError):
     """Sanitized translation provider failure."""
 
@@ -622,13 +633,7 @@ Output (shortened, same numbering):"""
         while translations and not translations[-1]:
             translations.pop()
 
-        if len(translations) < expected_count:
-            logger.warning(
-                "Parser returned %s translations but expected %s. "
-                "Missing blocks will be left blank (not rendered).",
-                len(translations),
-                expected_count,
-            )
+        _warn_if_short(translations, expected_count)
 
         return translations
 
@@ -660,12 +665,6 @@ Output (shortened, same numbering):"""
 
         translations = ["" if value is None else str(value).strip() for value in parsed]
 
-        if len(translations) < expected_count:
-            logger.warning(
-                "Parser returned %s translations but expected %s. "
-                "Missing blocks will be left blank (not rendered).",
-                len(translations),
-                expected_count,
-            )
+        _warn_if_short(translations, expected_count)
 
         return translations[:expected_count]

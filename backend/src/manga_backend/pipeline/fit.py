@@ -424,11 +424,9 @@ def _search_size(
     keep_short_words: bool = False,
 ) -> FitResult:
     """Coarse-then-bisect downward search for the largest size that fits."""
-    feasible: FitResult | None = None
-    previous_failed: int | None = None
-    candidates = [target] if fixed_size else _size_candidates(target)
-    for size in candidates:
-        result = _fit_at_size(
+
+    def fit(size: int) -> FitResult | None:
+        return _fit_at_size(
             room,
             units,
             joiner,
@@ -440,6 +438,12 @@ def _search_size(
             strict_hyphenation=strict_hyphenation,
             keep_short_words=keep_short_words,
         )
+
+    feasible: FitResult | None = None
+    previous_failed: int | None = None
+    candidates = [target] if fixed_size else _size_candidates(target)
+    for size in candidates:
+        result = fit(size)
         if result is not None:
             feasible = result
             break
@@ -449,18 +453,7 @@ def _search_size(
         # Nothing fits: set the text at the smallest size anyway, so the
         # region is lettered rather than dropped, and say so.
         smallest = 1
-        result = _fit_at_size(
-            room,
-            units,
-            joiner,
-            font_path,
-            smallest,
-            line_spacing,
-            base_stroke_width,
-            mode,
-            strict_hyphenation=strict_hyphenation,
-            keep_short_words=keep_short_words,
-        )
+        result = fit(smallest)
         if result is None:
             band = Band(
                 left=room.center[0],
@@ -488,18 +481,7 @@ def _search_size(
     low, high = feasible.size + 1, previous_failed if previous_failed is not None else feasible.size + 1
     while low < high:
         middle = (low + high) // 2
-        candidate = _fit_at_size(
-            room,
-            units,
-            joiner,
-            font_path,
-            middle,
-            line_spacing,
-            base_stroke_width,
-            mode,
-            strict_hyphenation=strict_hyphenation,
-            keep_short_words=keep_short_words,
-        )
+        candidate = fit(middle)
         if candidate is not None:
             feasible = candidate
             low = middle + 1

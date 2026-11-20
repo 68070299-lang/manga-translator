@@ -21,6 +21,7 @@ import numpy as np
 import onnxruntime as ort
 
 from manga_backend.paths import MODELS_CACHE_DIR
+from manga_backend.utils.boxes import nms, unletterbox_blocks
 from manga_backend.utils.device import create_onnx_session, get_onnx_providers
 from manga_backend.utils.download import download_text_segmenter_onnx
 from manga_backend.utils.textblock import TextBlock
@@ -327,62 +328,9 @@ class TextSegmenter:
 
         cx, cy, bw, bh = values[:, 0], values[:, 1], values[:, 2], values[:, 3]
         boxes = np.stack((cx - bw / 2.0, cy - bh / 2.0, cx + bw / 2.0, cy + bh / 2.0), axis=1)
-        keep = cls._nms(boxes, scores, iou_threshold)
+        keep = nms(boxes, scores, iou_threshold)
 
-        height, width = image_shape
-        pad_x, pad_y = pad
-        blocks: list[TextBlock] = []
-        for idx in keep:
-            bx1, by1, bx2, by2 = boxes[idx]
-            x1 = max(0.0, min(float(width), (float(bx1) - pad_x) / scale))
-            y1 = max(0.0, min(float(height), (float(by1) - pad_y) / scale))
-            x2 = max(0.0, min(float(width), (float(bx2) - pad_x) / scale))
-            y2 = max(0.0, min(float(height), (float(by2) - pad_y) / scale))
-            xyxy = [
-                int(np.floor(x1)),
-                int(np.floor(y1)),
-                int(np.ceil(x2)),
-                int(np.ceil(y2)),
-            ]
-            if xyxy[2] <= xyxy[0] or xyxy[3] <= xyxy[1]:
-                continue
-            block = TextBlock(xyxy=xyxy, block_type="text")
-            block.confidence = float(scores[idx])
-            blocks.append(block)
-        return blocks
-
-    @staticmethod
-    def _nms(boxes: np.ndarray, scores: np.ndarray, threshold: float) -> list[int]:
-        order = np.argsort(scores)[::-1]
-        keep: list[int] = []
-        while order.size:
-            current = int(order[0])
-            keep.append(current)
-            if order.size == 1:
-                break
-            rest = order[1:]
-            ix1 = np.maximum(boxes[current, 0], boxes[rest, 0])
-            iy1 = np.maximum(boxes[current, 1], boxes[rest, 1])
-            ix2 = np.minimum(boxes[current, 2], boxes[rest, 2])
-            iy2 = np.minimum(boxes[current, 3], boxes[rest, 3])
-            intersection = np.maximum(0.0, ix2 - ix1) * np.maximum(0.0, iy2 - iy1)
-            current_area = max(
-                0.0,
-                float(boxes[current, 2] - boxes[current, 0])
-                * float(boxes[current, 3] - boxes[current, 1]),
-            )
-            rest_area = np.maximum(0.0, boxes[rest, 2] - boxes[rest, 0]) * np.maximum(
-                0.0, boxes[rest, 3] - boxes[rest, 1]
-            )
-            union = current_area + rest_area - intersection
-            iou = np.divide(
-                intersection,
-                union,
-                out=np.zeros_like(intersection),
-                where=union > 0,
-            )
-            order = rest[iou <= threshold]
-        return keep
+        return unletterbox_blocks(boxes, scores, keep, image_shape, scale, pad)
 
     @classmethod
     def _merge_spread_blocks(

@@ -17,7 +17,9 @@ left behind.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import replace
+from typing import TypeVar
 
 import cv2
 import numpy as np
@@ -98,13 +100,13 @@ def _dialogue_interiors(
     return interiors
 
 
-def _nearest_interior(
-    key: Box, interiors: dict[Box, tuple[np.ndarray, Box]]
-) -> tuple[np.ndarray, Box] | None:
-    if key in interiors:
-        return interiors[key]
-    best: tuple[float, tuple[np.ndarray, Box]] | None = None
-    for candidate, value in interiors.items():
+_T = TypeVar("_T")
+
+
+def _best_overlap(key: Box, mapping: Mapping[Box, _T]) -> _T | None:
+    """Best overlapping value; a tie keeps the earlier mapping entry."""
+    best: tuple[float, _T] | None = None
+    for candidate, value in mapping.items():
         overlap_x = max(0, min(key[2], candidate[2]) - max(key[0], candidate[0]))
         overlap_y = max(0, min(key[3], candidate[3]) - max(key[1], candidate[1]))
         if overlap_x <= 0 or overlap_y <= 0:
@@ -115,6 +117,14 @@ def _nearest_interior(
         if score >= 0.5 and (best is None or score > best[0]):
             best = (score, value)
     return None if best is None else best[1]
+
+
+def _nearest_interior(
+    key: Box, interiors: dict[Box, tuple[np.ndarray, Box]]
+) -> tuple[np.ndarray, Box] | None:
+    if key in interiors:
+        return interiors[key]
+    return _best_overlap(key, interiors)
 
 
 def _boxes_touch(first: Box, second: Box, gap: int) -> bool:
@@ -354,18 +364,7 @@ def _source_estimates(blocks: list[TextBlock]) -> dict[Box, float]:
 
 
 def _nearest_estimate(key: Box, estimates: dict[Box, float]) -> float | None:
-    best: tuple[float, float] | None = None
-    for candidate, value in estimates.items():
-        overlap_x = max(0, min(key[2], candidate[2]) - max(key[0], candidate[0]))
-        overlap_y = max(0, min(key[3], candidate[3]) - max(key[1], candidate[1]))
-        if overlap_x <= 0 or overlap_y <= 0:
-            continue
-        overlap = overlap_x * overlap_y
-        area = (key[2] - key[0]) * (key[3] - key[1])
-        score = overlap / max(1, area)
-        if score >= 0.5 and (best is None or score > best[0]):
-            best = (score, value)
-    return None if best is None else best[1]
+    return _best_overlap(key, estimates)
 
 
 def anchor_targets(

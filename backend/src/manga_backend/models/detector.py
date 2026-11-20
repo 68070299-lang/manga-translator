@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import cast
 
@@ -83,10 +83,9 @@ def _cut_boundary_clearance(
     return abs(cx - float(right_cut))
 
 
-def _dedup_same_side_blocks(blocks: list[TextBlock]) -> list[TextBlock]:
-    ordered = sorted(blocks, key=lambda b: b.confidence, reverse=True)
+def _greedy_dedup(candidates: Iterable[TextBlock]) -> list[TextBlock]:
     kept: list[TextBlock] = []
-    for candidate in ordered:
+    for candidate in candidates:
         if any(
             existing.block_type == candidate.block_type
             and _is_duplicate_box(
@@ -100,6 +99,10 @@ def _dedup_same_side_blocks(blocks: list[TextBlock]) -> list[TextBlock]:
             continue
         kept.append(candidate)
     return kept
+
+
+def _dedup_same_side_blocks(blocks: list[TextBlock]) -> list[TextBlock]:
+    return _greedy_dedup(sorted(blocks, key=lambda b: b.confidence, reverse=True))
 
 
 def _merge_spread_text_blocks(
@@ -123,21 +126,7 @@ def _merge_spread_text_blocks(
         ),
         reverse=True,
     )
-    kept: list[TextBlock] = []
-    for candidate, _side in tagged:
-        if any(
-            existing.block_type == candidate.block_type
-            and _is_duplicate_box(
-                candidate.xyxy,
-                existing.xyxy,
-                iou_threshold=0.45,
-                contain_threshold=0.80,
-            )
-            for existing in kept
-        ):
-            continue
-        kept.append(candidate)
-    return kept
+    return _greedy_dedup(block for block, _side in tagged)
 
 
 def _dedup_same_side_bubbles(bubbles: list[list[int]]) -> list[list[int]]:

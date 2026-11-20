@@ -15,6 +15,7 @@ from huggingface_hub.errors import GatedRepoError, HfHubHTTPError
 from PIL import Image
 
 from manga_backend.paths import MODELS_CACHE_DIR
+from manga_backend.utils.boxes import nms, unletterbox_blocks
 from manga_backend.utils.device import (
     PROVIDER_BY_DEVICE,
     Provider,
@@ -279,68 +280,10 @@ class AnimeTextYoloDetector:
         centers = values[:, :2]
         sizes = values[:, 2:4]
         boxes = np.concatenate((centers - sizes / 2, centers + sizes / 2), axis=1)
-        keep = cls._nms(boxes, values[:, 4], iou_threshold)
+        scores = values[:, 4]
+        keep = nms(boxes, scores, iou_threshold)
 
-        height, width = image_shape
-        pad_x, pad_y = pad
-        blocks: list[TextBlock] = []
-        for index in keep:
-            x1, y1, x2, y2 = boxes[index]
-            coords = np.array(
-                [
-                    (x1 - pad_x) / scale,
-                    (y1 - pad_y) / scale,
-                    (x2 - pad_x) / scale,
-                    (y2 - pad_y) / scale,
-                ]
-            )
-            coords[[0, 2]] = np.clip(coords[[0, 2]], 0, width)
-            coords[[1, 3]] = np.clip(coords[[1, 3]], 0, height)
-            xyxy = [
-                int(np.floor(coords[0])),
-                int(np.floor(coords[1])),
-                int(np.ceil(coords[2])),
-                int(np.ceil(coords[3])),
-            ]
-            if xyxy[2] <= xyxy[0] or xyxy[3] <= xyxy[1]:
-                continue
-            block = TextBlock(xyxy=xyxy, block_type="text")
-            block.confidence = float(values[index, 4])
-            blocks.append(block)
-        return blocks
-
-    @staticmethod
-    def _nms(boxes: np.ndarray, scores: np.ndarray, threshold: float) -> list[int]:
-        order = np.argsort(scores)[::-1]
-        keep: list[int] = []
-        while order.size:
-            current = int(order[0])
-            keep.append(current)
-            if order.size == 1:
-                break
-            rest = order[1:]
-            x1 = np.maximum(boxes[current, 0], boxes[rest, 0])
-            y1 = np.maximum(boxes[current, 1], boxes[rest, 1])
-            x2 = np.minimum(boxes[current, 2], boxes[rest, 2])
-            y2 = np.minimum(boxes[current, 3], boxes[rest, 3])
-            intersection = np.maximum(0, x2 - x1) * np.maximum(0, y2 - y1)
-            current_area = max(
-                0.0,
-                (boxes[current, 2] - boxes[current, 0])
-                * (boxes[current, 3] - boxes[current, 1]),
-            )
-            rest_area = np.maximum(0, boxes[rest, 2] - boxes[rest, 0]) * np.maximum(
-                0, boxes[rest, 3] - boxes[rest, 1]
-            )
-            union = current_area + rest_area - intersection
-            iou = np.divide(
-                intersection,
-                union,
-                out=np.zeros_like(intersection),
-                where=union > 0,
-            )
-            order = rest[iou <= threshold]
-        return keep
+        return unletterbox_blocks(boxes, scores, keep, image_shape, scale, pad)
 
     def dispose(self) -> None:
         if self.session is not None:
