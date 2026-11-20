@@ -10,6 +10,7 @@ import type {
   ApiKeys,
   Detector,
   Inpainter,
+  OcrEngine,
   PublicSettings,
   Settings,
   SettingsInput,
@@ -139,13 +140,34 @@ export function normalizeDetector(value: unknown): Detector {
   }
 }
 
-/** Fill every missing setting from the defaults and normalize detector/inpainter. */
+/**
+ * Canonicalize an OCR engine name. Unknown values, including the removed
+ * `google-ocr`, fall back to the default so the backend never rejects them.
+ */
+export function normalizeOcr(value: unknown): OcrEngine {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  switch (normalized) {
+    case 'manga-ocr':
+    case 'mangaocr':
+      return 'manga-ocr';
+    case 'paddle-ocr':
+    case 'paddleocr':
+    case 'paddle-vl':
+    case 'paddlevl':
+      return 'paddle-ocr';
+    default:
+      return DEFAULT_SETTINGS.localBackend.ocr;
+  }
+}
+
+/** Fill every missing setting from the defaults and normalize detector/OCR/inpainter. */
 export function mergeSettings(loaded: SettingsInput = {}): Settings {
   const defaults = structuredClone(DEFAULT_SETTINGS) as Settings;
   const merged: Settings = { ...defaults, ...loaded } as Settings;
 
   merged.localBackend = { ...defaults.localBackend, ...(loaded.localBackend || {}) };
   merged.localBackend.detector = normalizeDetector(merged.localBackend.detector);
+  merged.localBackend.ocr = normalizeOcr(merged.localBackend.ocr);
   merged.localBackend.inpainter = normalizeInpainter(merged.localBackend.inpainter);
   merged.render = { ...defaults.render, ...(loaded.render || {}) };
   merged.localLlm = { ...defaults.localLlm, ...(loaded.localLlm || {}) };

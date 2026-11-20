@@ -9,12 +9,13 @@ import {
   normalizeDetector,
   normalizeInpainter,
   normalizeLocalBackendBaseUrl,
+  normalizeOcr,
   resolveTranslator,
   SETTINGS_VERSION,
   splitSettingsForStorage,
   translatorNeedsApiKey,
 } from '../../extension/lib/settings';
-import type { Detector, Inpainter, SettingsInput } from '../../extension/shared/types';
+import type { Detector, Inpainter, OcrEngine, SettingsInput } from '../../extension/shared/types';
 
 describe('settings shape', () => {
   it('migrates the unversioned LaMa default to Distilled LanPaint once', () => {
@@ -241,5 +242,15 @@ describe('settings shape', () => {
         mergeSettings({ localBackend: { detector: value as Detector } }).localBackend.detector,
       ).toBe('default');
     }
+  });
+
+  it('loads the removed google-ocr and malformed OCR settings as manga-ocr', () => {
+    for (const value of ['google-ocr', 'google', '', 'unknown-ocr', null, 42] as unknown[]) {
+      expect(normalizeOcr(value)).toBe('manga-ocr');
+      expect(mergeSettings({ localBackend: { ocr: value as OcrEngine } }).localBackend.ocr).toBe(
+        'manga-ocr',
+      );
+    }
+    expect(normalizeOcr(' PaddleOCR ')).toBe('paddle-ocr');
   });
 });

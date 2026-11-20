@@ -28,6 +28,33 @@ function hasLegacySyncedSecrets(settings: unknown): settings is SettingsInput {
   );
 }
 
+/** Synced settings left behind by removed features (Cloud API mode, Google Vision OCR). */
+function hasRemovedSettings(settings: unknown): settings is SettingsInput {
+  return (
+    isRecord(settings) &&
+    (Object.hasOwn(settings, 'pipelineMode') || Object.hasOwn(settings, 'googleOcr'))
+  );
+}
+
+function withoutRemovedSettings(settings: SettingsInput): SettingsInput {
+  const {
+    pipelineMode: _pipelineMode,
+    googleOcr: _googleOcr,
+    ...kept
+  } = settings as Record<string, unknown>;
+  return kept as SettingsInput;
+}
+
+/** Delete the Google Vision OCR key an older version kept in private storage. */
+async function dropRemovedApiKeys(): Promise<boolean> {
+  const stored = await browser.storage.local.get(API_KEYS_STORAGE_KEY);
+  const keys: unknown = stored?.[API_KEYS_STORAGE_KEY];
+  if (!isRecord(keys) || !Object.hasOwn(keys, 'googleOcrApiKey')) return false;
+  const { googleOcrApiKey: _googleOcrApiKey, ...kept } = keys as Record<string, unknown>;
+  await browser.storage.local.set({ [API_KEYS_STORAGE_KEY]: kept });
+  return true;
+}
+
 /**
  * Move API keys that an older version synced into `chrome.storage.sync` over to
  * private local storage. Existing non-empty local values always win.
@@ -66,8 +93,14 @@ export async function migrateStoredSettingsSafely(): Promise<boolean> {
       settings = await moveLegacySyncedSecretsToLocal(settings);
       changed = true;
     }
+    if (hasRemovedSettings(settings)) {
+      settings = withoutRemovedSettings(settings);
+      changed = true;
+    }
+    // Local cleanup runs before the sync write, so a failure leaves sync as it was.
+    const droppedLocalKey = await dropRemovedApiKeys();
 
-    if (!changed) return false;
+    if (!changed) return droppedLocalKey;
     await browser.storage.sync.set({ [SETTINGS_STORAGE_KEY]: settings });
     return true;
   } catch (error) {

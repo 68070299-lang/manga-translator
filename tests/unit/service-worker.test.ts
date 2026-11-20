@@ -339,6 +339,29 @@ describe('service worker', () => {
       await expect(migrateStoredSettingsSafely()).resolves.toBe(false);
       expect(syncSet).not.toHaveBeenCalled();
     });
+
+    it('drops settings and keys left by the removed Cloud API mode and Google Vision OCR', async () => {
+      await browser.storage.local.set({
+        apiKeys: { apiKey: 'kept-key', googleOcrApiKey: 'vision-key' },
+      });
+      await browser.storage.sync.set({
+        settings: {
+          settingsVersion: SETTINGS_VERSION,
+          provider: 'openrouter',
+          pipelineMode: 'cloud',
+          googleOcr: { languageHint: 'ja' },
+        },
+      });
+
+      await expect(migrateStoredSettingsSafely()).resolves.toBe(true);
+
+      expect((await browser.storage.local.get('apiKeys')).apiKeys).toEqual({ apiKey: 'kept-key' });
+      expect(await storedSettings()).toEqual({
+        settingsVersion: SETTINGS_VERSION,
+        provider: 'openrouter',
+      });
+      await expect(migrateStoredSettingsSafely()).resolves.toBe(false);
+    });
   });
 
   describe('context menu clicks', () => {
