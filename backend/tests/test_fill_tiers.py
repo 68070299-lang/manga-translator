@@ -144,6 +144,43 @@ class TierSelectionTests(unittest.TestCase):
 
         self.assertEqual(decision.tier, TIER_MODEL)
 
+    def test_speed_lines_that_change_inside_the_mask_are_not_extruded(self):
+        # Vertical speed lines look periodic along a column, so the band test
+        # passes (a few pixels of extrapolation reproduce them exactly). But
+        # the lines above the mask are not the lines below it: a lattice copy
+        # would extrude each set to a seam mid-mask (a scream balloon on a
+        # real page lost its lettering's background that way). The copies
+        # from above and below disagree, so the block goes to the model.
+        rng = np.random.default_rng(3)
+        lines = np.full((120, 100), 255, np.uint8)
+        lines[:60, rng.random(100) < 0.3] = 40
+        lines[60:, rng.random(100) < 0.3] = 40
+        clean = np.repeat(lines[:, :, None], 3, axis=2)
+        crop = clean.copy()
+        mask = np.zeros((120, 100), np.uint8)
+        mask[35:85, 30:70] = 255
+        crop[mask > 0] = 0
+        decision, filled = route_block_fill(crop, mask, np.zeros_like(mask), False)
+
+        self.assertEqual(decision.tier, TIER_MODEL)
+        self.assertIsNone(filled)
+
+    def test_one_direction_hatching_across_the_mask_stays_lattice(self):
+        # Genuine hatching is periodic along its only period direction, so
+        # copies from both sides of the mask agree and it keeps the cheap tier.
+        yy, xx = np.mgrid[0:80, 0:120]
+        hatching = np.where((xx + yy) % 10 < 3, 60, 235).astype(np.uint8)
+        clean = np.repeat(hatching[:, :, None], 3, axis=2)
+        crop = clean.copy()
+        mask = np.zeros((80, 120), np.uint8)
+        mask[25:55, 35:85] = 255
+        crop[mask > 0] = 0
+        decision, filled = route_block_fill(crop, mask, np.zeros_like(mask), False)
+
+        self.assertEqual(decision.tier, 2)
+        assert filled is not None
+        self.assertTrue(np.array_equal(filled, clean))
+
     def test_random_texture_escalates_to_model(self):
         rng = np.random.default_rng(11)
         noise = rng.integers(0, 255, (60, 80, 3)).astype(np.uint8)

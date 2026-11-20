@@ -83,6 +83,20 @@ MAX_MASK_STRAGGLER_FRACTION = 0.02
 # outliers are that foreign ink; flat and smooth stay strict (a sparse
 # periodic texture must keep failing them, H2).
 LATTICE_TRIM_FRACTION = 0.30
+# The band only tests a lattice a few pixels from known texture, but the copy
+# reaches across the whole mask. Each mask pixel is therefore also copied
+# twice, from the nearest known translate ahead of it along the period and
+# from the nearest one behind it: on real tone or hatching both are the same
+# texture, while a texture that is only periodic up close (speed lines that
+# end, grass, a row period that also carries a stray line) extrudes different
+# content from each side, meeting in a seam. Gray levels further apart than
+# LATTICE_SIDE_DEVIATION count as a disagreement. Real tone disagrees on
+# about 6% of the mask (dot-edge phase slips of a rotated screen), extrusions
+# on 20% and more.
+LATTICE_SIDE_DEVIATION = 48
+MAX_LATTICE_SIDE_DISAGREEMENT = 0.15
+# Mask pixels reachable from both sides, below which the copy is unverifiable.
+MIN_LATTICE_SIDE_COVERAGE = 0.25
 
 
 @dataclass(frozen=True)
@@ -502,14 +516,52 @@ def _nearest_known_fill(
         predicted[y, x] = crop[deltas_y[best] + y, deltas_x[best] + x]
 
 
+def _lattice_sides_agree(
+    crop: np.ndarray,
+    sources: np.ndarray,
+    mask: np.ndarray,
+    offsets: list[tuple[int, int]],
+    direction: tuple[int, int],
+) -> bool:
+    """Whether copies from either side of ``direction`` agree over the mask.
+
+    See LATTICE_SIDE_DEVIATION. Offsets perpendicular to the direction
+    belong to neither side.
+    """
+    ahead = [offset for offset in offsets if offset[0] * direction[0] + offset[1] * direction[1] > 0]
+    behind = [offset for offset in offsets if offset[0] * direction[0] + offset[1] * direction[1] < 0]
+    mask_y, mask_x = np.nonzero(mask)
+    if not ahead or not behind or mask_y.size == 0:
+        return False
+    gray = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY)[:, :, None]
+    copies = []
+    for side in (ahead, behind):
+        fy, fx, values, _rem_y, _rem_x = _lattice_paint_1d(gray, sources, mask_y, mask_x, side)
+        copy = np.full(mask.shape, -1, np.int16)
+        copy[fy, fx] = values[:, 0]
+        copies.append(copy)
+    both = (copies[0] >= 0) & (copies[1] >= 0)
+    compared = int(np.count_nonzero(both))
+    if compared < MIN_LATTICE_SIDE_COVERAGE * mask_y.size:
+        return False
+    differ = np.abs(copies[0][both] - copies[1][both]) > LATTICE_SIDE_DEVIATION
+    return int(np.count_nonzero(differ)) <= MAX_LATTICE_SIDE_DISAGREEMENT * compared
+
+
 def _verify_lattice(
-    crop: np.ndarray, known: np.ndarray, band: np.ndarray, reach: int
+    crop: np.ndarray,
+    known: np.ndarray,
+    band: np.ndarray,
+    reach: int,
+    fill_sources: np.ndarray,
+    mask: np.ndarray,
 ) -> tuple[float, list[tuple[int, int]]] | None:
     """Find the period, then measure a lattice copy on the held-out band.
 
     Candidate period pairs are tried strongest first, and the first pair
-    whose lattice actually reproduces the band below the bound wins — the
-    held-out test, not the peak score, is the acceptance criterion.
+    whose lattice actually reproduces the band below the bound, and whose
+    copies of the mask agree from both sides (from ``fill_sources``), wins —
+    the held-out tests, not the peak score, are the acceptance criterion.
     """
     gray = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY)
     vectors = _lattice_vectors(gray, known)
@@ -534,7 +586,9 @@ def _verify_lattice(
             error = float(np.partition(per_pixel, keep - 1)[:keep].mean())
         else:
             error = float(per_pixel.mean())
-        if error <= LATTICE_MAX_ERROR:
+        if error <= LATTICE_MAX_ERROR and _lattice_sides_agree(
+            crop, fill_sources, mask, offsets, (primary[0], primary[1])
+        ):
             return error, offsets
     return None
 
@@ -654,16 +708,16 @@ def route_block_fill(
             verify_sources = ~(mask_bool | fringe | band | excluded.astype(bool))
             if valid_bool is not None:
                 verify_sources &= valid_bool
+        if interior_mode:
+            fill_sources = ring | band
+        else:
+            fill_sources = ~(mask_bool | fringe | excluded.astype(bool))
+            if valid_bool is not None:
+                fill_sources &= valid_bool
         reach = int(np.hypot(*crop.shape[:2]))
-        lattice = _verify_lattice(crop, verify_sources, band, reach)
+        lattice = _verify_lattice(crop, verify_sources, band, reach, fill_sources, mask_bool)
         if lattice is not None:
             error, offsets = lattice
-            if interior_mode:
-                fill_sources = ring | band
-            else:
-                fill_sources = ~(mask_bool | fringe | excluded.astype(bool))
-                if valid_bool is not None:
-                    fill_sources &= valid_bool
             painted, stragglers = _apply_lattice(crop, fill_sources, mask_bool, offsets, reach)
             if stragglers <= MAX_MASK_STRAGGLER_FRACTION * max(1, mask_px):
                 decision = FillDecision(2, error, mask_px, band_px, ring_px, "lattice")
