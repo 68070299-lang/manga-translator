@@ -66,7 +66,7 @@ asyncio_default_fixture_loop_scope = "function"
 addopts = "-q"
 
 [tool.pyright]
-include = ["src", "../scripts/eval_pipeline.py"]
+include = ["src"]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
 venvPath = "."

@@ -36,7 +36,7 @@ export const FORBIDDEN_PATHS: readonly string[] = [
   'test_run.py',
   'artifacts/',
   'extension/_metadata/',
-  // Private eval pages and local eval runs (scripts/eval_pipeline.py).
+  // Private eval pages and local eval runs.
   'eval/pages/',
   'eval/runs/',
 ];
@@ -137,10 +137,6 @@ export const REQUIRED_PATHS: readonly string[] = [
   // Scripts and tests
   'scripts/validate-extension.ts',
   'scripts/repository-check.ts',
-  'scripts/bookwalker-real-uat.ps1',
-  'scripts/prepare-bookwalker-profile.ts',
-  'scripts/popup-smoke.ts',
-  'scripts/real-url-smoke.ts',
   'tests/unit',
   'tests/integration',
   'tests/e2e',

@@ -46,5 +46,5 @@
 - `docs/`: `RUNTIME_CONTRACT.md` and `headless-lanpaint.md`.
 - `tests/unit/`, `tests/integration/`, `tests/e2e/`: extension verification
   layers (Vitest, Vitest with fake browser, Playwright).
-- `scripts/`: TypeScript repository check, build validation, and smoke/UAT
-  scripts, plus backend smoke and ComfyUI tooling.
+- `scripts/`: TypeScript repository check and build validation, plus backend
+  model and ComfyUI tooling.

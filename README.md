@@ -15,7 +15,7 @@ The extension captures images or canvases from the active page, routes work thro
   - extension/components/ and extension/ui/ - Svelte 5 components and state modules for the popup and options pages.
   - extension/public/ - static assets copied verbatim into the build (`icons/`, `fonts/`, `rules/`); extension/assets/icons/ holds the icon sources.
 - backend/ - local FastAPI translation backend (src layout, package `manga_backend` in backend/src/manga_backend/).
-- scripts/ - repository check, build validation, smoke, UAT, and backend/ComfyUI tooling. The TypeScript scripts run directly under Node 24.
+- scripts/ - repository check, build validation, and backend/ComfyUI tooling. The TypeScript scripts run directly under Node 24.
 - tests/unit/ - Vitest (happy-dom) contract and unit tests.
 - tests/integration/ - Vitest integration tests for provider and service-worker contracts (fake browser from `wxt/testing`).
 - tests/e2e/ - Playwright extension tests (TypeScript) that load the built extension from dist/chrome-mv3.
@@ -95,8 +95,6 @@ Use the smallest useful gate first:
 - rtk npm run test:backend (pytest)
 - rtk npm run test:e2e (builds, then runs Playwright against dist/chrome-mv3)
 - rtk npm run verify (repository check, both lints and typechecks, Vitest, pytest, build, and zip)
-
-smoke:real-url depends on live sites and should not be treated as a deterministic CI gate.
 
 ## Backend
 

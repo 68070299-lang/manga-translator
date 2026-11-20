@@ -46,7 +46,7 @@ Check `rtk git status --short` before starting; the checkout may contain unrelat
 
 Goal: make the tree understandable and safe to maintain.
 
-Status: the documentation half is done. The root `README.md` exists, `backend/README.md` is current, and `verify:repository` guards the boundary. The cleanup half is open and needs the owner, because it means deleting the owner's own local files: the ignored `artifacts/`, `website/`, and `work/` directories and other local diagnostics (all Git-ignored, so they do not affect the repository check). `scripts/bookwalker-real-uat.ps1` is the one BookWalker helper that remains and is tracked. Decide per file whether to keep it, move it under an ignored path, or remove it. Keep the tasks below as a checklist when the tree drifts.
+Status: the documentation half is done. The root `README.md` exists, `backend/README.md` is current, and `verify:repository` guards the boundary. The cleanup half is open and needs the owner, because it means deleting the owner's own local files: the ignored `artifacts/`, `website/`, and `work/` directories and other local diagnostics (all Git-ignored, so they do not affect the repository check). Keep the tasks below as a checklist when the tree drifts.
 
 Tasks:
 
@@ -142,7 +142,6 @@ Exit criteria:
 ```powershell
 rtk npm run lint:backend
 rtk npm run test:backend
-rtk npm run smoke:backend
 ```
 
 ### Phase 5: Extension Reliability
@@ -200,8 +199,6 @@ rtk npm run test:backend
 rtk npm run test:e2e
 rtk npm run verify
 ```
-
-Do not use `smoke:real-url` as a deterministic CI gate. It depends on live network and real site behavior.
 
 ## High-Quality Maintenance Prompt
 

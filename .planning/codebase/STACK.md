@@ -12,8 +12,7 @@
 - Biome (lint and format), `tsc` + `svelte-check` for the extension, ruff +
   pyright for the backend.
 - TypeScript scripts under `scripts/` run directly on Node 24
-  (`validate-extension.ts`, `repository-check.ts`, `popup-smoke.ts`,
-  `real-url-smoke.ts`, `prepare-bookwalker-profile.ts`); every `wxt build`
+  (`validate-extension.ts`, `repository-check.ts`); every `wxt build`
   validates the generated extension through a `build:done` hook.
 - Optional local inpainting through a loopback ComfyUI daemon (Flux.2 Klein +
   LanPaint, `backend/src/manga_backend/comfy_lanpaint/`, `scripts/comfy-lanpaint/`);

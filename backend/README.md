@@ -254,7 +254,6 @@ From the repo root:
 rtk npm run lint:backend (ruff)
 rtk npm run typecheck:backend (pyright)
 rtk npm run test:backend (pytest, `uv run --project backend --locked pytest backend/tests`)
-rtk npm run smoke:backend
 
 The tests live in `backend/tests/` (pytest settings are in `backend/pyproject.toml`). The backend unit tests use fakes where possible, so they do not need to download models or call external APIs.
 
@@ -346,15 +345,6 @@ python scripts/export_animetext_yolo.py --variant m
 The conversion fallback downloads from `mayocream/anime-text-yolo`, which is
 published under GPL-3.0. Keep its weights and generated ONNX files local unless
 you have reviewed the license requirements for redistribution.
-
-Compare both detectors on the same page and mask margin with:
-
-```powershell
-python scripts/compare_detectors.py "C:\path\to\page.png" --device cuda
-```
-
-The report records the requested device and each session's active ONNX providers.
-It is a single-image observation, not a ground-truth accuracy evaluation.
 
 ## Project Structure
 
