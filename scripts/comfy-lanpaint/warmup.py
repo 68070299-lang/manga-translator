@@ -10,13 +10,13 @@ from pathlib import Path
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-BACKEND_ROOT = REPO_ROOT / "backend"
+BACKEND_ROOT = REPO_ROOT / "backend" / "src"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from comfy_lanpaint.client import ComfyUIClient
-from comfy_lanpaint.workflow import WorkflowSettings
-from models.flux_lanpaint_inpainter import DEFAULT_PROMPT
+from manga_backend.comfy_lanpaint.client import ComfyUIClient
+from manga_backend.comfy_lanpaint.workflow import WorkflowSettings
+from manga_backend.models.flux_lanpaint_inpainter import DEFAULT_PROMPT
 
 
 async def main() -> None:

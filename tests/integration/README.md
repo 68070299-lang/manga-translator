@@ -1,9 +1,5 @@
 # Integration Tests
 
-Covers cross-module contracts that are broader than a unit test but still run without live browser pages or external provider calls.
+Vitest tests for cross-module contracts that are broader than a unit test but run without live browser pages or external provider calls (`fake-browser` plus stubbed `fetch`, see `tests/helpers/`).
 
-Current coverage:
-
-- service-worker-provider.test.js - service-worker routing, local/cloud provider selection, backend checks, cache behavior, and error handling.
-
-Historical provider-specific tests were removed with the repository-boundary cleanup because they depended on stale scaffolding. Add new integration tests here when a behavior crosses extension modules but can still be exercised with Jest mocks.
+Add new tests here when a behavior crosses extension modules but can still run against the fake browser. Run with `npx vitest run tests/integration`.

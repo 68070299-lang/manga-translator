@@ -76,3 +76,11 @@ tests/mocks/msw-handlers.js
 # Local generated output
 artifacts/
 extension/_metadata/
+
+# WXT generated
+.wxt/
+.output/
+
+# Pipeline eval: private page images and local run outputs (baselines live in eval/baseline/)
+eval/pages/
+eval/runs/
