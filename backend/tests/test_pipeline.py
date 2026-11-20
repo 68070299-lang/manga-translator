@@ -1229,19 +1229,26 @@ class PipelineRenderTests(unittest.TestCase):
         TranslationPipeline(device="cpu")
         font_path = fonts_module.get_cached_font("english")
 
-        # A narrow lobe of a cloud balloon: whole, the word only fits under
-        # the readable size, and cut anywhere it became "T-/h-/a-/t." at 16.
-        for text in ("That.", "Whoa!", "Come.", "*Pant, pant*"):
-            with self.subTest(text=text):
+        def narrowest_whole_fit(text: str):
+            for width in range(20, 80):
                 fit = fit_text_in_room(
-                    box_room(TextBlock([0, 0, 40, 140])),
+                    box_room(TextBlock([0, 0, width, 140])),
                     text,
                     font_path,
                     target=16,
                     base_stroke_width=2,
                 )
-                self.assertFalse(fit.overflow)
-                self.assertFalse(fit.hyphenated)
+                if not fit.hyphenated and not fit.overflow:
+                    return fit
+            self.fail(f"{text!r} was never set whole")
+
+        # A narrow lobe of a cloud balloon: whole, the word only fits under
+        # the readable size, and cut anywhere it became "T-/h-/a-/t." at 16.
+        # The lobe width is searched, not fixed: Pillow's basic and Raqm
+        # layouts measure the same word a pixel or two apart.
+        for text in ("That.", "Whoa!", "Come.", "*Pant, pant*"):
+            with self.subTest(text=text):
+                fit = narrowest_whole_fit(text)
                 self.assertEqual(" ".join(fit.lines), text)
                 self.assertGreaterEqual(fit.size, MIN_WHOLE_WORD_FONT_SIZE)
                 self.assertLess(fit.size, MIN_READABLE_FONT_SIZE)
