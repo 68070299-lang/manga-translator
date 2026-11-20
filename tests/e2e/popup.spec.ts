@@ -7,7 +7,6 @@ declare const chrome: ChromeApi;
 interface StoredSettings {
   apiKey?: string;
   targetLang?: string;
-  googleOcr?: { apiKey?: string };
   localLlm?: { apiKey?: string };
   localBackend?: { translator?: string };
 }

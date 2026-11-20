@@ -100,7 +100,6 @@ describe('settings contract defaults', () => {
         translator: '',
         requestTimeoutMs: 600000,
       },
-      googleOcr: { languageHint: '' },
       localLlm: { baseUrl: '', model: '' },
       render: {
         textAlignment: 'center',

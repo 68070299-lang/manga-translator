@@ -14,7 +14,7 @@ _FILESYSTEM_PATH_RE = re.compile(
     r"(?:/[^\s'\"<>|*?]*[^\s'\"<>|*?.,;:)\]])?"
 )
 
-_REDACTED_FIELD_NAMES = ("api_key", "google_ocr_api_key", "local_llm_api_key")
+_REDACTED_FIELD_NAMES = ("api_key", "local_llm_api_key")
 
 
 def scrub_filesystem_paths(text: str) -> str:

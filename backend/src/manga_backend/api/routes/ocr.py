@@ -13,7 +13,6 @@ from manga_backend.api.responses import OrjsonResponse
 from manga_backend.api.schemas import OcrResponse, PaddleOcrResponse
 from manga_backend.api.validation import (
     VALID_OCR_ENGINES,
-    bad_request,
     normalize_choice,
     normalize_paddle_lang,
     required_ocr_components,
@@ -29,10 +28,8 @@ async def ocr_image(
     request_id: RequestIdDep,
     image: Annotated[UploadFile, File(description="Image to OCR")],
     ocr: Annotated[
-        str, Form(description="OCR model: manga-ocr, paddle-ocr, or google-ocr")
+        str, Form(description="OCR model: manga-ocr or paddle-ocr")
     ] = "manga-ocr",
-    google_ocr_api_key: Annotated[str, Form(description="Google Cloud Vision API key")] = "",
-    google_ocr_language_hint: Annotated[str, Form(description="Language hint for Google OCR")] = "",
 ) -> OcrResponse:
     """Extract text from an image."""
     with endpoint_errors(
@@ -40,23 +37,14 @@ async def ocr_image(
         "OCR failed",
         request_id=request_id,
         path=request.url.path,
-        sensitive_values=[google_ocr_api_key],
     ):
         engine = normalize_choice(ocr, VALID_OCR_ENGINES, "ocr")
         pipeline = require_components(backend, "detector", *required_ocr_components(engine))
-        if engine == "google-ocr" and not google_ocr_api_key:
-            raise bad_request("google_ocr_api_key is required when ocr is google-ocr")
         async with backend.request_slot():
             img_array = await images.read_upload_image(image, backend.limits)
 
             blocks = await pipeline.detect(img_array)
-            texts = await pipeline.ocr(
-                img_array,
-                blocks,
-                ocr=engine,
-                google_ocr_api_key=google_ocr_api_key or None,
-                google_ocr_language_hint=google_ocr_language_hint or None,
-            )
+            texts = await pipeline.ocr(img_array, blocks, ocr=engine)
 
         return OcrResponse(texts=texts)
 

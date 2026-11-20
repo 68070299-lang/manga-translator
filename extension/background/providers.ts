@@ -27,7 +27,6 @@ function createLocalBackendProvider(
   return new LocalBackendProvider({
     localBackend: settings.localBackend,
     apiKey: settings.apiKey,
-    googleOcr: settings.googleOcr,
     authToken: settings.localBackend?.authToken,
     provider: settings.provider,
     model: settings.model,

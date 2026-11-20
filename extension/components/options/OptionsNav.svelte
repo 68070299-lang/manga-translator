@@ -8,7 +8,6 @@ let { onsave }: Props = $props();
 const SECTIONS = [
   { id: 'pipeline', label: 'Pipeline' },
   { id: 'translate-api', label: 'Translate API' },
-  { id: 'google-ocr', label: 'Google OCR' },
   { id: 'render', label: 'Render' },
   { id: 'behavior', label: 'Behavior' },
   { id: 'cache', label: 'Cache' },

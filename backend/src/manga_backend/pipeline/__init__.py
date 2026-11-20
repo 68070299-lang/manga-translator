@@ -8,8 +8,6 @@ layout, fonts, rendering and orchestrator (TranslationPipeline).
 from manga_backend.pipeline.components import LAZY_COMPONENTS
 from manga_backend.pipeline.errors import (
     DetectorUnavailableError,
-    GoogleOCRError,
-    GoogleOCRTimeoutError,
     InpainterUnavailableError,
     PaddleOCRUnavailableError,
 )
@@ -21,8 +19,6 @@ __all__ = [
     "DEFAULT_INPAINTER",
     "LAZY_COMPONENTS",
     "DetectorUnavailableError",
-    "GoogleOCRError",
-    "GoogleOCRTimeoutError",
     "InpainterUnavailableError",
     "PaddleOCRUnavailableError",
     "TranslationPipeline",

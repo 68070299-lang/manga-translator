@@ -13,8 +13,6 @@ from manga_backend.api.sanitize import sanitize_error
 from manga_backend.api.state import BackendState
 from manga_backend.pipeline import (
     DetectorUnavailableError,
-    GoogleOCRError,
-    GoogleOCRTimeoutError,
     InpainterUnavailableError,
     PaddleOCRUnavailableError,
 )
@@ -26,8 +24,6 @@ INTERNAL_ERROR_DETAIL = "Internal server error"
 
 # Errors that carry their own public status code and client-safe detail.
 PUBLIC_ERROR_TYPES: tuple[type[Exception], ...] = (
-    GoogleOCRTimeoutError,
-    GoogleOCRError,
     InpainterUnavailableError,
     DetectorUnavailableError,
     PaddleOCRUnavailableError,

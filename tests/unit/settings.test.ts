@@ -87,34 +87,30 @@ describe('settings shape', () => {
   it('merges nested defaults without losing omitted objects', () => {
     const settings = mergeSettings({
       targetLang: 'Thai',
-      localBackend: { ocr: 'google-ocr' },
+      localBackend: { ocr: 'paddle-ocr' },
       render: { borderSize: 3 },
     });
 
     expect(settings.targetLang).toBe('Thai');
     expect(settings.localBackend.url).toBe(DEFAULT_SETTINGS.localBackend.url);
-    expect(settings.localBackend.ocr).toBe('google-ocr');
+    expect(settings.localBackend.ocr).toBe('paddle-ocr');
     expect(settings.localBackend.requestTimeoutMs).toBe(
       DEFAULT_SETTINGS.localBackend.requestTimeoutMs,
     );
     expect(settings.render.lineSpacing).toBe(DEFAULT_SETTINGS.render.lineSpacing);
     expect(settings.render.borderSize).toBe(3);
-    expect(settings.googleOcr.languageHint).toBe('');
   });
 
   it('applies private API keys from local storage shape', () => {
     const settings = applyStoredApiKeys(
-      { googleOcr: { languageHint: 'ja' } },
+      {},
       {
         apiKey: 'translate-key',
-        googleOcrApiKey: 'vision-key',
         localLlmApiKey: 'local-key',
       },
     );
 
     expect(settings.apiKey).toBe('translate-key');
-    expect(settings.googleOcr.apiKey).toBe('vision-key');
-    expect(settings.googleOcr.languageHint).toBe('ja');
     expect(settings.localLlm.apiKey).toBe('local-key');
   });
 
@@ -122,18 +118,15 @@ describe('settings shape', () => {
     const settings = applyStoredApiKeys(
       {
         apiKey: 'old-sync-key',
-        googleOcr: { apiKey: 'old-vision-key' },
         localLlm: { apiKey: 'old-local-key' },
       },
       {
         apiKey: '',
-        googleOcrApiKey: '',
         localLlmApiKey: '',
       },
     );
 
     expect(settings.apiKey).toBe('');
-    expect(settings.googleOcr.apiKey).toBe('');
     expect(settings.localLlm.apiKey).toBe('');
   });
 
@@ -141,33 +134,28 @@ describe('settings shape', () => {
     const settings = applyStoredApiKeys(
       {
         apiKey: 'old-sync-key',
-        googleOcr: { apiKey: 'old-vision-key' },
         localLlm: { apiKey: 'old-local-key' },
       },
       {},
     );
 
     expect(settings.apiKey).toBe('old-sync-key');
-    expect(settings.googleOcr.apiKey).toBe('old-vision-key');
     expect(settings.localLlm.apiKey).toBe('old-local-key');
   });
 
   it('splits public settings from private API keys', () => {
     const { syncSettings, apiKeys } = splitSettingsForStorage({
       apiKey: 'translate-key',
-      googleOcr: { apiKey: 'vision-key' },
       localLlm: { apiKey: 'local-key' },
       localBackend: { authToken: 'backend-token' },
     });
 
     expect('apiKey' in syncSettings).toBe(false);
-    expect('apiKey' in syncSettings.googleOcr).toBe(false);
     expect('apiKey' in syncSettings.localLlm).toBe(false);
     expect('authToken' in syncSettings.localBackend).toBe(false);
     expect(apiKeys).toEqual({
       apiKey: 'translate-key',
       backendAuthToken: 'backend-token',
-      googleOcrApiKey: 'vision-key',
       localLlmApiKey: 'local-key',
     });
   });

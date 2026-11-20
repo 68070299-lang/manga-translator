@@ -21,7 +21,6 @@ from manga_backend.comfy_lanpaint.client import ComfyUIError, ComfyUIUnreachable
 from manga_backend.pipeline import (
     DEFAULT_INPAINTER,
     DetectorUnavailableError,
-    GoogleOCRError,
     InpainterUnavailableError,
     PaddleOCRUnavailableError,
     TranslationPipeline,
@@ -40,7 +39,6 @@ from manga_backend.pipeline.masks import (
     prepare_flux_inpainting,
 )
 from manga_backend.pipeline import orchestrator as orchestrator_module
-from manga_backend.pipeline.ocr import GOOGLE_OCR_CONCURRENCY, google_ocr
 from manga_backend.pipeline.orchestrator import erase_candidate, erase_from_translation
 from manga_backend.pipeline.fit import (
     MIN_READABLE_FONT_SIZE,
@@ -641,27 +639,6 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
         mask_union = (inpainter.mask > 0) | np.any(inpainter.source != image, axis=2)
         np.testing.assert_array_equal(rendered[~mask_union], image[~mask_union])
 
-    async def test_ocr_routes_google_with_api_key_and_language_hint(self):
-        pipeline = TranslationPipeline(device="cpu")
-        image = np.zeros((12, 24, 3), dtype=np.uint8)
-        fake_google_ocr = AsyncMock(return_value=["google-text"])
-
-        with patch("manga_backend.pipeline.ocr.google_ocr", fake_google_ocr):
-            texts = await pipeline.ocr(
-                image,
-                [{"bbox": [1, 2, 10, 11]}],
-                ocr="google-ocr",
-                google_ocr_api_key="vision-key",
-                google_ocr_language_hint="ja",
-            )
-
-        self.assertEqual(texts, ["google-text"])
-        fake_google_ocr.assert_awaited_once()
-        _image, blocks, api_key, language_hint = fake_google_ocr.await_args.args
-        self.assertEqual(blocks[0].xyxy.tolist(), [1, 2, 10, 11])
-        self.assertEqual(api_key, "vision-key")
-        self.assertEqual(language_hint, "ja")
-
     async def test_translate_closes_translator_client_after_success_and_failure(self):
         for error in (None, RuntimeError("provider down")):
             pipeline = TranslationPipeline(device="cpu")
@@ -688,110 +665,6 @@ class PipelineOcrRoutingTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(result["translated_texts"], ["Text"])
 
             provider.close.assert_awaited_once()
-
-    def _fake_google_session(self, respond):
-        """Build a ClientSession stand-in whose post() awaits respond(request_number)."""
-        state = types.SimpleNamespace(active=0, peak=0, calls=0)
-
-        class FakeResponse:
-            def __init__(self, status, body):
-                self.status = status
-                self.body = body
-
-            async def json(self):
-                return self.body
-
-        class FakePost:
-            async def __aenter__(self):
-                state.calls += 1
-                number = state.calls
-                state.active += 1
-                state.peak = max(state.peak, state.active)
-                try:
-                    status, body = await respond(number)
-                finally:
-                    state.active -= 1
-                return FakeResponse(status, body)
-
-            async def __aexit__(self, *_exc):
-                return False
-
-        class FakeSession:
-            def __init__(self, *_args, **_kwargs):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *_exc):
-                return False
-
-            def post(self, *_args, **_kwargs):
-                return FakePost()
-
-        return FakeSession, state
-
-    async def test_google_ocr_runs_concurrently_within_limit_and_keeps_block_order(self):
-        TranslationPipeline(device="cpu")
-        image = np.zeros((40, 40, 3), dtype=np.uint8)
-        blocks = [TextBlock(xyxy=[0, 0, 10, 10]) for _ in range(GOOGLE_OCR_CONCURRENCY * 2)]
-        blocks.insert(1, TextBlock(xyxy=[5, 5, 5, 5]))  # empty crop makes no request
-
-        async def respond(number):
-            # Later requests finish first, so order must not come from completion.
-            await asyncio.sleep(0.02 / number)
-            return 200, {"responses": [{"textAnnotations": [{"description": f" text-{number} "}]}]}
-
-        session, state = self._fake_google_session(respond)
-        with patch("aiohttp.ClientSession", session):
-            texts = await google_ocr(image, blocks, "vision-key")
-
-        self.assertEqual(len(texts), len(blocks))
-        self.assertEqual(texts[1], "")
-        self.assertTrue(all(text.startswith("text-") for i, text in enumerate(texts) if i != 1))
-        self.assertEqual(texts[0], "text-1")
-        self.assertEqual(texts[2], "text-2")
-        self.assertEqual(state.peak, GOOGLE_OCR_CONCURRENCY)
-
-    async def test_google_ocr_failure_cancels_remaining_requests_and_stays_sanitized(self):
-        TranslationPipeline(device="cpu")
-        image = np.zeros((40, 40, 3), dtype=np.uint8)
-        blocks = [TextBlock(xyxy=[0, 0, 10, 10]) for _ in range(GOOGLE_OCR_CONCURRENCY * 3)]
-
-        async def respond(number):
-            if number == 1:
-                return 403, {"error": "vision-key leaked"}
-            await asyncio.sleep(30)
-            return 200, {"responses": [{}]}
-
-        session, state = self._fake_google_session(respond)
-        with patch("aiohttp.ClientSession", session):
-            with self.assertRaises(GoogleOCRError) as raised:
-                await asyncio.wait_for(google_ocr(image, blocks, "vision-key"), timeout=5)
-
-        self.assertNotIn("vision-key", str(raised.exception))
-        self.assertEqual(state.active, 0)
-        self.assertLessEqual(state.calls, GOOGLE_OCR_CONCURRENCY + 1)
-
-    async def test_ocr_rejects_google_without_api_key_as_client_error(self):
-        pipeline = TranslationPipeline(device="cpu")
-        image = np.zeros((12, 24, 3), dtype=np.uint8)
-
-        with self.assertRaisesRegex(ValueError, "google_ocr_api_key"):
-            await pipeline.ocr(image, [{"bbox": [1, 2, 10, 11]}], ocr="google-ocr")
-
-    async def test_google_ocr_skips_zero_area_regions(self):
-        TranslationPipeline(device="cpu")
-        image = np.zeros((12, 24, 3), dtype=np.uint8)
-        blocks = [
-            TextBlock([5, 5, 5, 8]),
-            TextBlock([8, 8, 4, 10]),
-            TextBlock([30, 30, 40, 40]),
-        ]
-
-        texts = await google_ocr(image, blocks, api_key="vision-key")
-
-        self.assertEqual(texts, ["", "", ""])
 
     async def test_inpainter_initialization_is_serialized_and_publishes_ready_instances(
         self,

@@ -59,7 +59,7 @@ def translate_options(
     target_lang: Annotated[str, Form(description="Target language")] = "English",
     detector: Annotated[str, Form(description="Detection model")] = "rtdetr",
     ocr: Annotated[
-        str, Form(description="OCR model: manga-ocr, paddle-ocr, google-ocr")
+        str, Form(description="OCR model: manga-ocr or paddle-ocr")
     ] = "manga-ocr",
     translator: Annotated[
         str, Form(description="Translation: none, gemini, openai, openrouter, local")
@@ -70,8 +70,6 @@ def translate_options(
         str, Form(description="API key for translation (Gemini/OpenAI/OpenRouter/local)")
     ] = "",
     model: Annotated[str, Form(description="Model name for translation API")] = "",
-    google_ocr_api_key: Annotated[str, Form(description="Google Cloud Vision API key")] = "",
-    google_ocr_language_hint: Annotated[str, Form(description="Language hint for Google OCR")] = "",
     local_llm_base_url: Annotated[
         str, Form(description="Base URL for local LLM (llama.cpp/vLLM)")
     ] = "",
@@ -110,8 +108,6 @@ def translate_options(
         render=render,
         api_key=api_key,
         model=model,
-        google_ocr_api_key=google_ocr_api_key,
-        google_ocr_language_hint=google_ocr_language_hint,
         local_llm_base_url=local_llm_base_url,
         local_llm_api_key=local_llm_api_key,
         line_spacing=line_spacing,

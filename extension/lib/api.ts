@@ -463,7 +463,7 @@ export interface PipelineSettingsInput {
 
 /**
  * Constructor input for `LocalBackendProvider`. Besides the nested settings
- * objects it accepts flat aliases (`localBackendUrl`, `googleOcrApiKey`, ...).
+ * objects it accepts flat aliases (`localBackendUrl`, `localLlmBaseUrl`, ...).
  */
 export interface LocalBackendProviderConfig {
   baseUrl?: string;
@@ -481,9 +481,6 @@ export interface LocalBackendProviderConfig {
   apiKey?: string;
   authToken?: string;
   backendAuthToken?: string;
-  googleOcr?: { apiKey?: string; languageHint?: string };
-  googleOcrApiKey?: string;
-  googleOcrLanguageHint?: string;
   provider?: string;
   model?: string;
   localLlm?: { baseUrl?: string; apiKey?: string; model?: string };
@@ -525,8 +522,6 @@ export class LocalBackendProvider {
   baseUrl: string;
   apiKey: string;
   authToken: string;
-  googleOcrApiKey: string;
-  googleOcrLanguageHint: string;
   provider: string;
   model: string;
   hasBrowserApiKey: boolean;
@@ -566,9 +561,6 @@ export class LocalBackendProvider {
       config.baseUrl || localBackend.url || config.localBackendUrl || 'http://localhost:8001';
     this.apiKey = config.apiKey || '';
     this.authToken = config.authToken || config.backendAuthToken || localBackend.authToken || '';
-    this.googleOcrApiKey = config.googleOcr?.apiKey || config.googleOcrApiKey || '';
-    this.googleOcrLanguageHint =
-      config.googleOcr?.languageHint || config.googleOcrLanguageHint || '';
     this.provider = config.provider || pipelineSettings.provider || 'gemini';
     this.model = config.model || pipelineSettings.model || '';
     this.hasBrowserApiKey = Boolean(this.apiKey?.trim());
@@ -636,11 +628,6 @@ export class LocalBackendProvider {
     } else if (translator !== 'none' && this.hasBrowserApiKey) {
       fields.model = String(this.model || '').trim();
       fields.api_key = this.apiKey;
-    }
-
-    if (this.googleOcrApiKey && ocr === 'google-ocr') {
-      fields.google_ocr_api_key = this.googleOcrApiKey;
-      fields.google_ocr_language_hint = this.googleOcrLanguageHint;
     }
 
     const formData = new FormData();

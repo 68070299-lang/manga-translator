@@ -3,20 +3,6 @@
 from __future__ import annotations
 
 
-class GoogleOCRError(RuntimeError):
-    """Sanitized upstream Google Vision failure."""
-
-    status_code = 502
-    public_detail = "Google OCR upstream request failed"
-
-
-class GoogleOCRTimeoutError(GoogleOCRError):
-    """Google Vision did not respond before the request timeout."""
-
-    status_code = 504
-    public_detail = "Google OCR upstream request timed out"
-
-
 # Fixed, path-free setup hints keyed by the requested option name (never by
 # exception text, which can carry local paths or upstream details).
 INPAINTER_UNAVAILABLE_HINTS = {

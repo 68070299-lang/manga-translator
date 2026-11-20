@@ -21,7 +21,7 @@ unavailable models always return the 503.
 ## Features
 
 - Text detection with RT-DETR-v2 (default) or optional AnimeText YOLO12.
-- OCR with manga-ocr, Paddle OCR, or Google OCR when configured.
+- OCR with manga-ocr or Paddle OCR.
 - Inpainting with one of four options (see [Inpainters](#inpainters)): `flux2_klein_lanpaint` (default, needs ComfyUI), `lama_large`, `flux2_klein_q4` (optional), or `none`.
 - Translation with none, Gemini, OpenAI, OpenRouter, or local OpenAI-compatible LLM backends.
 - ONNX Runtime based local inference paths.
@@ -46,7 +46,7 @@ backend rejects protected requests without this token.
 
 Generate one with `uv run python -c "import secrets; print(secrets.token_urlsafe(32))"`.
 
-Set provider keys only when using a key-backed translator or OCR provider. Keyless smoke tests should use translator=none.
+Set provider keys only when using a key-backed translator. Keyless smoke tests should use translator=none.
 
 `pyproject.toml` and `uv.lock` are the primary dependency source. `requirements.txt` is an
 unlocked, unpinned fallback for plain `pip` use; it does not pick a GPU runtime for you
@@ -155,13 +155,11 @@ Request fields override the matching environment variable.
 
 - target_lang (`English`): at most 64 characters, no control characters.
 - detector (`rtdetr`): `rtdetr` (alias `default`) or `animetext-yolo` (aliases `animetext`, `animetext_yolo`, `anime-text-yolo`).
-- ocr (`manga-ocr`): `manga-ocr`, `paddle-ocr`, or `google-ocr` (common aliases are accepted).
+- ocr (`manga-ocr`): `manga-ocr` or `paddle-ocr` (common aliases are accepted).
 - translator (`none`): `none`, `gemini`, `openai`, `openrouter`, or `local`.
 - inpainter (`flux2_klein_lanpaint`): `flux2_klein_lanpaint`, `lama_large`, `flux2_klein_q4`, or `none`. Legacy `lama` normalizes to `lama_large`; an empty value means `none`.
 - render (`true`): `true` returns a rendered PNG; `false` returns JSON text only.
 - api_key (empty) and model (empty): credentials and model name for gemini/openai/openrouter, and the model name for local. They override the `*_API_KEY` and `*_MODEL` environment variables. `model` is limited to 128 characters of letters, digits, and `. _ : / @ + -`.
-- google_ocr_api_key (empty): required with `ocr=google-ocr`.
-- google_ocr_language_hint (empty): short language code such as `ja` or `zh-Hant`.
 - local_llm_base_url (empty) and local_llm_api_key (empty): used with `translator=local`; the base URL falls back to `LOCAL_LLM_BASE_URL`.
 - line_spacing (`1.2`, 0.5 to 3.0), border_size (`2.0`, 0 to 20), bg_opacity (`0.0`, 0 to 1).
 - text_color (`#000000`), border_color (`#ffffff`), bg_color (`#ffffff`): `#RRGGBB` hex.
@@ -202,15 +200,15 @@ Every response carries an `X-Request-ID` header (the request's own header value 
 
 | Status | Meaning |
 | ---: | --- |
-| 400 | Invalid field, image type, or image data; missing `api_key` or `google_ocr_api_key`; a local LLM URL that is not loopback (unless `ALLOW_REMOTE_LOCAL_LLM=true`) |
+| 400 | Invalid field, image type, or image data; missing `api_key`; a local LLM URL that is not loopback (unless `ALLOW_REMOTE_LOCAL_LLM=true`) |
 | 401 | Missing or wrong `X-Manga-Translator-Token` |
 | 403 | Browser origin not allowed |
 | 413 | Request body, file, or image dimensions too large |
 | 429 | All concurrency slots stayed busy for `BACKEND_QUEUE_TIMEOUT_SECONDS`; retry later |
 | 500 | Unexpected internal error (details are logged, not returned) |
-| 502 | Google OCR or the translation provider failed upstream |
+| 502 | The translation provider failed upstream |
 | 503 | Backend auth not configured; models still loading or a needed component unavailable; the selected inpainter or detector runtime is unavailable (the detail carries a short setup hint) |
-| 504 | Google OCR or the translation provider timed out |
+| 504 | The translation provider timed out |
 
 ## Environment variables
 

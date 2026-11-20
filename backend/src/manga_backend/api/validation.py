@@ -29,9 +29,6 @@ VALID_OCR_ENGINES = {
     "paddleocr": "paddle-ocr",
     "paddle-vl": "paddle-ocr",
     "paddlevl": "paddle-ocr",
-    "google-ocr": "google-ocr",
-    "googleocr": "google-ocr",
-    "google": "google-ocr",
 }
 VALID_TRANSLATORS = {
     "": "none",
@@ -60,7 +57,6 @@ VALID_PADDLE_LANGS = frozenset({"japan", "ch", "en", "korean"})
 MAX_TARGET_LANG_LENGTH = 64
 MAX_MODEL_NAME_LENGTH = 128
 MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9._:/@+-]+$")
-LANGUAGE_HINT_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 
 
 def bad_request(detail: str) -> HTTPException:
@@ -137,13 +133,6 @@ def validate_model_name(model: str) -> None:
         raise bad_request("model may only contain letters, digits and . _ : / @ + -")
 
 
-def validate_language_hint(language_hint: str) -> None:
-    if language_hint and not LANGUAGE_HINT_RE.fullmatch(language_hint):
-        raise bad_request(
-            "google_ocr_language_hint must be a short language code such as ja or zh-Hant"
-        )
-
-
 def preflight_translator_inputs(
     options: TranslateOptions, translator: str, settings: Settings
 ) -> None:
@@ -153,7 +142,6 @@ def preflight_translator_inputs(
     """
     validate_target_lang(options.target_lang)
     validate_model_name(options.model)
-    validate_language_hint(options.google_ocr_language_hint)
 
     if translator == "local":
         base_url = options.local_llm_base_url.strip() or settings.local_llm_base_url

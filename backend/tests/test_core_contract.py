@@ -9,7 +9,7 @@ from PIL import Image
 
 from manga_backend.api.app import create_app
 from manga_backend.config import Settings
-from manga_backend.pipeline import GoogleOCRError, GoogleOCRTimeoutError, InpainterUnavailableError
+from manga_backend.pipeline import InpainterUnavailableError
 
 
 def make_png_bytes(size=(12, 12)):
@@ -64,18 +64,6 @@ class OptionalInpainterFailurePipeline(CoreContractPipeline):
         if kwargs.get("render") and kwargs.get("inpainter") != "none":
             raise InpainterUnavailableError("model unavailable")
         return await CoreContractPipeline.translate(self, **kwargs)
-
-
-class GoogleFailurePipeline(CoreContractPipeline):
-    def __init__(self, error):
-        super().__init__()
-        self.error = error
-
-    async def detect(self, image, detector="rtdetr"):
-        return [{"bbox": [0, 0, image.shape[1], image.shape[0]], "type": "text"}]
-
-    async def ocr(self, *args, **kwargs):
-        raise self.error
 
 
 class CoreBackendContractTests(unittest.TestCase):
@@ -169,29 +157,6 @@ class CoreBackendContractTests(unittest.TestCase):
             data={"translator": "none", "render": "false"},
         )
         self.assertEqual(response.status_code, 200)
-
-    def test_google_ocr_upstream_failure_is_sanitized_to_502(self):
-        self.use_pipeline(GoogleFailurePipeline(GoogleOCRError("secret vision key leaked")))
-
-        response = self.client.post(
-            "/ocr",
-            files={"image": ("page.png", make_png_bytes(), "image/png")},
-            data={"ocr": "google-ocr", "google_ocr_api_key": "secret vision key"},
-        )
-
-        self.assertEqual(response.status_code, 502)
-        self.assertNotIn("secret", response.text)
-
-    def test_google_ocr_timeout_is_reported_as_504(self):
-        self.use_pipeline(GoogleFailurePipeline(GoogleOCRTimeoutError()))
-
-        response = self.client.post(
-            "/ocr",
-            files={"image": ("page.png", make_png_bytes(), "image/png")},
-            data={"ocr": "google-ocr", "google_ocr_api_key": "secret vision key"},
-        )
-
-        self.assertEqual(response.status_code, 504)
 
 
 if __name__ == "__main__":

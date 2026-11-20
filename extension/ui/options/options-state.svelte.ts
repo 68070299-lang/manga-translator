@@ -28,13 +28,7 @@ import {
   readStoredSettings,
 } from '../settings-io';
 import { ToastState } from '../toast.svelte';
-import {
-  BehaviorForm,
-  GoogleOcrForm,
-  LocalBackendForm,
-  ProviderForm,
-  RenderForm,
-} from './forms.svelte';
+import { BehaviorForm, LocalBackendForm, ProviderForm, RenderForm } from './forms.svelte';
 
 /** Settings as the options page edits them: stored values over the defaults. */
 function existingForSave(stored: unknown): SettingsInput {
@@ -52,7 +46,6 @@ export class OptionsState {
 
   readonly provider = new ProviderForm();
   readonly backend = new LocalBackendForm();
-  readonly googleOcr = new GoogleOcrForm();
   readonly render = new RenderForm();
   readonly behavior = new BehaviorForm();
 
@@ -74,15 +67,6 @@ export class OptionsState {
     const local = this.pipelineMode === 'local';
     const translator = (local && this.backend.translator) || this.provider.provider;
     return translatorNeedsApiKey(translator) && !this.provider.apiKey.trim();
-  }
-
-  /** The local backend uses google-ocr without a Google Cloud Vision key. */
-  get googleKeyWarningVisible(): boolean {
-    return (
-      this.pipelineMode === 'local' &&
-      this.backend.ocr === 'google-ocr' &&
-      !this.googleOcr.apiKey.trim()
-    );
   }
 
   async init(): Promise<void> {
@@ -111,7 +95,6 @@ export class OptionsState {
 
       this.provider.load(settings);
       this.backend.load(settings);
-      this.googleOcr.load(settings);
       this.render.load(settings);
       this.behavior.load(settings);
       this.pipelineMode = settings.pipelineMode;
@@ -135,7 +118,6 @@ export class OptionsState {
         ...this.provider.toSettings(),
         localBackend: { ...existing.localBackend, ...this.backend.backendToSettings() },
         localLlm: this.backend.llmToSettings(),
-        googleOcr: this.googleOcr.toSettings(),
         ...this.render.toSettings(),
         ...this.behavior.toSettings(),
       };

@@ -23,7 +23,6 @@ function hasLegacySyncedSecrets(settings: unknown): settings is SettingsInput {
   return (
     isRecord(settings) &&
     (hasNonEmptyString(settings.apiKey) ||
-      hasNonEmptyString(settings.googleOcr?.apiKey) ||
       hasNonEmptyString(settings.localLlm?.apiKey) ||
       hasNonEmptyString(settings.localBackend?.authToken))
   );

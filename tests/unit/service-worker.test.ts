@@ -80,7 +80,6 @@ interface StoredSettings {
   provider?: string;
   fontSize?: number;
   apiKey?: string;
-  googleOcr?: { apiKey?: string; languageHint?: string };
   localLlm?: { apiKey?: string; model?: string };
   localBackend?: { authToken?: string };
 }
@@ -1173,7 +1172,7 @@ describe('service worker', () => {
     const noResponse = () => vi.fn();
 
     it('does not handle the removed CHECK_CACHE message or touch arbitrary storage keys', async () => {
-      const apiKeys = { apiKey: 'secret-key', googleOcrApiKey: '', localLlmApiKey: '' };
+      const apiKeys = { apiKey: 'secret-key', localLlmApiKey: '' };
       await browser.storage.local.set({ apiKeys });
       const removeSpy = vi.spyOn(browser.storage.local, 'remove');
       const sendResponse = noResponse();
@@ -1409,7 +1408,6 @@ describe('service worker', () => {
       await browser.storage.sync.set({
         settings: syncedSettings({
           apiKey: 'legacy-key',
-          googleOcr: { apiKey: 'google-key', languageHint: 'ja' },
           localLlm: { apiKey: 'llm-key', model: 'qwen' },
           localBackend: { authToken: 'backend-token' },
         }),
@@ -1420,29 +1418,25 @@ describe('service worker', () => {
       const local = await browser.storage.local.get('apiKeys');
       expect(local.apiKeys).toEqual({
         apiKey: 'legacy-key',
-        googleOcrApiKey: 'google-key',
         localLlmApiKey: 'llm-key',
         backendAuthToken: 'backend-token',
       });
       const settings = await storedSettings();
       expect(settings.provider).toBe('openrouter');
-      expect(settings.googleOcr?.languageHint).toBe('ja');
       expect(settings.localLlm?.model).toBe('qwen');
       expect(settings).not.toHaveProperty('apiKey');
-      expect(settings.googleOcr!).not.toHaveProperty('apiKey');
       expect(settings.localLlm!).not.toHaveProperty('apiKey');
       expect(settings.localBackend!).not.toHaveProperty('authToken');
-      expect(JSON.stringify(settings)).not.toMatch(/legacy-key|google-key|llm-key|backend-token/);
+      expect(JSON.stringify(settings)).not.toMatch(/legacy-key|llm-key|backend-token/);
     });
 
     it('moves legacy keys even when no version migration is pending and does not clobber local keys', async () => {
       await browser.storage.local.set({
-        apiKeys: { apiKey: 'local-key', googleOcrApiKey: '', localLlmApiKey: 'local-llm' },
+        apiKeys: { apiKey: 'local-key', localLlmApiKey: 'local-llm' },
       });
       await browser.storage.sync.set({
         settings: syncedSettings({
           apiKey: 'legacy-key',
-          googleOcr: { apiKey: 'google-key' },
           localLlm: { apiKey: 'legacy-llm' },
         }),
       });
@@ -1452,18 +1446,16 @@ describe('service worker', () => {
       const local = await browser.storage.local.get('apiKeys');
       expect(local.apiKeys).toEqual({
         apiKey: 'local-key',
-        googleOcrApiKey: 'google-key',
         localLlmApiKey: 'local-llm',
       });
       const settings = await storedSettings();
       expect(settings).not.toHaveProperty('apiKey');
-      expect(settings.googleOcr!).not.toHaveProperty('apiKey');
       expect(settings.localLlm!).not.toHaveProperty('apiKey');
     });
 
     it('writes nothing when no legacy keys are synced', async () => {
       await browser.storage.sync.set({
-        settings: syncedSettings({ apiKey: '', googleOcr: { apiKey: '  ' } }),
+        settings: syncedSettings({ apiKey: '' }),
       });
       const syncSet = vi.spyOn(browser.storage.sync, 'set');
       const localSet = vi.spyOn(browser.storage.local, 'set');

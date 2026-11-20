@@ -7,7 +7,6 @@ declare const chrome: ChromeApi;
 interface StoredSettings {
   apiKey?: string;
   targetLang?: string;
-  googleOcr?: { apiKey?: string };
   localLlm?: { apiKey?: string };
   localBackend?: { translator?: string };
 }
@@ -35,7 +34,6 @@ test('options page migrates legacy synced API keys into private local storage', 
       settings: {
         provider: 'openrouter',
         apiKey: 'legacy-sync-key',
-        googleOcr: { apiKey: 'legacy-vision-key' },
         localLlm: { apiKey: 'legacy-local-key' },
       },
     });
@@ -43,7 +41,6 @@ test('options page migrates legacy synced API keys into private local storage', 
 
   await gotoOptions(page, extensionId);
   await expect(page.locator('#apiKey')).toHaveValue('legacy-sync-key');
-  await expect(page.locator('#googleOcrApiKey')).toHaveValue('legacy-vision-key');
   await expect(page.locator('#localLlmApiKey')).toHaveValue('legacy-local-key');
 
   await page.locator('#saveBtn').click();
@@ -56,7 +53,6 @@ test('options page migrates legacy synced API keys into private local storage', 
         const settings = syncResult.settings as StoredSettings;
         return {
           syncApiKey: settings.apiKey,
-          syncGoogleApiKey: settings.googleOcr?.apiKey,
           syncLocalLlmApiKey: settings.localLlm?.apiKey,
           localApiKeys: localResult.apiKeys,
         };
@@ -64,11 +60,9 @@ test('options page migrates legacy synced API keys into private local storage', 
     )
     .toEqual({
       syncApiKey: undefined,
-      syncGoogleApiKey: undefined,
       syncLocalLlmApiKey: undefined,
       localApiKeys: {
         apiKey: 'legacy-sync-key',
-        googleOcrApiKey: 'legacy-vision-key',
         localLlmApiKey: 'legacy-local-key',
       },
     });
@@ -84,14 +78,12 @@ test('options page does not resurrect synced API keys after local keys are clear
       settings: {
         provider: 'openrouter',
         apiKey: 'old-sync-key',
-        googleOcr: { apiKey: 'old-vision-key' },
         localLlm: { apiKey: 'old-local-key' },
       },
     });
     await chrome.storage.local.set({
       apiKeys: {
         apiKey: '',
-        googleOcrApiKey: '',
         localLlmApiKey: '',
       },
     });
@@ -100,7 +92,6 @@ test('options page does not resurrect synced API keys after local keys are clear
   await gotoOptions(page, extensionId);
 
   await expect(page.locator('#apiKey')).toHaveValue('');
-  await expect(page.locator('#googleOcrApiKey')).toHaveValue('');
   await expect(page.locator('#localLlmApiKey')).toHaveValue('');
 });
 
@@ -132,7 +123,7 @@ test('options page only offers backend-supported local pipeline choices', async 
 
   expect(choices).toEqual({
     detectors: ['default', 'rtdetr', 'animetext-yolo'],
-    ocr: ['manga-ocr', 'paddle-ocr', 'google-ocr'],
+    ocr: ['manga-ocr', 'paddle-ocr'],
     inpainters: ['flux2_klein_lanpaint', 'flux2_klein_q4', 'lama_large', 'none'],
     translators: ['', 'none', 'gemini', 'openai', 'openrouter', 'local'],
   });

@@ -81,15 +81,11 @@ class FakePipeline:
         image,
         blocks,
         ocr="manga-ocr",
-        google_ocr_api_key=None,
-        google_ocr_language_hint=None,
     ):
         self.ocr_calls.append({
             "image": image,
             "blocks": blocks,
             "ocr": ocr,
-            "google_ocr_api_key": google_ocr_api_key,
-            "google_ocr_language_hint": google_ocr_language_hint,
         })
         return [f"{ocr}:text" for _ in blocks]
     async def paddle_ocr_full(self, image, lang="japan"):
@@ -291,10 +287,8 @@ class BackendApiTests(unittest.TestCase):
             files={"image": ("page.png", make_png_bytes(), "image/png")},
             data={
                 "detector": "default",
-                "ocr": "google",
                 "translator": "google",
                 "inpainter": "lama",
-                "google_ocr_api_key": "vision-key",
                 "api_key": "gemini-key",
             },
         )
@@ -302,7 +296,6 @@ class BackendApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         call = self.pipeline.translate_calls[-1]
         self.assertEqual(call["detector"], "rtdetr")
-        self.assertEqual(call["ocr"], "google-ocr")
         self.assertEqual(call["translator"], "gemini")
         self.assertEqual(call["inpainter"], "lama_large")
 
@@ -318,33 +311,6 @@ class BackendApiTests(unittest.TestCase):
             self.pipeline.translate_calls[-1]["inpainter"],
             "flux2_klein_lanpaint",
         )
-
-    def test_translate_rejects_google_ocr_without_api_key_before_pipeline_call(self):
-        response = self.client.post(
-            "/translate",
-            files={"image": ("page.png", make_png_bytes(), "image/png")},
-            data={"ocr": "google-ocr"},
-        )
-
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("google_ocr_api_key", response.json()["detail"])
-        self.assertEqual(self.pipeline.translate_calls, [])
-
-    def test_translate_google_ocr_does_not_require_local_ocr_readiness(self):
-        self.pipeline.component_ready = lambda component: component == "detector"
-
-        response = self.client.post(
-            "/translate",
-            files={"image": ("page.png", make_png_bytes(), "image/png")},
-            data={
-                "ocr": "google-ocr",
-                "google_ocr_api_key": "vision-key",
-                "render": "false",
-            },
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.pipeline.translate_calls[-1]["ocr"], "google-ocr")
 
     def test_translate_json_response_when_render_false(self):
         response = self.client.post(
@@ -591,50 +557,6 @@ class BackendApiTests(unittest.TestCase):
         self.assertEqual(len(self.pipeline.detect_calls), 1)
         self.assertEqual(self.pipeline.ocr_calls[-1]["ocr"], "paddle-ocr")
 
-    def test_ocr_passes_google_ocr_key_and_language_hint(self):
-        response = self.client.post(
-            "/ocr",
-            files={"image": ("page.png", make_png_bytes(), "image/png")},
-            data={
-                "ocr": "google-ocr",
-                "google_ocr_api_key": "vision-key",
-                "google_ocr_language_hint": "ja",
-            },
-        )
-
-        self.assertEqual(response.status_code, 200)
-        call = self.pipeline.ocr_calls[-1]
-        self.assertEqual(call["ocr"], "google-ocr")
-        self.assertEqual(call["google_ocr_api_key"], "vision-key")
-        self.assertEqual(call["google_ocr_language_hint"], "ja")
-
-    def test_ocr_rejects_google_ocr_without_api_key_before_pipeline_call(self):
-        response = self.client.post(
-            "/ocr",
-            files={"image": ("page.png", make_png_bytes(), "image/png")},
-            data={"ocr": "google-ocr"},
-        )
-
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("google_ocr_api_key", response.json()["detail"])
-        self.assertEqual(self.pipeline.detect_calls, [])
-        self.assertEqual(self.pipeline.ocr_calls, [])
-
-    def test_ocr_google_ocr_does_not_require_local_ocr_readiness(self):
-        self.pipeline.component_ready = lambda component: component == "detector"
-
-        response = self.client.post(
-            "/ocr",
-            files={"image": ("page.png", make_png_bytes(), "image/png")},
-            data={
-                "ocr": "google-ocr",
-                "google_ocr_api_key": "vision-key",
-            },
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.pipeline.ocr_calls[-1]["ocr"], "google-ocr")
-
     def test_rejects_unsupported_translate_pipeline_options_before_pipeline_call(self):
         cases = [
             ("detector", "ctd"),
@@ -850,7 +772,6 @@ class BackendApiTests(unittest.TestCase):
                     "translator": "local",
                     "local_llm_api_key": "secret-value",
                     "api_key": "cloud-secret",
-                    "google_ocr_api_key": "vision-secret",
                 },
             )
 
@@ -860,15 +781,12 @@ class BackendApiTests(unittest.TestCase):
         self.assertNotIn("model failed with secret-value", response.text)
         self.assertNotIn("secret-value", response.text)
         self.assertNotIn("cloud-secret", response.text)
-        self.assertNotIn("vision-secret", response.text)
         joined = "\n".join(logs.output)
         self.assertIn("req-fail-1", joined)
         self.assertIn("[redacted_secret]", joined)
         self.assertNotIn("secret-value", joined)
         self.assertNotIn("cloud-secret", joined)
-        self.assertNotIn("vision-secret", joined)
         self.assertNotIn("api_key", joined)
-        self.assertNotIn("google_ocr_api_key", joined)
         self.assertNotIn("local_llm_api_key", joined)
 
         health = self.client.get("/health").json()
@@ -1022,17 +940,6 @@ class TranslatePreflightTests(unittest.TestCase):
         for value in ("gemini-2.0-flash", "google/gemini-2.0-flash-001", "org/model:Q4_K_M@v1.5+x"):
             with self.subTest(valid=value):
                 self.assertEqual(self.post(translator="local", model=value).status_code, 200)
-
-    def test_google_ocr_language_hint_is_validated_before_model_work(self):
-        response = self.post(
-            ocr="google-ocr", google_ocr_api_key="vision-key", google_ocr_language_hint="ja\nx"
-        )
-        self.assert_rejected_before_model_work(response, "google_ocr_language_hint")
-
-        ok = self.post(
-            ocr="google-ocr", google_ocr_api_key="vision-key", google_ocr_language_hint="zh-Hant"
-        )
-        self.assertEqual(ok.status_code, 200)
 
 
 class RequestLimitTests(unittest.TestCase):

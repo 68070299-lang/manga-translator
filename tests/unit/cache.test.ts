@@ -34,10 +34,6 @@ function makeCacheSettings(): Settings {
       model: 'llama',
       apiKey: 'local-secret',
     },
-    googleOcr: {
-      languageHint: 'ja',
-      apiKey: 'vision-secret',
-    },
     render: {
       textAlignment: 'center',
       textDirection: 'auto',
@@ -133,12 +129,6 @@ const CACHE_KEY_MUTATIONS: Array<[string, (settings: Settings) => void]> = [
     'local LLM model',
     (settings) => {
       settings.localLlm.model = 'qwen';
-    },
-  ],
-  [
-    'Google OCR language hint',
-    (settings) => {
-      settings.googleOcr.languageHint = 'ko';
     },
   ],
   [
@@ -287,7 +277,6 @@ describe('cache utilities', () => {
     const changedSecrets = makeCacheSettings();
     changedSecrets.apiKey = 'different-translation-secret';
     changedSecrets.localLlm.apiKey = 'different-local-secret';
-    changedSecrets.googleOcr.apiKey = 'different-vision-secret';
 
     expect(generateCacheKey('hash123', changedSecrets)).toBe(
       generateCacheKey('hash123', baselineSettings),
@@ -605,9 +594,9 @@ describe('cache utilities', () => {
   it('keeps existing cache keys stable (pinned values from the pre-rewrite implementation)', () => {
     expect(
       generateCacheKey('abc123', { provider: 'gemini', model: 'm1', targetLang: 'English' }),
-    ).toBe('manga_cache_abc123_gemini_m1_English_542c4256');
+    ).toBe('manga_cache_abc123_gemini_m1_English_59629c9e');
     expect(generateCacheKey('canvas_x_y', mergeSettings({}))).toBe(
-      'manga_cache_canvas_x_y_openrouter_none_English_4feb9245',
+      'manga_cache_canvas_x_y_openrouter_none_English_5704d003',
     );
     expect(
       generateCacheKey('hash', {
@@ -622,10 +611,9 @@ describe('cache utilities', () => {
           inpainter: 'lama' as Inpainter,
           translator: 'gemini',
           detector: 'rtdetr',
-          ocr: 'google-ocr',
         },
         render: { bgOpacity: 0.5, uppercase: true },
       }),
-    ).toBe('manga_cache_hash_openai_gpt-4o-mini_Thai_2966085');
+    ).toBe('manga_cache_hash_openai_gpt-4o-mini_Thai_45c75179');
   });
 });

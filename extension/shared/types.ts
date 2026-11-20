@@ -23,7 +23,7 @@ export type Translator = Provider | 'none';
 
 export type Detector = 'default' | 'rtdetr' | 'animetext-yolo';
 export type Inpainter = 'flux2_klein_lanpaint' | 'flux2_klein_q4' | 'lama_large' | 'none';
-export type OcrEngine = 'manga-ocr' | 'paddle-ocr' | 'google-ocr';
+export type OcrEngine = 'manga-ocr' | 'paddle-ocr';
 export type TextAlignment = 'left' | 'center' | 'right';
 export type TextDirection = 'auto' | 'horizontal' | 'vertical';
 
@@ -38,12 +38,6 @@ export interface LocalBackendSettings {
   /** `''` falls back to the provider setting. */
   translator: Translator | '';
   requestTimeoutMs: number;
-}
-
-export interface GoogleOcrSettings {
-  /** Private: stored in `apiKeys`, never synced. */
-  apiKey: string;
-  languageHint: string;
 }
 
 export interface RenderSettings {
@@ -84,27 +78,21 @@ export interface Settings {
   showProgress: boolean;
   pipelineMode: PipelineMode;
   localBackend: LocalBackendSettings;
-  googleOcr: GoogleOcrSettings;
   render: RenderSettings;
   localLlm: LocalLlmSettings;
   debug: boolean;
 }
 
 /** Settings as persisted in `chrome.storage.sync` under `settings`: no keys. */
-export type PublicSettings = Omit<
-  Settings,
-  'apiKey' | 'localBackend' | 'googleOcr' | 'localLlm'
-> & {
+export type PublicSettings = Omit<Settings, 'apiKey' | 'localBackend' | 'localLlm'> & {
   localBackend: Omit<LocalBackendSettings, 'authToken'>;
-  googleOcr: Omit<GoogleOcrSettings, 'apiKey'>;
   localLlm: Omit<LocalLlmSettings, 'apiKey'>;
 };
 
 /** Partial, untrusted settings (storage contents, messages) accepted by `mergeSettings`. */
 export interface SettingsInput
-  extends Partial<Omit<Settings, 'localBackend' | 'googleOcr' | 'render' | 'localLlm'>> {
+  extends Partial<Omit<Settings, 'localBackend' | 'render' | 'localLlm'>> {
   localBackend?: Partial<LocalBackendSettings> | null;
-  googleOcr?: Partial<GoogleOcrSettings> | null;
   render?: Partial<RenderSettings> | null;
   localLlm?: Partial<LocalLlmSettings> | null;
 }
@@ -112,7 +100,6 @@ export interface SettingsInput
 /** `chrome.storage.local` `apiKeys` record. Missing members mean "not stored". */
 export interface ApiKeys {
   apiKey?: string;
-  googleOcrApiKey?: string;
   localLlmApiKey?: string;
   backendAuthToken?: string;
 }

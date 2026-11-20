@@ -158,7 +158,6 @@ function normalizeCachedFontSize(value: unknown): number {
  */
 function normalizeSettingsForCache(settings: SettingsInput = {}) {
   const localBackend = settings.localBackend || {};
-  const googleOcr = settings.googleOcr || {};
   const render = settings.render || {};
   const localLlm = settings.localLlm || {};
 
@@ -179,9 +178,6 @@ function normalizeSettingsForCache(settings: SettingsInput = {}) {
     localLlm: {
       baseUrl: localLlm.baseUrl || '',
       model: localLlm.model || '',
-    },
-    googleOcr: {
-      languageHint: googleOcr.languageHint || '',
     },
     render: {
       textAlignment: render.textAlignment || '',

@@ -2,7 +2,6 @@
 import { onMount } from 'svelte';
 import BehaviorSection from '../../components/options/BehaviorSection.svelte';
 import CacheSection from '../../components/options/CacheSection.svelte';
-import GoogleOcrSection from '../../components/options/GoogleOcrSection.svelte';
 import LocalBackendSection from '../../components/options/LocalBackendSection.svelte';
 import OptionsNav from '../../components/options/OptionsNav.svelte';
 import ProviderSection from '../../components/options/ProviderSection.svelte';
@@ -28,7 +27,6 @@ onMount(() => {
 
   <LocalBackendSection {options} />
   <ProviderSection {options} />
-  <GoogleOcrSection {options} />
   <RenderSection {options} />
   <BehaviorSection {options} />
   <CacheSection {options} />

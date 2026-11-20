@@ -527,33 +527,6 @@ describe('LocalBackendProvider', () => {
     await provider.translateImage(new Blob(['img'], { type: 'image/png' }));
   });
 
-  it('sends Google OCR key only when google-ocr is selected', async () => {
-    const provider = new LocalBackendProvider({
-      localBackendUrl: 'http://localhost:8001',
-      googleOcr: {
-        apiKey: 'vision-key',
-        languageHint: 'ja',
-      },
-      localBackend: {
-        ocr: 'google-ocr',
-        translator: 'none',
-      },
-    });
-
-    fetchMock.mockImplementationOnce((_url: unknown, options?: RequestInit) => {
-      const formData = formOf(options);
-      expect(formData.get('ocr')).toBe('google-ocr');
-      expect(formData.get('google_ocr_api_key')).toBe('vision-key');
-      expect(formData.get('google_ocr_language_hint')).toBe('ja');
-      return Promise.resolve({
-        ok: true,
-        blob: async () => new Blob(['ok'], { type: 'image/png' }),
-      });
-    });
-
-    await provider.translateImage(new Blob(['img'], { type: 'image/png' }));
-  });
-
   it('honors explicit OCR-only translator selection instead of falling back to provider', async () => {
     const provider = new LocalBackendProvider({
       localBackendUrl: 'http://localhost:8001',

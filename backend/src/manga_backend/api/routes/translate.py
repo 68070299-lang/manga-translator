@@ -21,7 +21,6 @@ from manga_backend.api.validation import (
     VALID_INPAINTERS,
     VALID_OCR_ENGINES,
     VALID_TRANSLATORS,
-    bad_request,
     normalize_choice,
     preflight_translator_inputs,
     required_ocr_components,
@@ -72,8 +71,6 @@ async def translate_image(
         required_components = ["detector"] if detector == "rtdetr" else []
         required_components.extend(required_ocr_components(ocr))
         pipeline = require_components(backend, *required_components)
-        if ocr == "google-ocr" and not options.google_ocr_api_key:
-            raise bad_request("google_ocr_api_key is required when ocr is google-ocr")
         preflight_translator_inputs(options, translator, backend.settings)
         async with backend.request_slot():
             img_array = await images.read_upload_image(image, backend.limits)
@@ -103,8 +100,6 @@ async def translate_image(
                     render=options.render,
                     api_key=options.api_key or None,
                     model=options.model or None,
-                    google_ocr_api_key=options.google_ocr_api_key or None,
-                    google_ocr_language_hint=options.google_ocr_language_hint or None,
                     line_spacing=options.line_spacing,
                     border_size=options.border_size,
                     text_color=options.text_color,

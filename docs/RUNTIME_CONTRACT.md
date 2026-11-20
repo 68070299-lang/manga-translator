@@ -106,7 +106,7 @@ TRANSLATION_RESULT no longer exists. The popup mirrors progress into chrome.stor
 extension/lib/settings.ts owns defaults and storage shaping.
 
 - Public synced settings include provider, model, target language, local backend options, render options, and local LLM endpoint/model metadata.
-- Private key material is split out before sync storage: provider apiKey, googleOcrApiKey, localLlmApiKey, and backendAuthToken (localBackend.authToken, sent as the backend access token).
+- Private key material is split out before sync storage: provider apiKey, localLlmApiKey, and backendAuthToken (localBackend.authToken, sent as the backend access token).
 - Local backend base URLs must be loopback HTTP origins: localhost, 127.0.0.1, or ::1.
 - In cloud pipeline mode, provider selects the external OCR/translation provider.
 - In local pipeline mode, localBackend.translator wins when present; otherwise provider is used for backend translation.
@@ -116,7 +116,7 @@ extension/lib/settings.ts owns defaults and storage shaping.
 | Area | Key | Contents |
 | --- | --- | --- |
 | chrome.storage.sync | `settings` | Public settings only (never keys or the backend token) |
-| chrome.storage.local | `apiKeys` | `apiKey`, `googleOcrApiKey`, `localLlmApiKey`, `backendAuthToken` |
+| chrome.storage.local | `apiKeys` | `apiKey`, `localLlmApiKey`, `backendAuthToken` |
 | chrome.storage.local | `activeUrls`, `disabledUrls` | Per-hostname site activation lists |
 | chrome.storage.local | `manga_cache_*` | Translation cache entries; `manga_cache_metadata` lists the keys |
 | chrome.storage.session | `translationProgress` | In-flight progress shown by the popup |
@@ -141,7 +141,6 @@ From DEFAULT_SETTINGS in extension/lib/settings.ts:
 | localBackend.inpainter | flux2_klein_lanpaint |
 | localBackend.translator | empty (falls back to provider) |
 | localBackend.requestTimeoutMs | 600000 |
-| googleOcr.languageHint | empty |
 | localLlm.baseUrl, localLlm.model | empty |
 | render | center alignment, auto direction, line spacing 1.2, black text, white border 2, auto-scale on |
 
@@ -173,7 +172,7 @@ Cloud path:
 Local path:
 
 1. LocalBackendProvider validates the backend URL and builds a multipart/form-data request with the X-Manga-Translator-Token header.
-2. /translate receives the image and form fields for target language, detector, OCR, translator, inpainter, render settings, Google OCR hints, and local LLM settings. Provider keys (api_key, google_ocr_api_key, local_llm_api_key) travel in the same form to the loopback backend.
+2. /translate receives the image and form fields for target language, detector, OCR, translator, inpainter, render settings, and local LLM settings. Provider keys (api_key, local_llm_api_key) travel in the same form to the loopback backend.
 3. The backend validates image type, upload size, pixel count, option names, colors, and render values before running the pipeline.
 4. The backend returns a rendered translated image blob when render=true.
 
@@ -210,7 +209,7 @@ GET / only proves the process is alive. It does not prove all ML models have dow
 extension/lib/cache.ts stores translation results in chrome.storage.local.
 
 - Cache keys start with manga_cache_. Cache metadata is maintained under manga_cache_metadata.
-- Cache identity includes image hash or canvas signature plus every setting that affects output: pipeline mode, provider/model/base URL, target language, fontSize (clamped to 6-96), the local backend URL, detector, OCR, translator, and inpainter (normalized, so `lama` and `lama_large` share an entry), local LLM endpoint/model, Google OCR language hint, and render settings.
+- Cache identity includes image hash or canvas signature plus every setting that affects output: pipeline mode, provider/model/base URL, target language, fontSize (clamped to 6-96), the local backend URL, detector, OCR, translator, and inpainter (normalized, so `lama` and `lama_large` share an entry), local LLM endpoint/model, and render settings.
 - API keys and the backend token are intentionally excluded from cache identity and storage metadata.
 - Entries older than seven days are dropped when read (getFromCache) and are also pruned in the background at worker load, browser startup, and install (pruneExpiredCache).
 - Total size is bounded to about 15 MB (five pages of 2 MB, base64 expanded, plus 2 MB headroom). Saving past the bound evicts least-recently-used entries first.
@@ -239,10 +238,9 @@ Page images and OCR text are sensitive. Only the first row keeps everything on l
 | local | manga-ocr / paddle-ocr | none | Nothing leaves loopback: image goes to the local backend only | Backend token only |
 | local | manga-ocr / paddle-ocr | gemini, openai, openrouter | Image goes to the loopback backend; the backend sends OCR text (not the image) to the provider | Provider key is sent to the loopback backend, which uses it upstream |
 | local | manga-ocr / paddle-ocr | local | Image to the loopback backend; OCR text to the configured local LLM base URL, which must be loopback unless the backend sets ALLOW_REMOTE_LOCAL_LLM=true | Optional local LLM key |
-| local | google-ocr | any of the above | Image crops go from the backend to Google Cloud Vision, plus the translator rows above | Google OCR key is sent to the loopback backend; plus any translator key |
 | cloud | provider handles OCR | gemini, openai, openrouter, or custom base URL | The full page image goes straight from the extension to the provider | Provider key |
 
-Choosing a cloud pipeline or Google OCR and saving the matching key is the user's opt-in to this data sharing. There is no separate consent prompt today (pending owner decision). The local inpainters (FLUX Klein + LanPaint via a loopback ComfyUI daemon, FLUX Klein Q4 via sd-cli, LaMa) run locally and send nothing out.
+Choosing a cloud pipeline or a key-backed translator and saving the matching key is the user's opt-in to this data sharing. There is no separate consent prompt today (pending owner decision). The local inpainters (FLUX Klein + LanPaint via a loopback ComfyUI daemon, FLUX Klein Q4 via sd-cli, LaMa) run locally and send nothing out.
 
 ## Expected First-Run Failures
 
@@ -260,7 +258,7 @@ Choosing a cloud pipeline or Google OCR and saving the matching key is the user'
 
 - Host permissions and content scripts cover all URLs, so page image data must be treated as sensitive.
 - Cloud mode sends image content to an external provider.
-- Local backend mode keeps the image on loopback when the configured URL passes validation, but a key-backed translator or Google OCR sends OCR text or image crops to an external service (see the matrix above).
+- Local backend mode keeps the image on loopback when the configured URL passes validation, but a key-backed translator sends OCR text to an external service (see the matrix above).
 - The backend requires the X-Manga-Translator-Token header on all routes except GET / and preflights.
 - Backend CORS allows Chrome extension origins and any explicitly configured development origins.
 - Backend error handling redacts known key fields and configured secret values from stored last-error state; the extension redacts keys and bearer tokens in provider error text.

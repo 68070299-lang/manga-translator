@@ -400,10 +400,6 @@ select {
   margin-top: 6px;
 }
 
-.hint a {
-  color: var(--primary-color);
-}
-
 .warning {
   font-size: 12px;
   color: var(--error-color);
@@ -649,8 +645,7 @@ input[type="color"] {
   color: var(--text-secondary);
 }
 
-.eye-btn:hover,
-.hint a {
+.eye-btn:hover {
   color: var(--primary-color);
 }
 

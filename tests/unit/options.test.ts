@@ -69,10 +69,9 @@ async function loadOptions({
 }
 
 /** Stored settings, including the legacy key fields a test may expect to be absent. */
-type StoredSettings = Omit<PublicSettings, 'googleOcr' | 'localLlm' | 'localBackend'> & {
+type StoredSettings = Omit<PublicSettings, 'localLlm' | 'localBackend'> & {
   apiKey?: string;
   localBackend: PublicSettings['localBackend'] & { authToken?: string };
-  googleOcr?: PublicSettings['googleOcr'] & { apiKey?: string };
   localLlm?: PublicSettings['localLlm'] & { apiKey?: string };
 };
 
@@ -130,9 +129,6 @@ describe('options page layout', () => {
       'apiKeyWarning',
       'baseUrlGroup',
       'baseUrl',
-      'googleOcrApiKey',
-      'googleOcrKeyWarning',
-      'googleOcrLanguageHint',
       'targetLang',
       'fontFamily',
       'fontSize',
@@ -166,17 +162,16 @@ describe('options page layout', () => {
       'cacheAge',
       'pipeline',
       'translate-api',
-      'google-ocr',
       'render',
       'behavior',
       'cache',
     ]) {
       expect(document.getElementById(id), id).not.toBeNull();
     }
-    expect(document.querySelectorAll('.eye-btn')).toHaveLength(2);
+    expect(document.querySelectorAll('.eye-btn')).toHaveLength(1);
     expect(
       Array.from(document.querySelectorAll('.nav-link'), (a) => a.getAttribute('data-section')),
-    ).toEqual(['pipeline', 'translate-api', 'google-ocr', 'render', 'behavior', 'cache']);
+    ).toEqual(['pipeline', 'translate-api', 'render', 'behavior', 'cache']);
     expect(el('baseUrlGroup').style.display).toBe('none');
   });
 
@@ -190,17 +185,16 @@ describe('options page layout', () => {
       translators: optionValues('localTranslator'),
     }).toEqual({
       detectors: ['default', 'rtdetr', 'animetext-yolo'],
-      ocr: ['manga-ocr', 'paddle-ocr', 'google-ocr'],
+      ocr: ['manga-ocr', 'paddle-ocr'],
       inpainters: ['flux2_klein_lanpaint', 'flux2_klein_q4', 'lama_large', 'none'],
       translators: ['', 'none', 'gemini', 'openai', 'openrouter', 'local'],
     });
   });
 
-  it('offers the provider and language hint choices', async () => {
+  it('offers the provider, target language, and text direction choices', async () => {
     await loadOptions();
 
     expect(optionValues('provider')).toEqual(['gemini', 'openai', 'openrouter', 'local']);
-    expect(optionValues('googleOcrLanguageHint')).toEqual(['', 'ja', 'zh', 'ko', 'en']);
     expect(optionValues('textAlignment')).toEqual(['left', 'center', 'right']);
     expect(optionValues('textDirection')).toEqual(['auto', 'horizontal', 'vertical']);
     expect(optionValues('targetLang')).toHaveLength(12);
@@ -295,7 +289,7 @@ describe('options page settings persistence', () => {
         pipelineMode: 'cloud',
         localBackend: { url: 'http://localhost:8001', requestTimeoutMs: 345000 },
       },
-      apiKeys: { apiKey: 'existing-key', googleOcrApiKey: '', localLlmApiKey: '' },
+      apiKeys: { apiKey: 'existing-key', localLlmApiKey: '' },
     });
     setField('backendUrl', 'http://127.0.0.1:8002/api/');
 
@@ -336,13 +330,11 @@ describe('options page settings persistence', () => {
     setField('backendUrl', 'http://localhost:9000');
     setField('backendAuthToken', 'token-1');
     setField('localDetector', 'rtdetr');
-    setField('localOcr', 'google-ocr');
+    setField('localOcr', 'paddle-ocr');
     setField('localInpainter', 'none');
     setField('localTranslator', 'local');
     setField('localLlmBaseUrl', 'http://localhost:11434/v1');
     setField('localLlmApiKey', 'llm-key');
-    setField('googleOcrApiKey', 'vision-key');
-    setField('googleOcrLanguageHint', 'ja');
     setField('targetLang', 'Thai');
     setField('fontFamily', 'sans-serif');
     setField('fontSize', '20');
@@ -376,12 +368,11 @@ describe('options page settings persistence', () => {
       localBackend: {
         url: 'http://localhost:9000',
         detector: 'rtdetr',
-        ocr: 'google-ocr',
+        ocr: 'paddle-ocr',
         inpainter: 'none',
         translator: 'local',
       },
       localLlm: { baseUrl: 'http://localhost:11434/v1' },
-      googleOcr: { languageHint: 'ja' },
       render: {
         textAlignment: 'left',
         textDirection: 'vertical',
@@ -400,12 +391,11 @@ describe('options page settings persistence', () => {
     });
     expect(await storedApiKeys()).toEqual({
       apiKey: 'sk-browser',
-      googleOcrApiKey: 'vision-key',
       localLlmApiKey: 'llm-key',
       backendAuthToken: 'token-1',
     });
     // Keys and the backend token never reach sync storage.
-    expect(JSON.stringify(settings)).not.toMatch(/sk-browser|vision-key|llm-key|token-1/);
+    expect(JSON.stringify(settings)).not.toMatch(/sk-browser|llm-key|token-1/);
   });
 
   it('migrates legacy LaMa storage while loading the options page', async () => {
@@ -480,23 +470,19 @@ describe('options page settings persistence', () => {
       settings: {
         provider: 'openrouter',
         apiKey: 'legacy-sync-key',
-        googleOcr: { apiKey: 'legacy-vision-key' },
         localLlm: { apiKey: 'legacy-local-key' },
       },
     });
     expect(field('apiKey').value).toBe('legacy-sync-key');
-    expect(field('googleOcrApiKey').value).toBe('legacy-vision-key');
     expect(field('localLlmApiKey').value).toBe('legacy-local-key');
 
     await click('saveBtn');
 
     const settings = await storedSettings();
     expect(settings.apiKey).toBeUndefined();
-    expect(settings.googleOcr?.apiKey).toBeUndefined();
     expect(settings.localLlm?.apiKey).toBeUndefined();
     expect(await storedApiKeys()).toEqual({
       apiKey: 'legacy-sync-key',
-      googleOcrApiKey: 'legacy-vision-key',
       localLlmApiKey: 'legacy-local-key',
     });
   });
@@ -506,14 +492,12 @@ describe('options page settings persistence', () => {
       settings: {
         provider: 'openrouter',
         apiKey: 'old-sync-key',
-        googleOcr: { apiKey: 'old-vision-key' },
         localLlm: { apiKey: 'old-local-key' },
       },
-      apiKeys: { apiKey: '', googleOcrApiKey: '', localLlmApiKey: '' },
+      apiKeys: { apiKey: '', localLlmApiKey: '' },
     });
 
     expect(field('apiKey').value).toBe('');
-    expect(field('googleOcrApiKey').value).toBe('');
     expect(field('localLlmApiKey').value).toBe('');
   });
 
@@ -875,44 +859,6 @@ describe('options page API key warnings', () => {
 
     expect(isVisible('apiKeyWarning')).toBe(true);
   });
-
-  it('warns when google-ocr is selected without a Google Vision key', async () => {
-    await loadOptions({
-      settings: { pipelineMode: 'local', localBackend: { ocr: 'google-ocr', translator: 'none' } },
-    });
-    expect(isVisible('googleOcrKeyWarning')).toBe(true);
-
-    setField('googleOcrApiKey', 'vision-key');
-    flushSync();
-    expect(isVisible('googleOcrKeyWarning')).toBe(false);
-
-    setField('googleOcrApiKey', '');
-    flushSync();
-    expect(isVisible('googleOcrKeyWarning')).toBe(true);
-
-    setField('localOcr', 'manga-ocr');
-    flushSync();
-    expect(isVisible('googleOcrKeyWarning')).toBe(false);
-
-    setField('localOcr', 'google-ocr');
-    flushSync();
-    expect(isVisible('googleOcrKeyWarning')).toBe(true);
-  });
-
-  it('does not warn about google-ocr when a Google Vision key is stored', async () => {
-    await loadOptions({
-      settings: { pipelineMode: 'local', localBackend: { ocr: 'google-ocr', translator: 'none' } },
-      apiKeys: { googleOcrApiKey: 'vision-key' },
-    });
-
-    expect(isVisible('googleOcrKeyWarning')).toBe(false);
-  });
-
-  it('does not warn about google-ocr in cloud mode', async () => {
-    await loadOptions({ settings: { pipelineMode: 'cloud', localBackend: { ocr: 'google-ocr' } } });
-
-    expect(isVisible('googleOcrKeyWarning')).toBe(false);
-  });
 });
 
 describe('options page form behaviour', () => {
@@ -977,8 +923,6 @@ describe('options page form behaviour', () => {
     button?.click();
     flushSync();
     expect(field('apiKey').type).toBe('password');
-    // The other secret field is independent.
-    expect(field('googleOcrApiKey').type).toBe('password');
   });
 
   it('keeps the colour picker and hex box in sync', async () => {

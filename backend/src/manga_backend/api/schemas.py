@@ -64,8 +64,6 @@ class TranslateOptions(ApiModel):
     render: bool
     api_key: str
     model: str
-    google_ocr_api_key: str
-    google_ocr_language_hint: str
     local_llm_base_url: str
     local_llm_api_key: str
     line_spacing: float
@@ -84,7 +82,7 @@ class TranslateOptions(ApiModel):
     @property
     def secrets(self) -> list[str]:
         """Values that must never appear in logs or error reports."""
-        return [self.api_key, self.google_ocr_api_key, self.local_llm_api_key]
+        return [self.api_key, self.local_llm_api_key]
 
 
 class TranslateTextResponse(ApiModel):

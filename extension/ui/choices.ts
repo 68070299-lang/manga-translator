@@ -55,7 +55,6 @@ export const DETECTOR_CHOICES: readonly Choice[] = [
 export const OCR_CHOICES: readonly Choice[] = [
   { value: 'manga-ocr', label: 'manga-ocr' },
   { value: 'paddle-ocr', label: 'paddle-ocr' },
-  { value: 'google-ocr', label: 'google-ocr' },
 ];
 
 export const INPAINTER_CHOICES: readonly Choice[] = [
@@ -75,14 +74,6 @@ export const LOCAL_TRANSLATOR_CHOICES: readonly Choice[] = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'openrouter', label: 'OpenRouter' },
   { value: 'local', label: 'Local LLM (llama.cpp / vLLM)' },
-];
-
-export const GOOGLE_LANGUAGE_HINT_CHOICES: readonly Choice[] = [
-  { value: '', label: 'Auto-detect' },
-  { value: 'ja', label: 'Japanese' },
-  { value: 'zh', label: 'Chinese' },
-  { value: 'ko', label: 'Korean' },
-  { value: 'en', label: 'English' },
 ];
 
 export const TEXT_ALIGNMENT_CHOICES: readonly Choice[] = [

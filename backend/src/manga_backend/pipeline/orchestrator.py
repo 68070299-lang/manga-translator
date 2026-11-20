@@ -256,16 +256,12 @@ class TranslationPipeline:
         image: np.ndarray,
         blocks: Sequence[TextBlock | Mapping[str, Any]],
         ocr: str = "manga-ocr",
-        google_ocr_api_key: str | None = None,
-        google_ocr_language_hint: str | None = None,
     ) -> list[str]:
         """Extract text from detected regions."""
         return await self._run_ocr(
             image,
             blocks_from_payload(blocks),
             ocr,
-            google_ocr_api_key,
-            google_ocr_language_hint,
         )
 
     async def paddle_ocr_full(
@@ -284,15 +280,11 @@ class TranslationPipeline:
         image: np.ndarray,
         blocks: list[TextBlock],
         ocr: str,
-        google_ocr_api_key: str | None,
-        google_ocr_language_hint: str | None,
     ) -> list[str]:
         return await run_ocr(
             image,
             blocks,
             ocr,
-            google_ocr_api_key,
-            google_ocr_language_hint,
             local_engine=self._ocr,
             prepare_paddle_engine=self._prepare_paddle_engine,
         )
@@ -308,8 +300,6 @@ class TranslationPipeline:
         render: bool = True,
         api_key: str | None = None,
         model: str | None = None,
-        google_ocr_api_key: str | None = None,
-        google_ocr_language_hint: str | None = None,
         local_llm_base_url: str | None = None,
         local_llm_api_key: str | None = None,
         verify_translation: bool = False,
@@ -380,9 +370,7 @@ class TranslationPipeline:
         # Step 2: OCR
         start_time = time.time()
         logger.info("Step 2: Running OCR (%s) on %s blocks...", ocr, len(blocks))
-        original_texts = await self._run_ocr(
-            image, blocks, ocr, google_ocr_api_key, google_ocr_language_hint
-        )
+        original_texts = await self._run_ocr(image, blocks, ocr)
         logger.info("Step 2 complete: OCR finished in %.2fs", time.time() - start_time)
 
         result["original_texts"] = original_texts

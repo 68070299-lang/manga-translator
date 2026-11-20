@@ -107,7 +107,7 @@ Goal: reduce high-impact failure modes before adding features.
 Status of each item:
 
 - Add an explicit permission budget test for the manifest - done (`tests/unit/manifest.test.ts` and `scripts/validate-extension.ts`; permissions are storage, unlimitedStorage, contextMenus, declarativeNetRequest).
-- Add explicit cloud/OCR consent or per-site allowlisting before page data leaves the browser - open, pending owner decision. No consent gate exists; choosing a cloud pipeline or Google OCR and saving a key is the opt-in today (documented in the README and runtime contract).
+- Add explicit cloud consent or per-site allowlisting before page data leaves the browser - open, pending owner decision. No consent gate exists; choosing a cloud pipeline or a key-backed translator and saving a key is the opt-in today (documented in the README and runtime contract).
 - Add a backend auth token if the backend may be exposed beyond loopback - done. All routes except `GET /` and preflights require `X-Manga-Translator-Token` (`BACKEND_AUTH_TOKEN`).
 - Add cache pruning on extension startup/session start - done (`pruneCacheSafely` runs at worker load, startup, and install; expiry is also enforced on read).
 - Redact upstream provider error bodies before logs or UI - done (backend and `extension/lib/api.ts` redact keys and bearer tokens).

@@ -110,20 +110,6 @@ export class LocalBackendForm {
   }
 }
 
-export class GoogleOcrForm {
-  apiKey = $state('');
-  languageHint = $state('');
-
-  load(settings: Settings): void {
-    this.apiKey = settings.googleOcr.apiKey;
-    this.languageHint = settings.googleOcr.languageHint;
-  }
-
-  toSettings(): Settings['googleOcr'] {
-    return { apiKey: this.apiKey, languageHint: this.languageHint };
-  }
-}
-
 export class RenderForm {
   targetLang = $state<string>(DEFAULT_SETTINGS.targetLang);
   fontSize = $state<number>(DEFAULT_SETTINGS.fontSize);

@@ -42,10 +42,6 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze<Settings>({
     translator: '',
     requestTimeoutMs: 600000,
   },
-  googleOcr: {
-    apiKey: '',
-    languageHint: '',
-  },
   render: {
     textAlignment: 'center',
     textDirection: 'auto',
@@ -152,7 +148,6 @@ export function mergeSettings(loaded: SettingsInput = {}): Settings {
   merged.localBackend = { ...defaults.localBackend, ...(loaded.localBackend || {}) };
   merged.localBackend.detector = normalizeDetector(merged.localBackend.detector);
   merged.localBackend.inpainter = normalizeInpainter(merged.localBackend.inpainter);
-  merged.googleOcr = { ...defaults.googleOcr, ...(loaded.googleOcr || {}) };
   merged.render = { ...defaults.render, ...(loaded.render || {}) };
   merged.localLlm = { ...defaults.localLlm, ...(loaded.localLlm || {}) };
 
@@ -168,9 +163,6 @@ export function applyStoredApiKeys(settings: SettingsInput, apiKeys: ApiKeys = {
 
   if (Object.hasOwn(apiKeys, 'apiKey')) {
     merged.apiKey = apiKeys.apiKey as string;
-  }
-  if (Object.hasOwn(apiKeys, 'googleOcrApiKey')) {
-    merged.googleOcr.apiKey = apiKeys.googleOcrApiKey as string;
   }
   if (Object.hasOwn(apiKeys, 'localLlmApiKey')) {
     merged.localLlm.apiKey = apiKeys.localLlmApiKey as string;
@@ -190,22 +182,19 @@ export function splitSettingsForStorage(settings: SettingsInput): {
   const merged = mergeSettings(settings);
   const apiKeys: ReturnType<typeof splitSettingsForStorage>['apiKeys'] = {
     apiKey: merged.apiKey || '',
-    googleOcrApiKey: merged.googleOcr.apiKey || '',
     localLlmApiKey: merged.localLlm.apiKey || '',
   };
   if (merged.localBackend.authToken) {
     apiKeys.backendAuthToken = merged.localBackend.authToken;
   }
 
-  const { apiKey: _apiKey, googleOcr, localBackend, localLlm, ...rest } = merged;
-  const { apiKey: _googleKey, ...publicGoogleOcr } = googleOcr;
+  const { apiKey: _apiKey, localBackend, localLlm, ...rest } = merged;
   const { authToken: _authToken, ...publicLocalBackend } = localBackend;
   const { apiKey: _llmKey, ...publicLocalLlm } = localLlm;
 
   return {
     syncSettings: {
       ...rest,
-      googleOcr: publicGoogleOcr,
       localBackend: publicLocalBackend,
       localLlm: publicLocalLlm,
     },
