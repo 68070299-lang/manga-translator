@@ -354,10 +354,9 @@ class Translator:
         """Send one prompt to the configured provider and parse its numbering."""
         if self.translator_type in ["gemini", "google"]:
             return await self._translate_gemini(prompt, count, page_image)
-        elif self.translator_type in ["local", "openai", "openrouter"]:
+        if self.translator_type in ["local", "openai", "openrouter"]:
             return await self._translate_openai(prompt, count, page_image)
-        else:
-            raise ValueError(f"Unsupported translator type: {self.translator_type}")
+        raise ValueError(f"Unsupported translator type: {self.translator_type}")
 
     @staticmethod
     def _numbered_input(

@@ -14,7 +14,7 @@ import logging
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import cast
 
 import cv2
 import numpy as np

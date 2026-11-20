@@ -155,16 +155,6 @@ def _measurer_for(font_path: str | None, size: int, stroke_width: int) -> _Measu
     return _Measurer(font, stroke_width, _shared_bbox_cache(font_path, size, font))
 
 
-def _bands_for(
-    room: Room,
-    size: int,
-    count: int,
-    line_spacing: float,
-    spans: object = None,
-) -> list[Band]:
-    return room.eroded(air_inset(size)).bands(size, count, line_spacing, spans=spans)  # type: ignore[arg-type]
-
-
 def _fit_at_size(
     room: Room,
     units: Sequence[str],

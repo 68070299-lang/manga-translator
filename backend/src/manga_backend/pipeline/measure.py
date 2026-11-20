@@ -55,25 +55,6 @@ def luminance(colour: RGB) -> float:
     return 0.299 * red + 0.587 * green + 0.114 * blue
 
 
-def _median_run(profile: np.ndarray, minimum: int = 2) -> float:
-    """Median length of the runs of a projection profile."""
-    values = profile > 0
-    if not np.any(values):
-        return 0.0
-    spans: list[int] = []
-    start: int | None = None
-    for index, value in enumerate(values):
-        if value and start is None:
-            start = index
-        elif not value and start is not None:
-            spans.append(index - start)
-            start = None
-    if start is not None:
-        spans.append(len(values) - start)
-    usable = [span for span in spans if span >= minimum]
-    return float(np.median(usable)) if usable else 0.0
-
-
 def _median_pitch(profile: np.ndarray, minimum: int = 2) -> float:
     """Median distance between the centres of a projection profile's runs."""
     values = profile > 0

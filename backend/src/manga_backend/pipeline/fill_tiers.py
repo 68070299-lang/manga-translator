@@ -463,30 +463,6 @@ def _lattice_paint_1d(
     )
 
 
-def _lattice_paint(
-    crop: np.ndarray,
-    known: np.ndarray,
-    targets: np.ndarray,
-    offsets: list[tuple[int, int]],
-) -> tuple[np.ndarray, np.ndarray]:
-    """Copy each target pixel from a known pixel at a lattice translate.
-
-    Returns the predicted values (uint8, zero where unfilled) and the boolean
-    set of targets no lattice translate could reach in this pass.
-    """
-    predicted = np.zeros(crop.shape, np.uint8)
-    rem_y, rem_x = np.nonzero(targets)
-    if rem_y.size == 0:
-        return predicted, np.zeros_like(targets)
-    fy, fx, rgb, rem_y, rem_x = _lattice_paint_1d(crop, known, rem_y, rem_x, offsets)
-    if fy.size:
-        predicted[fy, fx] = rgb
-    remaining = np.zeros_like(targets)
-    if rem_y.size:
-        remaining[rem_y, rem_x] = True
-    return predicted, remaining
-
-
 def _nearest_known_fill(
     predicted: np.ndarray, crop: np.ndarray, known: np.ndarray, targets: np.ndarray
 ) -> None:
