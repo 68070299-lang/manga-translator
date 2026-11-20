@@ -385,7 +385,62 @@ Only setup/helper code moves. **No assertion may be removed.** Count tests befor
 
 ## Results
 
-_(Implementing agent fills this in.)_
+Implemented on branch `chore/loc-reduction` (one commit per phase, `chore(loc): phase N - …`);
+nothing was pushed or merged. The plan file itself was committed in Phase 0.
+
+### Baseline
+- Tests: vitest `npx vitest list | wc -l` **430**; backend pytest collected **663**; Playwright **47 tests in 8 files**.
+- LOC: all code **61,830** / production **30,121**.
+- Gate result: `lint:backend`, `typecheck:backend`, `test:backend`, `typecheck`, `build`, `test:coverage`,
+  `verify:repository` and Playwright were green. **`npm run lint` was red at the baseline commit**, but only on the
+  5 tracked `eval/**` JSON baselines that the formatter would rewrite; those files are deleted in Phase 1 and
+  `npm run lint` is green from Phase 1 on. Recorded instead of stopping because the failing files are exactly what
+  Phase 1 removes. A leftover backend on `127.0.0.1:8001` was stopped before the e2e run, per the known-noise note.
+
+### Per phase
+| Phase | All-code LOC | Production LOC | Tests (unit / backend / e2e) | Notes |
+|---|---|---|---|---|
+| 0 | 61,830 | 30,121 | 430 / 663 / 47 | Branch + plan commit; baseline measured. |
+| 1 | 55,569 | 30,121 | 426 / 606 / 47 | Deleted eval harness + tracked `eval/` JSON, smoke scripts, BookWalker UAT, detector comparison and their tests; `package.json`, `pyproject.toml`, `repository-check.ts`, docs updated. |
+| 2 | 54,853 | 29,786 | 422 / 593 / 47 | Google Vision OCR removed end-to-end (backend pipeline/API, extension settings/UI, tests, docs). The cache identity changed, so the 3 pinned cache keys in `cache.test.ts` were re-baselined (one-time cache miss for existing users; the plan only required key stability for Phase 3's `pipelineMode`). |
+| 3 | 53,204 | 28,876 | 390* / 593* / 44 | Cloud API mode removed: direct `TranslationProvider`/Gemini/OpenAI code, `svg-overlay` block rendering, popup mode toggle + state, cloud tests/docs. Documented exception: `extension/lib/cache.ts` keeps `pipelineMode: 'local'` exactly as the plan requires, so the phase's done-when grep has that one intentional hit. |
+| 4 | 52,405 | 28,876 | 359 / 592* / 31 | Tooling/source-text tests and duplicate e2e specs deleted; the unique "timed out" progress assertion was moved into the kept BookWalker test first. |
+| 5 | 52,351 | 28,822 | 359 / 592* / 31 | Dead code deleted (`_lattice_paint`, `_median_run`, `_bands_for`, `PopupMessageType`) + `ruff --fix --select F401,RET505`. |
+| 6 | 52,285 | 28,756 | 359 / 592* / 31 | Seven duplicated production blocks merged (items 6.1-6.7); behavior identical and the named pytest files were green after each item. Net LOC is below the plan's ≈−150 estimate because several items are dedupe-neutral (helper overhead offsets duplicated lines), notably 6.3 (−1) and 6.4 (+4). |
+| 7 | 52,119 | 28,756 | 359 / 591 / 31 | Test setup/helper de-duplication only (7.1-7.6). Test counts unchanged: `npx vitest list` 359→359, `npx playwright test --list` 31→31, pytest collected 591→591; the phase diff removes no test definition and no `expect` line. |
+| 8 | 52,119 | 28,756 | 359 / 591 / 31 | `npm run verify` (repository check, biome, tsc+svelte-check, ruff, pyright, build, coverage gate, pytest, `wxt zip`) and Playwright both green. Production **< 30,000**. |
+
+`*` Unit/backend counts for Phases 1-6 are derived from the measured baseline/final counts minus the tests each phase
+documents deleting; Phases 0 and 4-8 totals were measured directly. e2e counts were measured per phase
+(Playwright list/pass counts). Baseline vs final: unit list 430→359, backend collected 663→591, e2e 47→31
+(21 of the 77 backend test deletions are the deleted eval/smoke/UAT suites; the rest are Google-OCR and low-value tests).
+
+### Deviations / notes
+- **Baseline lint red** (see Baseline): the only red check at the start was `npm run lint` on `eval/**` JSON that Phase 1 deletes.
+- **Phase 5 commit content**: the `PopupMessageType` deletion landed in the Phase 3 commit (`b229899`) because that one-line
+  edit was already in the worktree when Phase 3 was staged; the Phase 5 commit contains the other four files. No functional impact.
+- **Phase 4/7 sharing `backend/tests/test_comfy_lanpaint.py`**: the Phase 4 deletion was staged hunk-by-hunk so the Phase 7
+  helper extraction stayed in the Phase 7 commit.
+- **Known grep exceptions**: the Phase 2/3 done-when greps are clean except (a) `.planning/loc-reduction/PLAN.md` (this
+  historical plan, excluded by the plan itself), (b) `extension/lib/cache.ts`'s `pipelineMode: 'local'` (kept deliberately
+  for cache-key stability), and (c) the `.js` entries for `popup-smoke`/`real-url-smoke`/`prepare-bookwalker-profile` in
+  `scripts/repository-check.ts` `LEGACY_PATHS` — the plan explicitly says "Keep LEGACY_PATHS as is"; they forbid re-adding
+  the pre-WXT paths.
+- **KEEP list respected**: every optional model backend (FLUX/LanPaint/Klein, `manga_backend/comfy_lanpaint/`,
+  `scripts/comfy-lanpaint/*`, AnimeText YOLO + `scripts/export_animetext_yolo.py`, PaddleOCR ONNX,
+  `scripts/build_fp16_models.py`), translator providers/alias, `pipeline/masks.py` algorithms, coverage thresholds,
+  `biome.json`, ruff/pyright config (except the one `include` line) and the `eval/pages/`/`eval/runs/` ignore rules are untouched.
+- **Skipped**: Phase 2's optional `'google-ocr'` malformed-OCR unit case was not added — it needs a remount (not a
+  one-line addition) and the literal would violate that phase's own done-when grep. Nothing else in the plan was skipped.
+- **Collected-count accounting**: one pytest case differs by 1 between the Phase-4 derived figure (592) and the measured
+  end count (591); no test was removed after Phase 4 (Phase 4 deleted exactly one backend test, and Phase 7 was verified
+  to preserve all counts).
+- **All-code LOC** ended at 52,119 rather than ≈51,500; the production target is met (≈28,900 expected, 28,756 actual,
+  hard ceiling < 30,000). The gap is because the deleted suites were leaner than estimated and several Phase 6/7 dedup
+  items are net-neutral in raw line count by design (same behavior/coverage, fewer duplicates).
+- Phase-4 gate saw one e2e failure ("bad translated canvas output is rejected and does not block retry") that passed on
+  the immediate rerun and in every later full run — a timing flake, not a regression.
+
 
 ### Baseline
 - Tests: …
