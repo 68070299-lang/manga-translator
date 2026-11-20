@@ -42,7 +42,11 @@ from manga_backend.pipeline.masks import (
 from manga_backend.pipeline import orchestrator as orchestrator_module
 from manga_backend.pipeline.ocr import GOOGLE_OCR_CONCURRENCY, google_ocr
 from manga_backend.pipeline.orchestrator import erase_candidate, erase_from_translation
-from manga_backend.pipeline.fit import fit_text_in_room
+from manga_backend.pipeline.fit import (
+    MIN_READABLE_FONT_SIZE,
+    MIN_WHOLE_WORD_FONT_SIZE,
+    fit_text_in_room,
+)
 from manga_backend.pipeline.rendering import build_rooms, render_text
 from manga_backend.pipeline.rooms import box_room
 from manga_backend.pipeline.text import has_cjk, has_cjk_letters
@@ -1356,6 +1360,37 @@ class PipelineRenderTests(unittest.TestCase):
                 self.assertGreaterEqual(fit.size, 10)
                 self.assertFalse(fit.hyphenated)
                 self.assertEqual(" ".join(fit.lines), text)
+
+    def test_fit_keeps_a_short_word_whole_below_the_readable_size(self):
+        from manga_backend.pipeline import fonts as fonts_module
+
+        TranslationPipeline(device="cpu")
+        font_path = fonts_module.get_cached_font("english")
+
+        # A narrow lobe of a cloud balloon: whole, the word only fits under
+        # the readable size, and cut anywhere it became "T-/h-/a-/t." at 16.
+        for text in ("That.", "Whoa!", "Come.", "*Pant, pant*"):
+            with self.subTest(text=text):
+                fit = fit_text_in_room(
+                    box_room(TextBlock([0, 0, 40, 140])),
+                    text,
+                    font_path,
+                    target=16,
+                    base_stroke_width=2,
+                )
+                self.assertFalse(fit.overflow)
+                self.assertFalse(fit.hyphenated)
+                self.assertEqual(" ".join(fit.lines), text)
+                self.assertGreaterEqual(fit.size, MIN_WHOLE_WORD_FONT_SIZE)
+                self.assertLess(fit.size, MIN_READABLE_FONT_SIZE)
+
+        # Too narrow to set it whole at a legible size: cut, not unreadable.
+        fit = fit_text_in_room(
+            box_room(TextBlock([0, 0, 24, 140])), "That.", font_path, target=16, base_stroke_width=2
+        )
+        self.assertFalse(fit.overflow)
+        self.assertTrue(fit.hyphenated)
+        self.assertGreaterEqual(fit.size, MIN_WHOLE_WORD_FONT_SIZE)
 
     def test_fit_scales_the_stroke_and_preserves_words(self):
         from manga_backend.pipeline import fonts as fonts_module

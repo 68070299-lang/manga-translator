@@ -256,6 +256,25 @@ class LineBreakTests(unittest.TestCase):
                 )
                 self.assertIsNone(broken)
 
+    def test_short_words_can_stay_whole_without_strict_hyphenation(self):
+        for word in ("Whoa!", "That.", "Come."):
+            with self.subTest(word=word):
+                cut = break_lines([word], [3.0, 3.0], self.measure)
+                self.assertIsNotNone(cut)
+                assert cut is not None
+                self.assertEqual(cut.hyphenated, [False, True])
+                kept = break_lines([word], [3.0, 3.0], self.measure, keep_short_words=True)
+                self.assertIsNone(kept)
+        # A word long enough to hyphenate is still cut wherever it must be.
+        broken = break_lines(
+            ["abcdefghijkl"],
+            [5.0, 5.0, 5.0],
+            self.measure,
+            joiner=lambda parts: "".join(parts),
+            keep_short_words=True,
+        )
+        self.assertIsNotNone(broken)
+
     def test_strict_hyphenation_uses_a_proper_break(self):
         self.assertEqual(split_at_proper_breaks("Hurry", 4.0, self.measure), ["Hur", "ry"])
         self.assertEqual(split_at_proper_breaks("listen", 4.0, self.measure), ["lis", "ten"])

@@ -169,6 +169,7 @@ def break_lines(
     mode: str = "even",
     max_hyphen_run: int = 2,
     strict_hyphenation: bool = False,
+    keep_short_words: bool = False,
 ) -> BrokenLines | None:
     """Return the cheapest feasible breaking of ``units`` over the bands.
 
@@ -178,7 +179,10 @@ def break_lines(
 
     With ``strict_hyphenation`` an oversized word is only split at proper
     hyphenation points (``split_at_proper_breaks``); a word that has none
-    makes the layout infeasible instead of being cut anywhere.
+    makes the layout infeasible instead of being cut anywhere. Without it,
+    an oversized word is cut anywhere, unless ``keep_short_words`` keeps a
+    word too short to hyphenate at all ("That.", "Whoa!") whole, which makes
+    the layout infeasible instead.
     """
     if not units:
         return None
@@ -208,6 +212,8 @@ def break_lines(
             if proper is None:
                 return None
             parts = proper
+        elif keep_short_words and _letters(unit) < MIN_HYPHEN_WORD_LETTERS:
+            return None
         else:
             parts = split_oversized_unit(unit, widest, measure)
         word_parts.append(len(parts))

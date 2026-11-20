@@ -37,6 +37,9 @@ MAX_LINES = 12
 # Below this size the harness counts a region as unreadable; the fitter tries
 # tighter leading before it lets a region fall under it.
 MIN_READABLE_FONT_SIZE = 10
+# A word too short to hyphenate properly ("That.", "Whoa!") is set whole down
+# to this size before the fitter's last pass may cut it anywhere ("T-h-a-t.").
+MIN_WHOLE_WORD_FONT_SIZE = 8
 # Leading multipliers tried, in order, when the room cannot hold the text at
 # the requested line spacing: cramped rooms get tighter leading, not smaller
 # type.
@@ -173,6 +176,7 @@ def _fit_at_size(
     mode: str,
     *,
     strict_hyphenation: bool = False,
+    keep_short_words: bool = False,
 ) -> FitResult | None:
     """Best line count for one size, or None when the size cannot be set."""
     stroke = min(base_stroke, max(0, int(round(size * 0.15))))
@@ -204,6 +208,7 @@ def _fit_at_size(
             joiner=joiner,
             mode=mode,
             strict_hyphenation=strict_hyphenation,
+            keep_short_words=keep_short_words,
         )
         if broken is None:
             # The consecutive-hyphen cap is a typographic preference; when it
@@ -217,6 +222,7 @@ def _fit_at_size(
                 mode=mode,
                 max_hyphen_run=MAX_LINES,
                 strict_hyphenation=strict_hyphenation,
+                keep_short_words=keep_short_words,
             )
         if broken is None:
             continue
@@ -374,11 +380,16 @@ def fit_text_in_room(
         return FitResult(target, [], [], [], target, 0, False, False, mode, kind)
 
     result: FitResult | None = None
-    # First pass: words are only hyphenated at proper points ("Hur-ry"), so
-    # short words like "Ah!" or "Whoa!" shrink whole instead of splitting
-    # into "A-h!" / "Wh-oa!". Only when no readable size can be set that way
-    # does the second pass cut words wherever they have to be cut.
-    for strict_hyphenation in (True, False):
+    whole: FitResult | None = None
+    # First pass: words are only hyphenated at proper points ("Hur-ry").
+    # Only when no readable size can be set that way does the second pass
+    # cut longer words wherever they have to be cut. Words too short to
+    # hyphenate ("Ah!", "Whoa!", "That.") stay whole in both and shrink, down
+    # to MIN_WHOLE_WORD_FONT_SIZE, since "Th-at." reads as a typo; only a room
+    # too narrow even for that lets the last pass cut them too.
+    for strict_hyphenation, keep_short_words in ((True, True), (False, True), (False, False)):
+        if not keep_short_words and whole is not None and whole.size >= MIN_WHOLE_WORD_FONT_SIZE:
+            return whole
         for factor in LEADING_FACTORS:
             spacing = max(1.0, line_spacing * factor)
             candidate = _search_size(
@@ -394,9 +405,13 @@ def fit_text_in_room(
                 fixed_size,
                 kind,
                 strict_hyphenation=strict_hyphenation,
+                keep_short_words=keep_short_words,
             )
-            if not candidate.overflow and candidate.size >= MIN_READABLE_FONT_SIZE:
-                return candidate
+            if not candidate.overflow:
+                if candidate.size >= MIN_READABLE_FONT_SIZE:
+                    return candidate
+                if keep_short_words and (whole is None or candidate.size > whole.size):
+                    whole = candidate
             result = candidate
     assert result is not None
     return result
@@ -416,6 +431,7 @@ def _search_size(
     kind: str,
     *,
     strict_hyphenation: bool = False,
+    keep_short_words: bool = False,
 ) -> FitResult:
     """Coarse-then-bisect downward search for the largest size that fits."""
     feasible: FitResult | None = None
@@ -432,6 +448,7 @@ def _search_size(
             base_stroke_width,
             mode,
             strict_hyphenation=strict_hyphenation,
+            keep_short_words=keep_short_words,
         )
         if result is not None:
             feasible = result
@@ -452,6 +469,7 @@ def _search_size(
             base_stroke_width,
             mode,
             strict_hyphenation=strict_hyphenation,
+            keep_short_words=keep_short_words,
         )
         if result is None:
             band = Band(
@@ -490,6 +508,7 @@ def _search_size(
             base_stroke_width,
             mode,
             strict_hyphenation=strict_hyphenation,
+            keep_short_words=keep_short_words,
         )
         if candidate is not None:
             feasible = candidate
